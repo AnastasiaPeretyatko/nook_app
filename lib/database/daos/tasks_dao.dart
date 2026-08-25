@@ -33,6 +33,14 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
   Future<int> updateTaskById(int id, TasksCompanion task) =>
       (update(tasks)..where((t) => t.id.equals(id))).write(task);
 
+  /// Moves a task in or out of the archive. Only the status is written, so the
+  /// logs, sessions and subtasks of an archived habit all survive to be
+  /// restored — unlike [deleteTaskCascade], which is the destructive one.
+  Future<int> setTaskStatus(int id, TaskStatus status) => updateTaskById(
+    id,
+    TasksCompanion(status: Value(status), updatedAt: Value(DateTime.now())),
+  );
+
   Future<int> deleteTask(int id) =>
       (delete(tasks)..where((t) => t.id.equals(id))).go();
 
@@ -83,7 +91,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
           trackingMode: Value(subtask.trackingMode),
           targetDurationMinutes: Value(subtask.targetDurationMinutes),
           targetValue: Value(subtask.targetValue),
-          iconCodePoint: Value(subtask.iconCodePoint),
+          iconKey: Value(subtask.iconKey),
           colorValue: Value(subtask.colorValue),
           scheduledTimeMinutes: Value(subtask.scheduledTimeMinutes),
           endTimeMinutes: Value(subtask.endTimeMinutes),

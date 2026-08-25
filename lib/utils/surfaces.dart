@@ -7,6 +7,28 @@ import 'package:flutter/material.dart';
 /// they were; the dark ones come from the neutral surface ladder pinned in
 /// `buildAppTheme`, lightest surface = most raised.
 
+/// The tone every label and placeholder is written in — a field's hint, a
+/// section caption, anything naming a control rather than holding its content.
+///
+/// One fixed value in both themes, unlike the surfaces around it: it is light
+/// enough to stay legible on the dark ladder and grey enough to sit back on a
+/// light page, which is the whole job of a label.
+const Color labelInk = Color(0xFF999AB3);
+
+/// A wash of the app accent over [pageSurface] — what the diary paints its
+/// tool strips and its empty cover slot with.
+///
+/// Fainter than the palette's light row, which is meant for a small tinted
+/// badge; over an area this size that tone becomes the loudest thing on a page
+/// that is otherwise text. Heavier in the dark theme, where 7% over near-black
+/// is nothing at all.
+Color accentWash(ThemeData theme) => Color.alphaBlend(
+  theme.colorScheme.primary.withValues(
+    alpha: theme.brightness == Brightness.light ? 0.07 : 0.16,
+  ),
+  pageSurface(theme),
+);
+
 /// The page behind a form's cards.
 Color pageSurface(ThemeData theme) => theme.brightness == Brightness.light
     ? const Color(0xFFF3F3F3)

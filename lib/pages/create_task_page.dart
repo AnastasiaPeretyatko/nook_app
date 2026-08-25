@@ -9,8 +9,12 @@ import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/utils/recurrence.dart';
 import 'package:todo_app/utils/surfaces.dart';
+import 'package:todo_app/utils/task_colors.dart';
 import 'package:todo_app/widgets/color_picker_row.dart';
+import 'package:todo_app/widgets/form_header.dart';
 import 'package:todo_app/widgets/icon_picker_sheet.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
+import '../utils/task_icons.dart';
 
 /// How [CreateTaskPage] behaves: creating a brand new task, editing an
 /// existing one, or duplicating one into a new task.
@@ -94,7 +98,8 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
   /// True until the existing subtasks have been read. Saving before that would
   /// drop a duplicate's subtasks, so the save button waits.
   bool _loadingSubtasks = false;
-  IconData? _selectedIcon;
+  /// Key of the chosen task icon — see `taskIcons`.
+  String? _selectedIconKey;
   Color? _selectedColor;
   int _startMinutes = 0;
   int? _durationMinutes;
@@ -157,10 +162,7 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
       if (_trackingMode == TrackingMode.counter) {
         _targetValue = _counterTargetOf(_targetValue);
       }
-      _selectedIcon = source.iconCodePoint != null
-          // ignore: non_const_argument_for_const_parameter
-          ? IconData(source.iconCodePoint!, fontFamily: 'MaterialIcons')
-          : null;
+      _selectedIconKey = source.iconKey;
       _selectedColor = source.colorValue != null
           ? Color(source.colorValue!)
           : null;
@@ -242,12 +244,6 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
     TaskFormMode.clone => 'Дублирование',
   };
 
-  String get _actionLabel => switch (widget.mode) {
-    TaskFormMode.create => 'Создать задачу',
-    TaskFormMode.edit => 'Сохранить',
-    TaskFormMode.clone => 'Дублировать',
-  };
-
   @override
   void dispose() {
     _titleController.dispose();
@@ -316,7 +312,7 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
           repeatDaysMask: Value(repeatDaysMask),
           targetDurationMinutes: Value(targetDuration),
           targetValue: Value(targetValue),
-          iconCodePoint: Value(_selectedIcon?.codePoint),
+          iconKey: Value(_selectedIconKey),
           colorValue: Value(_selectedColor?.toARGB32()),
           scheduledTimeMinutes: Value(_timeEnabled ? startMin : null),
           endTimeMinutes: Value(endMin),
@@ -347,8 +343,8 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
         targetValue: targetValue != null
             ? Value(targetValue)
             : const Value.absent(),
-        iconCodePoint: _selectedIcon != null
-            ? Value(_selectedIcon!.codePoint)
+        iconKey: _selectedIconKey != null
+            ? Value(_selectedIconKey!)
             : const Value.absent(),
         colorValue: _selectedColor != null
             ? Value(_selectedColor!.toARGB32())
@@ -414,31 +410,32 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
       body: SafeArea(
         child: Column(
           children: [
-            _Header(
+            FormHeader(
               title: _screenTitle,
-              onClose: () => Navigator.of(context).pop(),
+              onCancel: () => Navigator.of(context).pop(),
+              onSave: _save,
+              isBusy: _isSaving || _loadingSubtasks,
             ),
             Expanded(
               child: Form(
                 key: _formKey,
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                   children: [
                     _AppearanceCard(
-                      selectedIcon: _selectedIcon,
+                      selectedIconKey: _selectedIconKey,
                       selectedColor: _selectedColor,
                       onPickIcon: () async {
-                        final icon = await IconPickerSheet.show(
+                        final key = await IconPickerSheet.show(
                           context,
-                          selected: _selectedIcon,
+                          selected: _selectedIconKey,
                         );
-                        if (icon != null) setState(() => _selectedIcon = icon);
+                        if (key != null) {
+                          setState(() => _selectedIconKey = key);
+                        }
                       },
                       onColorChanged: (c) => setState(() => _selectedColor = c),
-                    ),
-                    const SizedBox(height: 12),
-                    _Card(
-                      child: _Field(
+                      titleField: _Field(
                         controller: _titleController,
                         label: 'Название',
                         hint: 'Что нужно сделать?',
@@ -481,13 +478,13 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    _SectionLabel('Когда?'),
+                    _SectionLabel('Дата и время'),
                     const SizedBox(height: 8),
                     _Card(
                       child: Column(
                         children: [
                           _ToggleRow(
-                            icon: Icons.schedule,
+                            icon: LucideIcons.clock,
                             label: 'Указать время',
                             value: _timeEnabled,
                             onChanged: (v) => setState(() => _timeEnabled = v),
@@ -506,7 +503,7 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
                           ],
                           const _Divider(),
                           _ToggleRow(
-                            icon: Icons.calendar_today_outlined,
+                            icon: LucideIcons.calendar,
                             label: 'Указать дату',
                             value: _dateEnabled,
                             onChanged: (v) => setState(() => _dateEnabled = v),
@@ -598,7 +595,7 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
                       child: Column(
                         children: [
                           _ToggleRow(
-                            icon: Icons.repeat,
+                            icon: LucideIcons.repeat,
                             label: 'Повторение',
                             value: _repeatEnabled,
                             onChanged: (v) =>
@@ -653,12 +650,6 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
             ),
           ],
         ),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      floatingActionButton: _SaveButton(
-        label: _actionLabel,
-        isSaving: _isSaving || _loadingSubtasks,
-        onPressed: _save,
       ),
     );
   }
@@ -862,39 +853,6 @@ String _weekdayNames(Set<int> weekdays) {
 
 // ── Sub-widgets ───────────────────────────────────────────────────────────────
 
-class _Header extends StatelessWidget {
-  const _Header({required this.title, required this.onClose});
-  final String title;
-  final VoidCallback onClose;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 8, 8),
-      child: Row(
-        children: [
-          Text(
-            title,
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const Spacer(),
-          IconButton(
-            onPressed: onClose,
-            icon: const Icon(Icons.close),
-            style: IconButton.styleFrom(
-              backgroundColor: raisedSurface(theme),
-              shape: const CircleBorder(),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _Card extends StatelessWidget {
   const _Card({required this.child});
   final Widget child;
@@ -1015,7 +973,7 @@ class _AddSubtaskButton extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.add, size: 16, color: theme.colorScheme.primary),
+              Icon(LucideIcons.plus, size: 16, color: theme.colorScheme.primary),
               const SizedBox(width: 4),
               Text(
                 'Добавить подзадачу',
@@ -1075,9 +1033,9 @@ class _SubtaskRow extends StatelessWidget {
                 ),
                 child: draft.done
                     ? Icon(
-                        Icons.check,
+                        LucideIcons.check,
                         size: 14,
-                        color: theme.colorScheme.onPrimary,
+                        color: onBrandFill(theme.colorScheme.primary),
                       )
                     : null,
               ),
@@ -1106,7 +1064,7 @@ class _SubtaskRow extends StatelessWidget {
           ),
           IconButton(
             onPressed: onRemove,
-            icon: const Icon(Icons.close, size: 16),
+            icon: const Icon(LucideIcons.x, size: 16),
             color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.75),
             visualDensity: VisualDensity.compact,
             tooltip: 'Убрать подзадачу',
@@ -1158,11 +1116,9 @@ class _ToggleRow extends StatelessWidget {
               style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurface),
             ),
           ),
-          Switch.adaptive(
-            value: value,
-            onChanged: onChanged,
-            activeThumbColor: theme.colorScheme.primary,
-          ),
+          // Colours come from `switchTheme` in `buildAppTheme`, so this row and
+          // the switch in the settings screen look the same.
+          Switch(value: value, onChanged: onChanged),
         ],
       ),
     );
@@ -1286,7 +1242,7 @@ class _DurationSelector extends StatelessWidget {
       onSelected: (_) => onChanged(minutes),
       selectedColor: theme.colorScheme.primary,
       labelStyle: theme.textTheme.labelMedium?.copyWith(
-        color: selected ? theme.colorScheme.onPrimary : theme.colorScheme.onSurfaceVariant,
+        color: selected ? onBrandFill(theme.colorScheme.primary) : theme.colorScheme.onSurfaceVariant,
         fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
       ),
       backgroundColor: insetSurface(theme),
@@ -1375,6 +1331,7 @@ class _CustomDurationSheetState extends State<_CustomDurationSheet> {
                 onPressed: () => Navigator.of(context).pop(total),
                 style: FilledButton.styleFrom(
                   backgroundColor: theme.colorScheme.primary,
+                  foregroundColor: onBrandFill(theme.colorScheme.primary),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
@@ -1503,6 +1460,7 @@ class _TargetValueSheetState extends State<_TargetValueSheet> {
                 onPressed: () => Navigator.of(context).pop(_parsed),
                 style: FilledButton.styleFrom(
                   backgroundColor: theme.colorScheme.primary,
+                  foregroundColor: onBrandFill(theme.colorScheme.primary),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
@@ -1564,7 +1522,7 @@ class _Stepper extends StatelessWidget {
                 onPressed: value > 0
                     ? () => onChanged((value - step).clamp(0, max))
                     : null,
-                icon: const Icon(Icons.remove),
+                icon: const Icon(LucideIcons.minus),
                 visualDensity: VisualDensity.compact,
               ),
               Text(
@@ -1577,7 +1535,7 @@ class _Stepper extends StatelessWidget {
                 onPressed: value < max
                     ? () => onChanged((value + step).clamp(0, max))
                     : null,
-                icon: const Icon(Icons.add),
+                icon: const Icon(LucideIcons.plus),
                 visualDensity: VisualDensity.compact,
               ),
             ],
@@ -1594,10 +1552,10 @@ class _ModeSelector extends StatelessWidget {
   final ValueChanged<TrackingMode> onChanged;
 
   static const _modes = [
-    (TrackingMode.checkbox, Icons.check_circle_outline, 'Чекбокс'),
-    (TrackingMode.counter, Icons.add_circle_outline, 'Счётчик'),
-    (TrackingMode.timer, Icons.timer_outlined, 'Таймер'),
-    (TrackingMode.value, Icons.tune, 'Значение'),
+    (TrackingMode.checkbox, LucideIcons.circle_check, 'Чекбокс'),
+    (TrackingMode.counter, LucideIcons.circle_plus, 'Счётчик'),
+    (TrackingMode.timer, LucideIcons.timer, 'Таймер'),
+    (TrackingMode.value, LucideIcons.sliders_horizontal, 'Значение'),
   ];
 
   /// Modes the form will not let the user pick.
@@ -1626,9 +1584,13 @@ class _ModeSelector extends StatelessWidget {
           final Color iconColor;
           final Color labelColor;
           if (selected) {
+            // A selected tile is painted with the accent — a brand fill, so its
+            // icon and label take the brand ink instead of the scheme's
+            // luminance-flipped onPrimary. Every accent-filled control on this
+            // form does the same.
             background = theme.colorScheme.primary;
-            iconColor = theme.colorScheme.onPrimary;
-            labelColor = theme.colorScheme.onPrimary;
+            iconColor = onBrandFill(background);
+            labelColor = onBrandFill(background);
           } else if (blocked) {
             background = disabledInsetSurface(theme);
             iconColor = theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.55);
@@ -1682,10 +1644,10 @@ class _RepeatTypeSelector extends StatelessWidget {
   final ValueChanged<RepeatType> onChanged;
 
   static const _types = [
-    (RepeatType.daily, Icons.today_outlined, 'Ежедневно'),
-    (RepeatType.weekly, Icons.date_range_outlined, 'Еженедельно'),
-    (RepeatType.monthly, Icons.calendar_month_outlined, 'Ежемесячно'),
-    (RepeatType.custom, Icons.tune, 'Другое'),
+    (RepeatType.daily, LucideIcons.calendar_check, 'Ежедневно'),
+    (RepeatType.weekly, LucideIcons.calendar_range, 'Еженедельно'),
+    (RepeatType.monthly, LucideIcons.calendar_days, 'Ежемесячно'),
+    (RepeatType.custom, LucideIcons.sliders_horizontal, 'Другое'),
   ];
 
   @override
@@ -1724,14 +1686,14 @@ class _RepeatTypeSelector extends StatelessWidget {
               Icon(
                 icon,
                 size: 22,
-                color: selected ? theme.colorScheme.onPrimary : theme.colorScheme.onSurfaceVariant,
+                color: selected ? onBrandFill(theme.colorScheme.primary) : theme.colorScheme.onSurfaceVariant,
               ),
               const SizedBox(height: 4),
               Text(
                 label,
                 style: theme.textTheme.labelSmall?.copyWith(
                   color: selected
-                      ? theme.colorScheme.onPrimary
+                      ? onBrandFill(theme.colorScheme.primary)
                       : theme.colorScheme.onSurfaceVariant,
                   fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
                 ),
@@ -1787,7 +1749,7 @@ class _WeekdayPicker extends StatelessWidget {
           _weekdayShortNames[weekday - 1],
           style: theme.textTheme.labelMedium?.copyWith(
             color: isSelected
-                ? theme.colorScheme.onPrimary
+                ? onBrandFill(theme.colorScheme.primary)
                 : (isWeekend ? theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.55) : theme.colorScheme.onSurfaceVariant),
             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
           ),
@@ -1855,7 +1817,7 @@ class _MonthDayPicker extends StatelessWidget {
           child: Text(
             '$day',
             style: theme.textTheme.labelMedium?.copyWith(
-              color: isSelected ? theme.colorScheme.onPrimary : theme.colorScheme.onSurfaceVariant,
+              color: isSelected ? onBrandFill(theme.colorScheme.primary) : theme.colorScheme.onSurfaceVariant,
               fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
             ),
           ),
@@ -1910,7 +1872,7 @@ class _StepperRow extends StatelessWidget {
               children: [
                 IconButton(
                   onPressed: onMinus,
-                  icon: const Icon(Icons.remove, size: 18),
+                  icon: const Icon(LucideIcons.minus, size: 18),
                   visualDensity: VisualDensity.compact,
                 ),
                 GestureDetector(
@@ -1930,7 +1892,7 @@ class _StepperRow extends StatelessWidget {
                 ),
                 IconButton(
                   onPressed: onPlus,
-                  icon: const Icon(Icons.add, size: 18),
+                  icon: const Icon(LucideIcons.plus, size: 18),
                   visualDensity: VisualDensity.compact,
                 ),
               ],
@@ -1954,7 +1916,7 @@ class _RepeatSummary extends StatelessWidget {
       child: Row(
         children: [
           Icon(
-            Icons.event_repeat_outlined,
+            LucideIcons.calendar_sync,
             size: 16,
             color: theme.colorScheme.primary,
           ),
@@ -2088,7 +2050,7 @@ class _TimeWheelItem extends StatelessWidget {
               child: Text(
                 '+1',
                 style: TextStyle(
-                  color: theme.colorScheme.onPrimary,
+                  color: onBrandFill(theme.colorScheme.primary),
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
                 ),
@@ -2110,7 +2072,7 @@ class _TimeWheelItem extends StatelessWidget {
         child: Text.rich(
           TextSpan(children: spans),
           style: theme.textTheme.titleMedium?.copyWith(
-            color: theme.colorScheme.onPrimary,
+            color: onBrandFill(theme.colorScheme.primary),
             fontWeight: FontWeight.w700,
             fontFeatures: const [FontFeature.tabularFigures()],
           ),
@@ -2140,7 +2102,7 @@ class _DateRow extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Icons.calendar_today_outlined,
+              LucideIcons.calendar,
               size: 16,
               color: theme.colorScheme.primary,
             ),
@@ -2161,13 +2123,18 @@ class _DateRow extends StatelessWidget {
 
 class _AppearanceCard extends StatelessWidget {
   const _AppearanceCard({
-    required this.selectedIcon,
+    required this.selectedIconKey,
     required this.selectedColor,
     required this.onPickIcon,
     required this.onColorChanged,
+    required this.titleField,
   });
 
-  final IconData? selectedIcon;
+  /// The task's title input, sat beside the icon square. The two belong on one
+  /// line: the square is what the task looks like, the field is what it is.
+  final Widget titleField;
+
+  final String? selectedIconKey;
   final Color? selectedColor;
   final VoidCallback onPickIcon;
   final ValueChanged<Color> onColorChanged;
@@ -2176,7 +2143,7 @@ class _AppearanceCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final previewColor = selectedColor ?? ColorPickerRow.colors.first;
-    final previewIcon = selectedIcon ?? Icons.star_outline;
+    final previewIcon = taskIconFor(selectedIconKey) ?? LucideIcons.star;
 
     return _Card(
       child: Column(
@@ -2203,86 +2170,15 @@ class _AppearanceCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Иконка и цвет',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    GestureDetector(
-                      onTap: onPickIcon,
-                      child: Text(
-                        selectedIcon != null
-                            ? 'Изменить иконку'
-                            : 'Выбрать иконку',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.primary,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              // The square itself is the way into the icon picker now, so
+              // there is no "choose an icon" line to make room for.
+              Expanded(child: titleField),
             ],
           ),
           const SizedBox(height: 4),
           Divider(height: 1, thickness: 0.5, color: theme.colorScheme.outlineVariant),
           ColorPickerRow(selected: selectedColor, onChanged: onColorChanged),
         ],
-      ),
-    );
-  }
-}
-
-class _SaveButton extends StatelessWidget {
-  const _SaveButton({
-    required this.label,
-    required this.isSaving,
-    required this.onPressed,
-  });
-  final String label;
-  final bool isSaving;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: SizedBox(
-        width: double.infinity,
-        height: 52,
-        child: FilledButton(
-          onPressed: isSaving ? null : onPressed,
-          style: FilledButton.styleFrom(
-            backgroundColor: theme.colorScheme.primary,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-          ),
-          child: isSaving
-              ? SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: theme.colorScheme.onPrimary,
-                  ),
-                )
-              : Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-        ),
       ),
     );
   }

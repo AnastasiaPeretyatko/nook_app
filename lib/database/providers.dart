@@ -15,6 +15,64 @@ final eventsDaoProvider = Provider<EventsDao>((ref) {
   return ref.watch(databaseProvider).eventsDao;
 });
 
+final diaryDaoProvider = Provider<DiaryDao>((ref) {
+  return ref.watch(databaseProvider).diaryDao;
+});
+
+/// Every diary entry, newest touched first. The diary's four tabs filter this
+/// one list rather than opening a query each.
+final diaryEntriesProvider = StreamProvider<List<DiaryEntry>>((ref) {
+  return ref.watch(diaryDaoProvider).watchEntries();
+});
+
+/// One entry. Null after it has been deleted, which is how the view screen
+/// knows to close itself.
+final diaryEntryProvider = StreamProvider.family<DiaryEntry?, int>((ref, id) {
+  return ref.watch(diaryDaoProvider).watchEntry(id);
+});
+
+/// The mood catalogue — every mood there is, oldest first, so the eight the app
+/// seeded keep the order the design lists them in. Watched by the picker, and by
+/// nothing else: a note's own moods come from [entryMoodsProvider].
+final noteMoodsProvider = StreamProvider<List<NoteMood>>((ref) {
+  return ref.watch(diaryDaoProvider).watchMoods();
+});
+
+/// The tag catalogue. Same shape as [noteMoodsProvider].
+final noteTagsProvider = StreamProvider<List<NoteTag>>((ref) {
+  return ref.watch(diaryDaoProvider).watchTags();
+});
+
+/// The moods of one note, live. A family and not a filter over the whole join
+/// table: only the screen showing a note ever asks, and it asks about one.
+final entryMoodsProvider = StreamProvider.family<List<NoteMood>, int>((
+  ref,
+  entryId,
+) {
+  return ref.watch(diaryDaoProvider).watchMoodsForEntry(entryId);
+});
+
+/// Every note's moods and tags in one map each, keyed by note id.
+///
+/// What the diary's list watches: the family providers above are for **one**
+/// note on screen, and a list of cards asking for them would open a query per
+/// card and never close it. These are two queries for any number of notes.
+final moodsByEntryProvider = StreamProvider<Map<int, List<NoteMood>>>((ref) {
+  return ref.watch(diaryDaoProvider).watchMoodsByEntry();
+});
+
+final tagsByEntryProvider = StreamProvider<Map<int, List<NoteTag>>>((ref) {
+  return ref.watch(diaryDaoProvider).watchTagsByEntry();
+});
+
+/// The tags of one note, live.
+final entryTagsProvider = StreamProvider.family<List<NoteTag>, int>((
+  ref,
+  entryId,
+) {
+  return ref.watch(diaryDaoProvider).watchTagsForEntry(entryId);
+});
+
 final rootTasksProvider = StreamProvider<List<Task>>((ref) {
   return ref.watch(tasksDaoProvider).watchRootTasks();
 });

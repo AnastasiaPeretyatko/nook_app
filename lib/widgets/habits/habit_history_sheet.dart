@@ -6,6 +6,7 @@ import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/widgets/color_picker_row.dart';
 import 'package:todo_app/utils/surfaces.dart';
 import 'package:todo_app/utils/task_colors.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
 
 /// Read-only calendar showing the full completion history of a habit.
 Future<void> showHabitHistorySheet(BuildContext context, {required Task task}) {
@@ -60,7 +61,15 @@ class _HabitHistorySheetState extends ConsumerState<HabitHistorySheet> {
       widget.task.createdAt.month,
       widget.task.createdAt.day,
     );
-    final firstDay = created.isBefore(today) ? created : today;
+    // The actions sheet hands out the previous two weeks to tick, whether or
+    // not the habit existed yet, so a tick can land before [created]. Outside
+    // `firstDay` table_calendar draws a *disabled* cell and never calls the day
+    // builder below, which is what made those ticks vanish here — so the
+    // history has to start at the earliest day that actually carries one.
+    var firstDay = created.isBefore(today) ? created : today;
+    for (final day in completedDays) {
+      if (day.isBefore(firstDay)) firstDay = day;
+    }
 
     return SafeArea(
       top: false,
@@ -91,7 +100,7 @@ class _HabitHistorySheetState extends ConsumerState<HabitHistorySheet> {
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: Row(
                   children: [
-                    Icon(Icons.history, size: 20, color: _color),
+                    Icon(LucideIcons.rotate_ccw_clock, size: 20, color: _color),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(

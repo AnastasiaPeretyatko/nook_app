@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:todo_app/utils/task_colors.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
 
 class AppNavItem {
   const AppNavItem({required this.icon, required this.label});
@@ -144,10 +146,6 @@ class _CenterButton extends StatelessWidget {
       decoration: BoxDecoration(
         color: color,
         shape: BoxShape.circle,
-        border: Border.all(
-          color: Theme.of(context).scaffoldBackgroundColor,
-          width: 4,
-        ),
         boxShadow: [
           BoxShadow(
             color: color.withValues(alpha: 0.35),
@@ -162,11 +160,9 @@ class _CenterButton extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
-          child: Icon(
-            Icons.add,
-            color: Theme.of(context).colorScheme.onPrimary,
-            size: 30,
-          ),
+          // The button is a solid accent disc — a brand fill, so its glyph is
+          // the brand ink rather than the scheme's luminance-flipped onPrimary.
+          child: Icon(LucideIcons.plus, color: onBrandFill(color), size: 30),
         ),
       ),
     );

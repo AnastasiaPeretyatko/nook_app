@@ -11,7 +11,21 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  static const _dragThreshold = 36.0;
+  /// Steps the handle walks through, shortest calendar first. The middle step is
+  /// what keeps a drag from flipping the whole month open in one jump.
+  static const _formatStages = [
+    CalendarFormat.week,
+    CalendarFormat.twoWeeks,
+    CalendarFormat.month,
+  ];
+
+  /// Finger travel each step costs, roughly the height of the rows it adds (one
+  /// more week, then the rest of the month), so the calendar grows at about the
+  /// speed of the thumb instead of waiting for one fixed threshold.
+  static const _stageDrag = <double>[52, 140];
+
+  /// A flick opens or closes the calendar all the way, whatever the distance.
+  static const _flingVelocity = 400.0;
 
   DateTime _focusedDay = DateTime.now();
   DateTime _selectedDay = DateTime.now();
@@ -38,23 +52,42 @@ class _HomePageState extends State<HomePage> {
   void _onHandleDragUpdate(DragUpdateDetails details) {
     _handleDragDelta += details.delta.dy;
 
-    if (_handleDragDelta > _dragThreshold) {
-      _handleDragDelta = 0;
-      _setCalendarFormat(CalendarFormat.month);
-    } else if (_handleDragDelta < -_dragThreshold) {
-      _handleDragDelta = 0;
-      _setCalendarFormat(CalendarFormat.week);
+    // Walk as many steps as the finger has actually covered and keep the
+    // remainder: a long drag opens the calendar within one gesture, and turning
+    // back mid-drag closes it again without first re-paying the travel spent.
+    var stage = _formatStages.indexOf(_calendarFormat);
+    final startStage = stage;
+    while (true) {
+      if (stage < _stageDrag.length && _handleDragDelta >= _stageDrag[stage]) {
+        _handleDragDelta -= _stageDrag[stage];
+        stage++;
+      } else if (stage > 0 && -_handleDragDelta >= _stageDrag[stage - 1]) {
+        _handleDragDelta += _stageDrag[stage - 1];
+        stage--;
+      } else {
+        break;
+      }
     }
+
+    // Nothing left to open (or to close) in that direction, so drop the travel
+    // rather than banking it — otherwise the way back starts with dead pixels.
+    if (stage == _formatStages.length - 1 && _handleDragDelta > 0) {
+      _handleDragDelta = 0;
+    } else if (stage == 0 && _handleDragDelta < 0) {
+      _handleDragDelta = 0;
+    }
+
+    if (stage != startStage) _setCalendarFormat(_formatStages[stage]);
   }
 
   void _onHandleDragEnd(DragEndDetails details) {
     _handleDragDelta = 0;
 
     final velocity = details.primaryVelocity ?? 0;
-    if (velocity > 400) {
-      _setCalendarFormat(CalendarFormat.month);
-    } else if (velocity < -400) {
-      _setCalendarFormat(CalendarFormat.week);
+    if (velocity > _flingVelocity) {
+      _setCalendarFormat(_formatStages.last);
+    } else if (velocity < -_flingVelocity) {
+      _setCalendarFormat(_formatStages.first);
     }
   }
 

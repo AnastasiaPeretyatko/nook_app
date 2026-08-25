@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:todo_app/settings/theme_provider.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
 
 class AppearancePage extends ConsumerWidget {
   const AppearancePage({super.key});
@@ -31,7 +32,7 @@ class AppearancePage extends ConsumerWidget {
               children: [
                 Expanded(
                   child: _ThemeOption(
-                    icon: Icons.brightness_5_outlined,
+                    icon: LucideIcons.sun,
                     label: 'Светлая',
                     selected: themeMode == ThemeMode.light,
                     onTap: () => notifier.setThemeMode(ThemeMode.light),
@@ -40,7 +41,7 @@ class AppearancePage extends ConsumerWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: _ThemeOption(
-                    icon: Icons.brightness_2_outlined,
+                    icon: LucideIcons.moon,
                     label: 'Тёмная',
                     selected: themeMode == ThemeMode.dark,
                     onTap: () => notifier.setThemeMode(ThemeMode.dark),
@@ -49,7 +50,7 @@ class AppearancePage extends ConsumerWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: _ThemeOption(
-                    icon: Icons.brightness_auto_outlined,
+                    icon: LucideIcons.sun_moon,
                     label: 'Системная',
                     selected: themeMode == ThemeMode.system,
                     onTap: () => notifier.setThemeMode(ThemeMode.system),

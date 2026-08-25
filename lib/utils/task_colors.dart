@@ -73,3 +73,24 @@ Color inkOn(Color surface, Color color, {double minContrast = 4.5}) {
   }
   return hsl.toColor();
 }
+
+/// Above this luminance a fill is so close to white that [brandInk] would leave
+/// nothing on it at all. Only one fill in the app ever reaches it: the graphite
+/// accent, which `buildAppTheme` redraws as white for the dark theme.
+const double _brandFillCeiling = 0.75;
+
+/// The single ink the app writes on a **brand fill** — a surface painted with
+/// the app accent or with a task's own colour: the selected habits tab, the "+"
+/// button, a filled button's label, a habit card, a timeline marker or pill, the
+/// ring and tick on the selected colour swatch.
+///
+/// Deliberately a fixed white. Those surfaces belong to the colour the user
+/// picked, and the design wants one recognisable white on top of every one of
+/// them instead of a per-colour flip to black. A *neutral* surface is not a
+/// brand fill — it keeps [onTaskColor] and the theme's own text colours.
+const Color brandInk = Color(0xFFFFFFFF);
+
+/// [brandInk] on [fill], stepping aside only when the fill is white itself and
+/// white ink would be invisible rather than merely low-contrast.
+Color onBrandFill(Color fill) =>
+    fill.computeLuminance() > _brandFillCeiling ? onTaskColor(fill) : brandInk;

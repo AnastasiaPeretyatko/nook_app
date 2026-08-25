@@ -6,6 +6,7 @@ import 'package:todo_app/settings/app_version.dart';
 import 'package:todo_app/settings/notification_settings.dart';
 import 'package:todo_app/utils/surfaces.dart';
 import 'package:todo_app/utils/task_colors.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -72,17 +73,17 @@ class _SettingsPageState extends ConsumerState<SettingsPage>
             const SizedBox(height: 24),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.palette_outlined),
+              leading: const Icon(LucideIcons.palette),
               title: const Text('Внешний вид'),
               subtitle: const Text('Тема оформления'),
-              trailing: const Icon(Icons.chevron_right),
+              trailing: const Icon(LucideIcons.chevron_right),
               onTap: () => Navigator.of(
                 context,
               ).push(MaterialPageRoute(builder: (_) => const AppearancePage())),
             ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              secondary: const Icon(Icons.notifications_outlined),
+              secondary: const Icon(LucideIcons.bell),
               title: const Text('Уведомления задач'),
               subtitle: const Text('Напоминать в назначенное задаче время'),
               value: remindersEnabled,
@@ -137,7 +138,7 @@ class _PermissionWarning extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.notifications_off_outlined, size: 20, color: warning),
+          Icon(LucideIcons.bell_off, size: 20, color: warning),
           const SizedBox(width: 12),
           Expanded(
             child: Column(

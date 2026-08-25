@@ -6,6 +6,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/widgets/home/task_timeline.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
 
 final _now = DateTime.now();
 final _today = DateTime(_now.year, _now.month, _now.day);
@@ -16,7 +17,7 @@ Task _task({
   required int id,
   required String title,
   int? scheduledTimeMinutes,
-  int? iconCodePoint,
+  String? iconKey,
   TaskStatus status = TaskStatus.active,
   DateTime? startDate,
   int? parentId,
@@ -27,7 +28,7 @@ Task _task({
   status: status,
   trackingMode: TrackingMode.checkbox,
   scheduledTimeMinutes: scheduledTimeMinutes,
-  iconCodePoint: iconCodePoint,
+  iconKey: iconKey,
   colorValue: 0xFFFFC1CC, // == _taskColor
   startDate: startDate ?? _today,
   createdAt: _today,
@@ -290,7 +291,7 @@ void main() {
 
     final title = tester.widget<Text>(find.text('Сделано'));
     expect(title.style?.decoration, TextDecoration.lineThrough);
-    expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+    expect(find.byIcon(LucideIcons.check), findsOneWidget);
   });
 
   testWidgets('many tasks scroll sideways instead of overflowing', (

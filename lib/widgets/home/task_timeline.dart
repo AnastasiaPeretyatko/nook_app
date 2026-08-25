@@ -11,6 +11,8 @@ import 'package:todo_app/widgets/habits/task_actions_sheet.dart';
 import 'package:todo_app/widgets/subtask_progress.dart';
 import 'package:todo_app/utils/task_colors.dart';
 import 'package:todo_app/utils/task_palette.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
+import '../../utils/task_icons.dart';
 
 /// Vertical, time-proportional timeline of the tasks scheduled for [selectedDay].
 ///
@@ -34,6 +36,11 @@ class TaskTimeline extends ConsumerStatefulWidget {
   static const double pillWidth = 48;
   static const double pillMinHeight = 62;
   static const int solidGapMaxMinutes = 120;
+
+  /// Horizontal margin of the whole timeline — the rows and the untimed strip
+  /// share it, so the strip's circles stay aligned with the markers below them.
+  /// Deliberately small: the timeline reads better run out to the screen edges.
+  static const double contentPad = 4;
   /// The vertical line the rows hang on. Theme-driven: the timeline sits on a
   /// sheet, so it has to read on both a white and a near-black surface.
   static Color lineColorOf(BuildContext context) =>
@@ -249,7 +256,12 @@ class _TaskTimelineState extends ConsumerState<TaskTimeline> {
             Expanded(
               child: ListView(
                 controller: scrollController,
-                padding: EdgeInsets.fromLTRB(12, 8, 12, bottomInset + 24),
+                padding: EdgeInsets.fromLTRB(
+                  TaskTimeline.contentPad,
+                  8,
+                  TaskTimeline.contentPad,
+                  bottomInset + 24,
+                ),
                 children: items,
               ),
             ),
@@ -304,10 +316,8 @@ Color _taskColor(Task task) => task.colorValue != null
     ? Color(task.colorValue!)
     : ColorPickerRow.colors.first;
 
-IconData _taskIcon(Task task) => task.iconCodePoint != null
-    // ignore: non_const_argument_for_const_parameter
-    ? IconData(task.iconCodePoint!, fontFamily: 'MaterialIcons')
-    : Icons.check_circle_outline;
+IconData _taskIcon(Task task) =>
+    taskIconFor(task.iconKey) ?? LucideIcons.circle_check;
 
 /// Horizontal strip of the day's tasks that have no time of their own: a circle
 /// in the task's own colour with its icon, and the title underneath. Scrolls
@@ -329,12 +339,16 @@ class _UntimedStrip extends StatelessWidget {
   /// Clear space between two slots, so neighbouring titles cannot touch.
   static const double slotGap = 16;
 
-  /// Horizontal margin the timeline uses for its own rows.
-  static const double contentPad = 12;
+  /// Margin the strip keeps from both edges of the sheet. Wider than the
+  /// timeline's own [TaskTimeline.contentPad] on purpose, and *not* reduced by
+  /// the slack a slot puts around its circle: a title uses the whole slot
+  /// width, so lining the first circle up with the rows below would leave the
+  /// titles pressed against the walls.
+  static const double sideMargin = 12;
 
-  /// A slot centres its circle, which would push the first one inwards. Padding
-  /// the strip by that much less lines the circle up with [contentPad] again.
-  static const double leadingPad = contentPad - (slotWidth - circleSize) / 2;
+  /// Clear space above the strip, so the first row of circles is not pressed
+  /// against the sheet's drag handle.
+  static const double topGap = 14;
 
   /// Clear space below the strip, so the titles do not sit on top of the first
   /// timeline row. The list adds its own 8 of top padding underneath this.
@@ -343,11 +357,11 @@ class _UntimedStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(top: 4, bottom: bottomGap),
+      padding: const EdgeInsets.only(top: topGap, bottom: bottomGap),
       // Vertically unbounded here, so the row sizes itself to a slot's height.
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.only(left: leadingPad, right: contentPad),
+        padding: const EdgeInsets.symmetric(horizontal: sideMargin),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -405,9 +419,9 @@ class _UntimedTask extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
-                  completed ? Icons.check_rounded : _taskIcon(task),
+                  completed ? LucideIcons.check : _taskIcon(task),
                   size: 24,
-                  color: Colors.white,
+                  color: onBrandFill(_taskColor(task)),
                 ),
               ),
               const SizedBox(height: 6),
@@ -418,7 +432,9 @@ class _UntimedTask extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.labelSmall?.copyWith(
                   height: 1.2,
-                  color: theme.colorScheme.onSurfaceVariant,
+                  // The full-strength text colour, same as a timed row's title:
+                  // these are tasks, not captions under an icon.
+                  color: theme.colorScheme.onSurface,
                   decoration: completed ? TextDecoration.lineThrough : null,
                 ),
               ),
@@ -559,11 +575,11 @@ class _TaskRow extends StatelessWidget {
                   height: rowHeight,
                   child: _Marker(
                     color: color,
-                    // White on the accent, but the neutral grey of a task the
-                    // day has not reached yet is asked what fits it.
-                    iconColor: (upcoming && !hasRange)
-                        ? onTaskColor(color)
-                        : Colors.white,
+                    // One glyph colour for every marker, the neutral grey of a
+                    // task the day has not reached yet included: a filled
+                    // marker is read by its shape, and the white keeps the
+                    // column looking like one thing.
+                    iconColor: onBrandFill(color),
                     lightTone: lightTone,
                     icon: icon,
                     hasRange: hasRange,
@@ -602,7 +618,7 @@ class _TaskRow extends StatelessWidget {
                             if (task.repeatType != null) ...[
                               const SizedBox(width: 4),
                               Icon(
-                                Icons.repeat,
+                                LucideIcons.repeat,
                                 size: 12,
                                 color: muted.withValues(alpha: 0.75),
                               ),
@@ -637,7 +653,10 @@ class _TaskRow extends StatelessWidget {
                 ),
                 if (task.trackingMode == TrackingMode.checkbox)
                   Padding(
-                    padding: const EdgeInsets.only(top: 4, left: 4),
+                    // The list's own horizontal padding is only
+                    // [TaskTimeline.contentPad], so the box needs its own room
+                    // on the right not to sit on the screen edge.
+                    padding: const EdgeInsets.only(top: 4, left: 4, right: 8),
                     child: _Checkbox(
                       color: color,
                       completed: completed,
@@ -755,13 +774,6 @@ class _PillFill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final filled = fraction.clamp(0.0, 1.0);
-    // The icon has to stay legible against both halves of the pill: above ~a
-    // third it sits on the accent fill and is white, below it on the family's
-    // light tone, where white would disappear — there it is the accent itself,
-    // darkened only if the two tones sit too close together.
-    final glyphColor = filled >= 0.35
-        ? iconColor
-        : inkOn(pendingColor, color, minContrast: 3);
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(TaskTimeline.pillWidth / 2),
@@ -780,7 +792,9 @@ class _PillFill extends StatelessWidget {
               ),
             ),
           ),
-          Center(child: Icon(icon, color: glyphColor, size: 24)),
+          // The pill is the task's colour whatever share of it has elapsed, so
+          // its glyph is the brand ink at every fill level.
+          Center(child: Icon(icon, color: iconColor, size: 24)),
         ],
       ),
     );
@@ -818,7 +832,7 @@ class _Checkbox extends StatelessWidget {
           ),
           color: completed ? color.withValues(alpha: 0.15) : null,
         ),
-        child: completed ? Icon(Icons.check, size: 16, color: color) : null,
+        child: completed ? Icon(LucideIcons.check, size: 16, color: color) : null,
       ),
     );
   }
@@ -903,7 +917,7 @@ class _GapRow extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
-                  Icons.hourglass_empty,
+                  LucideIcons.hourglass,
                   size: 12,
                   color: theme.colorScheme.onSurfaceVariant.withValues(
                     alpha: 0.75,
@@ -1020,7 +1034,7 @@ class _EmptyState extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            Icons.schedule,
+            LucideIcons.clock,
             size: 48,
             color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
           ),

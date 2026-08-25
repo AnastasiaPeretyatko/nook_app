@@ -54,8 +54,15 @@ class TaskCalendar extends ConsumerWidget {
       eventLoader: tasksForDay,
       availableCalendarFormats: const {
         CalendarFormat.month: 'Месяц',
+        // A step between the two, so the drag handle has something to land on
+        // half-way instead of flipping straight from one week to the month.
+        CalendarFormat.twoWeeks: 'Две недели',
         CalendarFormat.week: 'Неделя',
       },
+      // The height change happens while the finger is still moving, so it has
+      // to land quickly and ease out instead of crawling there linearly.
+      formatAnimationDuration: const Duration(milliseconds: 140),
+      formatAnimationCurve: Curves.easeOutCubic,
       headerStyle: const HeaderStyle(
         formatButtonVisible: false,
         titleCentered: false,
@@ -181,9 +188,9 @@ class _MoreDot extends StatelessWidget {
       width: 5,
       height: 5,
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(
-          alpha: 0.4,
-        ),
+        color: Theme.of(
+          context,
+        ).colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
         shape: BoxShape.circle,
       ),
     );

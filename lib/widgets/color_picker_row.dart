@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:todo_app/utils/task_colors.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
 
 class ColorPickerRow extends StatelessWidget {
   const ColorPickerRow({
@@ -31,6 +32,13 @@ class ColorPickerRow extends StatelessWidget {
       child: Row(
         children: colors.map((color) {
           final isSelected = selected?.toARGB32() == color.toARGB32();
+          // A swatch is a fill of the colour itself, so what is drawn on it is
+          // the brand ink — one white on every family — and not the
+          // luminance-flipped [onTaskColor], which turns black on all seven of
+          // these and made the ring and the tick read as dirt on the colour.
+          // The tick is a glyph recognised by its shape rather than read, which
+          // is the case white is for.
+          final ink = onBrandFill(color);
           return Expanded(
             child: GestureDetector(
               onTap: () => onChanged(color),
@@ -42,9 +50,7 @@ class ColorPickerRow extends StatelessWidget {
                   color: color,
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: isSelected
-                        ? onTaskColorMuted(color)
-                        : Colors.transparent,
+                    color: isSelected ? ink : Colors.transparent,
                     width: 2.5,
                   ),
                   boxShadow: isSelected
@@ -58,7 +64,7 @@ class ColorPickerRow extends StatelessWidget {
                       : null,
                 ),
                 child: isSelected
-                    ? Icon(Icons.check, size: 16, color: onTaskColor(color))
+                    ? Icon(LucideIcons.check, size: 16, color: ink)
                     : null,
               ),
             ),

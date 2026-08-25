@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
 
 /// How many of a task's subtasks are done, as a plain read-out: a checkbox glyph
 /// and "done/total". Deliberately not tappable — subtasks are ticked off in the
@@ -35,7 +36,7 @@ class SubtaskProgress extends StatelessWidget {
           child: allDone
               // Punched out of the filled box: the surface showing through.
               ? Icon(
-                  Icons.check,
+                  LucideIcons.check,
                   size: 10,
                   color: theme.colorScheme.surface,
                 )

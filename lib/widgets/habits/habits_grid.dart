@@ -10,7 +10,10 @@ import 'package:todo_app/widgets/habits/habit_actions_sheet.dart';
 import 'package:todo_app/widgets/habits/habit_day_state.dart';
 import 'package:todo_app/utils/surfaces.dart';
 import 'package:todo_app/utils/task_colors.dart';
+import 'package:todo_app/utils/task_palette.dart';
 import 'package:todo_app/utils/tracking.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
+import '../../utils/task_icons.dart';
 
 /// Grid of habit cards — every active task that has a repeat rule, shown in two
 /// columns regardless of whether it is scheduled for the current day.
@@ -160,10 +163,7 @@ class HabitCard extends StatelessWidget {
   Color _cardColorOf(ThemeData theme) =>
       _doneToday ? neutralChip(theme) : _color;
 
-  IconData get _icon => task.iconCodePoint != null
-      // ignore: non_const_argument_for_const_parameter
-      ? IconData(task.iconCodePoint!, fontFamily: 'MaterialIcons')
-      : Icons.repeat;
+  IconData get _icon => taskIconFor(task.iconKey) ?? LucideIcons.repeat;
 
   bool get _doneToday => completedDays.contains(today);
 
@@ -185,10 +185,13 @@ class HabitCard extends StatelessWidget {
     final theme = Theme.of(context);
     final cardColor = _cardColorOf(theme);
     final muted = onTaskColorFaint(cardColor);
+    // A card in its own colour is a brand fill and carries the brand ink; a
+    // card already done today is repainted neutral, which is not a brand fill,
+    // so its title falls back to the adaptive foreground.
     final titleStyle = theme.textTheme.titleSmall?.copyWith(
       fontWeight: FontWeight.w700,
       height: _titleLineHeight,
-      color: onTaskColor(cardColor),
+      color: _doneToday ? onTaskColor(cardColor) : onBrandFill(cardColor),
     );
 
     return GestureDetector(
@@ -198,7 +201,13 @@ class HabitCard extends StatelessWidget {
         duration: const Duration(milliseconds: 250),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
+          // The gradient is what gets painted — a shader wins over the flat
+          // colour — while [cardColor] stays as the base tone: it is the
+          // gradient's first stop, it is what every foreground on the card is
+          // asked against, and having both lets the 250ms swap to the neutral
+          // "done" tone cross-fade instead of jumping.
           color: cardColor,
+          gradient: taskGradient(cardColor),
           borderRadius: BorderRadius.circular(22),
         ),
         child: Column(
@@ -379,7 +388,7 @@ class _MarkButton extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              done ? Icons.check_rounded : Icons.add_rounded,
+              done ? LucideIcons.check : LucideIcons.plus,
               size: 16,
               color: Colors.black.withValues(alpha: 0.7),
             ),
@@ -428,13 +437,13 @@ class _CounterButton extends StatelessWidget {
     final IconData? icon;
     final String label;
     if (complete) {
-      icon = Icons.check_rounded;
+      icon = LucideIcons.check;
       label = 'Выполнено';
     } else if (count > 0) {
       icon = null;
       label = '$count/$target';
     } else {
-      icon = Icons.add_rounded;
+      icon = LucideIcons.plus;
       label = 'Отметить';
     }
 
@@ -617,16 +626,16 @@ class _TimerButtonState extends State<_TimerButton> {
     final IconData? icon;
     final String label;
     if (widget.completed) {
-      icon = Icons.check_rounded;
+      icon = LucideIcons.check;
       label = 'Выполнено';
     } else if (_running) {
       icon = null;
       label = _fmt(elapsed);
     } else if (elapsed > 0) {
-      icon = Icons.pause_rounded;
+      icon = LucideIcons.pause;
       label = _fmt(elapsed);
     } else {
-      icon = Icons.play_arrow_rounded;
+      icon = LucideIcons.play;
       label = 'Начать';
     }
 
@@ -698,7 +707,7 @@ class _EmptyState extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            Icons.repeat,
+            LucideIcons.repeat,
             size: 48,
             color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
           ),

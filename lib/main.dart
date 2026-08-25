@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:todo_app/pages/create_note_page.dart';
 import 'package:todo_app/pages/create_task_page.dart';
 import 'package:todo_app/pages/diary_page.dart';
 import 'package:todo_app/pages/habits_page.dart';
@@ -14,7 +15,9 @@ import 'package:todo_app/notifications/timer_notification.dart';
 import 'package:todo_app/settings/app_version.dart';
 import 'package:todo_app/settings/notification_settings.dart';
 import 'package:todo_app/settings/theme_provider.dart';
+import 'package:todo_app/utils/task_colors.dart';
 import 'package:todo_app/widgets/app_bottom_nav_bar.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,6 +39,10 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
+  /// The diary's slot in [_pages]. The centre button reads it to decide what it
+  /// creates, so the two lists and this constant have to stay in step.
+  static const int _diaryIndex = 2;
+
   int _currentIndex = 1;
   static const List<Widget> _pages = [
     HabitsPage(),
@@ -45,10 +52,10 @@ class _MainScreenState extends State<MainScreen> {
   ];
 
   static const List<AppNavItem> _navItems = [
-    AppNavItem(icon: Icons.repeat, label: 'Привычки'),
-    AppNavItem(icon: Icons.home_outlined, label: 'Home'),
-    AppNavItem(icon: Icons.book_outlined, label: 'Дневник'),
-    AppNavItem(icon: Icons.settings_outlined, label: 'Settings'),
+    AppNavItem(icon: LucideIcons.repeat, label: 'Привычки'),
+    AppNavItem(icon: LucideIcons.house, label: 'Home'),
+    AppNavItem(icon: LucideIcons.book_open, label: 'Дневник'),
+    AppNavItem(icon: LucideIcons.settings, label: 'Settings'),
   ];
 
   @override
@@ -62,9 +69,21 @@ class _MainScreenState extends State<MainScreen> {
         onTap: (index) {
           setState(() => _currentIndex = index);
         },
-        onCenterTap: () => Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => const CreateTaskPage())),
+        onCenterTap: _onCenterTap,
+      ),
+    );
+  }
+
+  /// The centre button is contextual: on the diary it opens the note editor,
+  /// everywhere else the task form. Both are pushed routes, so the button
+  /// behaves the same way wherever it is pressed — only what it creates
+  /// changes. The nav bar stays unaware of pages: it only reports the tap.
+  void _onCenterTap() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _currentIndex == _diaryIndex
+            ? const CreateNotePage()
+            : const CreateTaskPage(),
       ),
     );
   }
@@ -122,9 +141,50 @@ ThemeData buildAppTheme(Color seed, Brightness brightness) {
     brightness: brightness,
     colorScheme: scheme,
     scaffoldBackgroundColor: scheme.surface,
+    // The whole app is Nunito. Set on the theme rather than per style, so every
+    // widget that reads a text style off the theme — including the ones inside
+    // the framework and the note editor — gets it without being told. The
+    // family is bundled in `assets/fonts`; see the `fonts:` block in
+    // pubspec.yaml for which weights exist. A weight that is not there resolves
+    // to the nearest one that is, so nothing is ever left without a face.
+    fontFamily: 'Nunito',
+    // One switch look for the whole app: an accent thumb on a half-strength
+    // accent track. That is what a bare `activeThumbColor` used to produce in
+    // the task form — Flutter derives the track from the thumb with alpha 0x80
+    // when only the thumb is given — while a switch with no override at all
+    // took the M3 default of a solid accent track and an `onPrimary` thumb.
+    // Only the selected state is spelled out; returning null anywhere else
+    // keeps the M3 default, so the off and disabled states stay neutral.
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith(
+        (states) => _switchIsOn(states) ? accent : null,
+      ),
+      trackColor: WidgetStateProperty.resolveWith(
+        (states) => _switchIsOn(states) ? accent.withValues(alpha: 0.5) : null,
+      ),
+    ),
+    // A `FilledButton` is an accent-filled control, so its label is the brand
+    // ink — one recognisable white on every accent — and not the scheme's
+    // `onPrimary`, which flips to black the moment the accent is light enough
+    // (the default violet is, at luminance 0.27). The task form already spelled
+    // that out on each of its buttons; pinning it here is what stops the next
+    // button from being born black, the same way `switchTheme` above settled an
+    // argument between two screens.
+    //
+    // Only the foreground, and only for the enabled state: no
+    // `disabledForegroundColor` is given, so a disabled button falls through to
+    // the M3 default and still reads as disabled rather than as white on grey.
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(foregroundColor: onBrandFill(accent)),
+    ),
     useMaterial3: true,
   );
 }
+
+/// A switch that is on and touchable — the only state [buildAppTheme] repaints.
+bool _switchIsOn(Set<WidgetState> states) =>
+    states.contains(WidgetState.selected) &&
+    !states.contains(WidgetState.disabled);
 
 class MyApp extends ConsumerStatefulWidget {
   const MyApp({super.key});

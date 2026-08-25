@@ -290,7 +290,7 @@ void main() {
       await _settle(tester);
       await _typeSubtask(tester, 1, 'Заказать машину');
 
-      await _saveForm(tester, 'Создать задачу');
+      await _saveForm(tester, 'Сохранить');
 
       final tasks = await _db(tester, _allTasks);
       final root = tasks.singleWhere((t) => t.parentId == null);
@@ -312,7 +312,7 @@ void main() {
       await tester.tap(_addButton());
       await _settle(tester);
 
-      await _saveForm(tester, 'Создать задачу');
+      await _saveForm(tester, 'Сохранить');
 
       final tasks = await _db(tester, _allTasks);
       final root = tasks.singleWhere((t) => t.parentId == null);
@@ -332,7 +332,7 @@ void main() {
       await tester.tapAt(Offset(field.left - 16, field.center.dy));
       await _settle(tester);
 
-      await _saveForm(tester, 'Создать задачу');
+      await _saveForm(tester, 'Сохранить');
 
       final tasks = await _db(tester, _allTasks);
       final subtask = tasks.singleWhere((t) => t.parentId != null);
@@ -390,7 +390,7 @@ void main() {
       final task = await seed(tester);
       await _openForm(tester, mode: TaskFormMode.clone, task: task);
 
-      await _saveForm(tester, 'Дублировать');
+      await _saveForm(tester, 'Сохранить');
 
       final tasks = await _db(tester, _allTasks);
       final roots = tasks.where((t) => t.parentId == null).toList();

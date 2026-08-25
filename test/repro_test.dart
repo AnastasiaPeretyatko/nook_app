@@ -8,6 +8,7 @@ import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/main.dart';
 import 'package:todo_app/settings/theme_provider.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
 
 final _now = DateTime.now();
 final _today = DateTime(_now.year, _now.month, _now.day);
@@ -22,7 +23,7 @@ Task _task({
   int? scheduledTimeMinutes,
   int? endTimeMinutes,
   int? colorValue = 0xFFFFC1CC,
-  int? iconCodePoint,
+  String? iconKey,
 }) {
   return Task(
     id: id,
@@ -35,7 +36,7 @@ Task _task({
     scheduledTimeMinutes: scheduledTimeMinutes,
     endTimeMinutes: endTimeMinutes,
     colorValue: colorValue,
-    iconCodePoint: iconCodePoint,
+    iconKey: iconKey,
     startDate: _today.subtract(const Duration(days: 30)),
     createdAt: _today,
     updatedAt: _today,
@@ -171,9 +172,9 @@ void main() {
       // Now visit every tab.
       for (final label in const ['Привычки', 'Дневник', 'Settings']) {
         final icon = {
-          'Привычки': Icons.repeat,
-          'Дневник': Icons.book_outlined,
-          'Settings': Icons.settings_outlined,
+          'Привычки': LucideIcons.repeat,
+          'Дневник': LucideIcons.book_open,
+          'Settings': LucideIcons.settings,
         }[label]!;
         await tester.tap(find.byIcon(icon).last);
         await tester.pump(const Duration(milliseconds: 400));

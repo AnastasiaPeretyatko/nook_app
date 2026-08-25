@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/widgets/habits/habits_grid.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
 
 final _now = DateTime.now();
 final _today = DateTime(_now.year, _now.month, _now.day);
@@ -89,7 +90,7 @@ void main() {
     await _pumpCard(tester, todayLog: _log(seconds: 90));
 
     expect(find.text('01:30'), findsOneWidget);
-    expect(find.byIcon(Icons.pause_rounded), findsOneWidget);
+    expect(find.byIcon(LucideIcons.pause), findsOneWidget);
   });
 
   testWidgets('a running timer counts from when it started', (tester) async {

@@ -7,6 +7,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/pages/create_task_page.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
 
 late AppDatabase db;
 
@@ -61,12 +62,12 @@ Future<void> _openValueForm(WidgetTester tester, {double? targetValue}) async {
 }
 
 /// Taps the plus of the stepper in the row labelled [label]. The search has to be
-/// scoped: the "add a subtask" plate carries an [Icons.add] of its own.
+/// scoped: the "add a subtask" plate carries an [LucideIcons.plus] of its own.
 Future<void> _plus(WidgetTester tester, String label) async {
   final row = find
       .ancestor(of: find.text(label), matching: find.byType(Row))
       .first;
-  await tester.tap(find.descendant(of: row, matching: find.byIcon(Icons.add)));
+  await tester.tap(find.descendant(of: row, matching: find.byIcon(LucideIcons.plus)));
   await tester.pumpAndSettle();
 }
 
@@ -207,7 +208,7 @@ void main() {
       expect(find.text('2 недели'), findsOneWidget);
       expect(find.textContaining('Каждые 2 недели'), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.remove));
+      await tester.tap(find.byIcon(LucideIcons.minus));
       await tester.pumpAndSettle();
       expect(find.text('1 неделя'), findsOneWidget);
     });
@@ -302,8 +303,8 @@ void main() {
       await _plus(tester, 'Целевое количество');
       expect(find.text('2 раза'), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.remove));
-      await tester.tap(find.byIcon(Icons.remove));
+      await tester.tap(find.byIcon(LucideIcons.minus));
+      await tester.tap(find.byIcon(LucideIcons.minus));
       await tester.pumpAndSettle();
       expect(find.text('1 раз'), findsOneWidget);
     });
@@ -316,7 +317,7 @@ void main() {
 
       final minus = tester.widget<IconButton>(
         find.ancestor(
-          of: find.byIcon(Icons.remove),
+          of: find.byIcon(LucideIcons.minus),
           matching: find.byType(IconButton),
         ),
       );
@@ -373,7 +374,7 @@ void main() {
       final hours = find
           .ancestor(of: find.text('Часы'), matching: find.byType(Column))
           .first;
-      final plus = find.descendant(of: hours, matching: find.byIcon(Icons.add));
+      final plus = find.descendant(of: hours, matching: find.byIcon(LucideIcons.plus));
       await tester.tap(plus);
       await tester.pumpAndSettle();
       await tester.tap(plus);

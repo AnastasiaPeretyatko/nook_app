@@ -42,6 +42,53 @@ Color taskLightTone(Color accent) {
   return Color.lerp(accent, Colors.white, _lightBlend)!;
 }
 
+/// How far the tail of a gradient turns around the colour wheel and how much
+/// lighter it gets.
+///
+/// Both are deliberately small. The area still has to read as the colour the
+/// user picked, and a bigger turn walks the saturated families straight into a
+/// different one — the yellow accent at +20° is acid lime.
+const double _gradientHueTurn = 8;
+const double _gradientLift = 0.07;
+
+/// Luminance the tail may not pass, kept under the 0.75 where [onBrandFill]
+/// gives up on white: one card cannot want white ink at the top and black ink
+/// at the bottom. The yellow family starts at 0.618, so the lift it gets is
+/// whatever is left before the ceiling.
+const double _gradientMaxLuminance = 0.70;
+
+/// The second stop of [taskGradient]: [accent] turned a shade warmer and
+/// lighter, then walked back down until it clears [_gradientMaxLuminance].
+/// Exposed so a caller can ask what its content sits on in the far corner.
+Color taskGradientTail(Color accent) {
+  final base = HSLColor.fromColor(accent);
+  var hsl = base
+      .withHue((base.hue + _gradientHueTurn) % 360)
+      .withLightness((base.lightness + _gradientLift).clamp(0.0, 1.0));
+  // Lightness alone says nothing about how bright a hue reads: the same 0.73 is
+  // a mid violet and a glaring yellow. 2% steps, as in [inkOn].
+  for (var i = 0; i < 50; i++) {
+    if (hsl.toColor().computeLuminance() <= _gradientMaxLuminance) break;
+    final next = hsl.lightness - 0.02;
+    if (next <= 0) break;
+    hsl = hsl.withLightness(next);
+  }
+  return hsl.toColor();
+}
+
+/// The two-stop wash a large area in a task's colour is painted with: the
+/// accent itself in the top-left corner, [taskGradientTail] in the
+/// bottom-right.
+///
+/// Works on any colour, palette or not — the tail is derived, not looked up —
+/// so a near-grey (a habit card that is done for today is repainted neutral)
+/// simply gets a gradient nobody can see rather than a special case.
+LinearGradient taskGradient(Color accent) => LinearGradient(
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+  colors: [accent, taskGradientTail(accent)],
+);
+
 /// The tinted box an icon of a task sits in — a list row's leading square, the
 /// 44px badge at the top of a sheet.
 ///

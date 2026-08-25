@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:todo_app/utils/surfaces.dart';
+import 'package:todo_app/utils/task_icons.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
 
 class IconPickerSheet extends StatefulWidget {
   const IconPickerSheet({super.key, this.selected});
 
-  final IconData? selected;
+  /// The key of the currently chosen icon — see `taskIcons`.
+  final String? selected;
 
-  static Future<IconData?> show(BuildContext context, {IconData? selected}) {
-    return showModalBottomSheet<IconData>(
+  /// Resolves to the chosen icon's key, or null if the sheet was dismissed.
+  static Future<String?> show(BuildContext context, {String? selected}) {
+    return showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -23,57 +27,6 @@ class _IconPickerSheetState extends State<IconPickerSheet> {
   final _searchController = TextEditingController();
   String _query = '';
 
-  static const _allIcons = [
-    (Icons.alarm_outlined, 'Будильник'),
-    (Icons.coffee_outlined, 'Кофе'),
-    (Icons.self_improvement_outlined, 'Медитация'),
-    (Icons.fitness_center, 'Зал'),
-    (Icons.directions_run, 'Бег'),
-    (Icons.directions_bike_outlined, 'Велосипед'),
-    (Icons.pool_outlined, 'Плавание'),
-    (Icons.shower_outlined, 'Душ'),
-    (Icons.bed_outlined, 'Сон'),
-    (Icons.restaurant_outlined, 'Еда'),
-    (Icons.local_cafe_outlined, 'Напиток'),
-    (Icons.water_drop_outlined, 'Вода'),
-    (Icons.book_outlined, 'Чтение'),
-    (Icons.school_outlined, 'Учёба'),
-    (Icons.laptop_outlined, 'Компьютер'),
-    (Icons.work_outline, 'Работа'),
-    (Icons.meeting_room_outlined, 'Встреча'),
-    (Icons.phone_outlined, 'Звонок'),
-    (Icons.message_outlined, 'Сообщение'),
-    (Icons.email_outlined, 'Почта'),
-    (Icons.shopping_cart_outlined, 'Покупки'),
-    (Icons.attach_money, 'Финансы'),
-    (Icons.home_outlined, 'Дом'),
-    (Icons.cleaning_services_outlined, 'Уборка'),
-    (Icons.local_hospital_outlined, 'Здоровье'),
-    (Icons.medication_outlined, 'Лекарство'),
-    (Icons.favorite_outline, 'Здоровье'),
-    (Icons.music_note_outlined, 'Музыка'),
-    (Icons.movie_outlined, 'Кино'),
-    (Icons.sports_esports_outlined, 'Игры'),
-    (Icons.brush_outlined, 'Творчество'),
-    (Icons.photo_camera_outlined, 'Фото'),
-    (Icons.pets, 'Питомец'),
-    (Icons.eco_outlined, 'Природа'),
-    (Icons.park_outlined, 'Прогулка'),
-    (Icons.flight_outlined, 'Путешествие'),
-    (Icons.directions_car_outlined, 'Авто'),
-    (Icons.star_outline, 'Важное'),
-    (Icons.emoji_events_outlined, 'Цель'),
-    (Icons.lightbulb_outline, 'Идея'),
-    (Icons.psychology_outlined, 'Размышление'),
-    (Icons.volunteer_activism_outlined, 'Помощь'),
-    (Icons.groups_outlined, 'Общение'),
-    (Icons.child_care, 'Дети'),
-    (Icons.spa_outlined, 'Отдых'),
-    (Icons.beach_access_outlined, 'Отпуск'),
-    (Icons.timer_outlined, 'Таймер'),
-    (Icons.repeat, 'Привычка'),
-  ];
-
   @override
   void dispose() {
     _searchController.dispose();
@@ -84,9 +37,11 @@ class _IconPickerSheetState extends State<IconPickerSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final filtered = _query.isEmpty
-        ? _allIcons
-        : _allIcons
-              .where((e) => e.$2.toLowerCase().contains(_query.toLowerCase()))
+        ? taskIcons
+        : taskIcons
+              .where(
+                (e) => e.label.toLowerCase().contains(_query.toLowerCase()),
+              )
               .toList();
 
     return Container(
@@ -123,7 +78,7 @@ class _IconPickerSheetState extends State<IconPickerSheet> {
                 const Spacer(),
                 IconButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close),
+                  icon: const Icon(LucideIcons.x),
                   style: IconButton.styleFrom(
                     backgroundColor: insetSurface(theme),
                     shape: const CircleBorder(),
@@ -140,7 +95,7 @@ class _IconPickerSheetState extends State<IconPickerSheet> {
               onChanged: (v) => setState(() => _query = v),
               decoration: InputDecoration(
                 hintText: 'Поиск...',
-                prefixIcon: const Icon(Icons.search, size: 20),
+                prefixIcon: const Icon(LucideIcons.search, size: 20),
                 filled: true,
                 fillColor: insetSurface(theme),
                 contentPadding: const EdgeInsets.symmetric(vertical: 10),
@@ -177,14 +132,12 @@ class _IconPickerSheetState extends State<IconPickerSheet> {
                         ),
                     itemCount: filtered.length,
                     itemBuilder: (context, i) {
-                      final (icon, label) = filtered[i];
-                      final isSelected =
-                          widget.selected?.codePoint == icon.codePoint;
+                      final entry = filtered[i];
                       return _IconCell(
-                        icon: icon,
-                        label: label,
-                        isSelected: isSelected,
-                        onTap: () => Navigator.of(context).pop(icon),
+                        icon: entry.icon,
+                        label: entry.label,
+                        isSelected: widget.selected == entry.key,
+                        onTap: () => Navigator.of(context).pop(entry.key),
                       );
                     },
                   ),

@@ -6,6 +6,8 @@
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Нужен доступ к фото, чтобы выбрать обложку заметки</string>
 	<key>CFBundleDisplayName</key>
 	<string>Nook</string>
 	<key>CFBundleExecutable</key>

@@ -4,11 +4,14 @@ import 'package:intl/intl.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/utils/surfaces.dart';
+import 'package:todo_app/utils/task_archive.dart';
 import 'package:todo_app/utils/task_colors.dart';
 import 'package:todo_app/utils/task_palette.dart';
 import 'package:todo_app/widgets/color_picker_row.dart';
 import 'package:todo_app/widgets/habits/task_actions_sheet.dart';
 import 'package:todo_app/widgets/subtask_progress.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
+import '../../utils/task_icons.dart';
 
 /// List of regular (non-repeating) tasks for the "Задачи" tab.
 ///
@@ -38,16 +41,6 @@ class TasksList extends ConsumerWidget {
           }
         }
 
-        // Subtasks are reported by their parent's tile, never listed on their
-        // own — even when they carry a date or a time of their own.
-        final regular = allTasks
-            .where((t) => t.parentId == null)
-            .where((t) => t.status == TaskStatus.active)
-            .where((t) => t.repeatType == null)
-            .toList();
-
-        if (regular.isEmpty) return const _EmptyState();
-
         final logs = logsAsync.valueOrNull ?? const <TaskLog>[];
         final logByKey = <String, TaskLog>{
           for (final l in logs) _logKey(l.taskId, l.date): l,
@@ -55,6 +48,21 @@ class TasksList extends ConsumerWidget {
 
         bool isCompleted(Task t) =>
             logByKey[_logKey(t.id, _anchorDate(t))]?.completed ?? false;
+
+        // Subtasks are reported by their parent's tile, never listed on their
+        // own — even when they carry a date or a time of their own. A done task
+        // whose day has passed is gone from here too: it belongs to the archive
+        // now, and [isTaskArchived] is the rule both screens read.
+        final regular = allTasks
+            .where((t) => t.parentId == null)
+            .where((t) => t.status == TaskStatus.active)
+            .where((t) => t.repeatType == null)
+            .where(
+              (t) => !isTaskArchived(t, completed: isCompleted(t), today: today),
+            )
+            .toList();
+
+        if (regular.isEmpty) return const _EmptyState();
 
         // Subtask completion is stored per day against the parent's anchor
         // date — the same date the task's sheet reads and writes — so the
@@ -164,10 +172,8 @@ Color _taskColor(Task task) => task.colorValue != null
     ? Color(task.colorValue!)
     : ColorPickerRow.colors.first;
 
-IconData _taskIcon(Task task) => task.iconCodePoint != null
-    // ignore: non_const_argument_for_const_parameter
-    ? IconData(task.iconCodePoint!, fontFamily: 'MaterialIcons')
-    : Icons.check_circle_outline;
+IconData _taskIcon(Task task) =>
+    taskIconFor(task.iconKey) ?? LucideIcons.circle_check;
 
 String _fmtTime(int minutes) {
   final normalized = minutes % (24 * 60);
@@ -363,7 +369,7 @@ class _Checkbox extends StatelessWidget {
           ),
           color: completed ? color.withValues(alpha: 0.15) : null,
         ),
-        child: completed ? Icon(Icons.check, size: 16, color: color) : null,
+        child: completed ? Icon(LucideIcons.check, size: 16, color: color) : null,
       ),
     );
   }
@@ -380,7 +386,7 @@ class _EmptyState extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            Icons.check_circle_outline,
+            LucideIcons.circle_check,
             size: 48,
             color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
           ),

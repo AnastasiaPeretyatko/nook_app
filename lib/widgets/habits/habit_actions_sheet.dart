@@ -1,4 +1,3 @@
-import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:todo_app/database/app_database.dart';
@@ -10,9 +9,13 @@ import 'package:todo_app/utils/task_palette.dart';
 import 'package:todo_app/widgets/color_picker_row.dart';
 import 'package:todo_app/widgets/habits/habit_day_state.dart';
 import 'package:todo_app/widgets/habits/habit_history_sheet.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
+import '../../utils/task_icons.dart';
 
 /// Bottom sheet for a habit (repeating task): title, description, a full-width
 /// grid of day squares to mark completion, and edit / archive / delete actions.
+/// A habit that is already archived gets "Вернуть" in place of "Архив", so the
+/// archive page can hand it back through the very same sheet.
 Future<void> showHabitActionsSheet(BuildContext context, {required Task task}) {
   return showModalBottomSheet<void>(
     context: context,
@@ -64,6 +67,7 @@ class HabitActionsSheet extends ConsumerWidget {
     };
 
     final description = task.description?.trim() ?? '';
+    final archived = task.status == TaskStatus.archived;
 
     return SafeArea(
       top: false,
@@ -124,7 +128,7 @@ class HabitActionsSheet extends ConsumerWidget {
                   IconButton(
                     tooltip: 'История',
                     onPressed: () => showHabitHistorySheet(context, task: task),
-                    icon: Icon(Icons.calendar_month_outlined, color: color),
+                    icon: Icon(LucideIcons.calendar_days, color: color),
                     style: IconButton.styleFrom(
                       backgroundColor: color.withValues(alpha: 0.1),
                     ),
@@ -157,19 +161,23 @@ class HabitActionsSheet extends ConsumerWidget {
               Row(
                 children: [
                   _ActionButton(
-                    icon: Icons.edit_outlined,
+                    icon: LucideIcons.pencil,
                     label: 'Изменить',
                     color: inkOn(sheet, _editColor),
                     onTap: () => _edit(context),
                   ),
+                  // The same slot both ways: a habit already in the archive
+                  // offers the way back instead of a second trip there.
                   _ActionButton(
-                    icon: Icons.archive_outlined,
-                    label: 'Архив',
+                    icon: archived
+                        ? LucideIcons.archive_restore
+                        : LucideIcons.archive,
+                    label: archived ? 'Вернуть' : 'Архив',
                     color: inkOn(sheet, _archiveColor),
-                    onTap: () => _archive(context, ref),
+                    onTap: () => _setArchived(context, ref, !archived),
                   ),
                   _ActionButton(
-                    icon: Icons.delete_outline,
+                    icon: LucideIcons.trash_2,
                     label: 'Удалить',
                     color: inkOn(sheet, _danger),
                     onTap: () => _confirmDelete(context, ref),
@@ -193,16 +201,17 @@ class HabitActionsSheet extends ConsumerWidget {
     );
   }
 
-  Future<void> _archive(BuildContext context, WidgetRef ref) async {
+  Future<void> _setArchived(
+    BuildContext context,
+    WidgetRef ref,
+    bool archived,
+  ) async {
     final navigator = Navigator.of(context);
     await ref
         .read(tasksDaoProvider)
-        .updateTaskById(
+        .setTaskStatus(
           task.id,
-          TasksCompanion(
-            status: const Value(TaskStatus.archived),
-            updatedAt: Value(DateTime.now()),
-          ),
+          archived ? TaskStatus.archived : TaskStatus.active,
         );
     navigator.pop();
   }
@@ -473,7 +482,5 @@ Color _taskColor(Task task) => task.colorValue != null
     ? Color(task.colorValue!)
     : ColorPickerRow.colors.first;
 
-IconData _taskIcon(Task task) => task.iconCodePoint != null
-    // ignore: non_const_argument_for_const_parameter
-    ? IconData(task.iconCodePoint!, fontFamily: 'MaterialIcons')
-    : Icons.repeat;
+IconData _taskIcon(Task task) =>
+    taskIconFor(task.iconKey) ?? LucideIcons.repeat;
