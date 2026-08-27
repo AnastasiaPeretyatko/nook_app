@@ -34,7 +34,7 @@ Widget _form({TaskFormMode mode = TaskFormMode.create, Task? task}) =>
 /// tested.
 Task _valueTask({double? targetValue}) {
   final now = DateTime(2026, 5, 20);
-  return Task(
+  return Task(dirty: false, 
     id: 1,
     title: 'Вода',
     status: TaskStatus.active,

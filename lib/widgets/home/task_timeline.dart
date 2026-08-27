@@ -406,8 +406,10 @@ class _UntimedTask extends StatelessWidget {
           // A fixed slot keeps the circles evenly spaced whatever the titles say.
           width: _UntimedStrip.slotWidth,
           child: Column(
-            // Centred within the slot; the strip's leading padding is what keeps
-            // the first circle flush with the screen's left margin.
+            // Centred within the slot, which is what puts the first circle 10px
+            // inside the strip's own margin rather than flush with it — see
+            // [_UntimedStrip.sideMargin]: the title uses the whole slot, so it
+            // is the title that owns the margin.
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Container(
@@ -500,13 +502,17 @@ class _TaskRow extends StatelessWidget {
     final end = task.endTimeMinutes;
     final hasRange = end != null && end > start;
     final duration = hasRange ? end - start : 0;
-    // A ranged task carries its own progress fill, so the pill is not painted a
-    // flat "upcoming" grey — the fill level says where it stands.
-    // The task's own accent carries the marker; the light tone of the same
-    // family is what the pill's body is painted with.
+    // A task the day has not reached yet is grey whether it is a point or a
+    // range: the fill level says how far a range has got, not whether it has
+    // begun, so a pill in the task's colour before its time reads as started.
     final accent = _taskColor(task);
-    final color = (upcoming && !hasRange) ? _upcomingColorOf(theme) : accent;
-    final lightTone = taskLightTone(accent);
+    final color = upcoming ? _upcomingColorOf(theme) : accent;
+    // The task's accent carries the marker over the light tone of its own
+    // family, which is what the pill's body is painted with while it fills. A
+    // pill that has not started has nothing to fill, so it is the flat grey of
+    // the marker instead — the same capsule a point task gets as a circle,
+    // rather than a pale ghost of it.
+    final pendingTone = upcoming ? color : taskLightTone(accent);
     final icon = _taskIcon(task);
     final completed = log?.completed ?? false;
 
@@ -580,7 +586,7 @@ class _TaskRow extends StatelessWidget {
                     // marker is read by its shape, and the white keeps the
                     // column looking like one thing.
                     iconColor: onBrandFill(color),
-                    lightTone: lightTone,
+                    pendingTone: pendingTone,
                     icon: icon,
                     hasRange: hasRange,
                     rowHeight: rowHeight,
@@ -682,7 +688,7 @@ class _Marker extends StatelessWidget {
   const _Marker({
     required this.color,
     required this.iconColor,
-    required this.lightTone,
+    required this.pendingTone,
     required this.icon,
     required this.hasRange,
     required this.rowHeight,
@@ -695,8 +701,9 @@ class _Marker extends StatelessWidget {
   /// What the glyph inside the marker is painted in.
   final Color iconColor;
 
-  /// The light tone of the task's family: the pill's body before it fills.
-  final Color lightTone;
+  /// What the pill's body is painted with under the fill: the light tone of the
+  /// task's family, or the flat marker grey before the task's time has come.
+  final Color pendingTone;
   final IconData icon;
   final bool hasRange;
   final double rowHeight;
@@ -733,7 +740,7 @@ class _Marker extends StatelessWidget {
                     icon: icon,
                     // No range means nothing to fill; treat it as fully elapsed.
                     fraction: elapsedFraction ?? 1,
-                    pendingColor: lightTone,
+                    pendingColor: pendingTone,
                   ),
                 )
               : Container(

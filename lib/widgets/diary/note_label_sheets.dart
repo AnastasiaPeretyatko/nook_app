@@ -21,6 +21,7 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
+import 'package:todo_app/utils/task_palette.dart';
 import 'package:todo_app/utils/note_labels.dart';
 import 'package:todo_app/utils/surfaces.dart';
 import 'package:todo_app/utils/task_colors.dart';
@@ -387,10 +388,12 @@ class _TagPickerSheetState extends ConsumerState<_TagPickerSheet> {
       _creating = !_creating;
       // Opened on a colour nothing else uses, so two tags made one after the
       // other do not come out the same.
-      _color ??= nextNoteTagColor([
-        for (final tag in ref.read(noteTagsProvider).valueOrNull ?? const [])
-          Color(tag.colorValue),
-      ]);
+      _color ??= taskColorForKey(
+        nextNoteTagColorKey([
+          for (final tag in ref.read(noteTagsProvider).valueOrNull ?? const [])
+            tag.colorKey,
+        ]),
+      );
     });
   }
 
@@ -416,12 +419,20 @@ class _TagPickerSheetState extends ConsumerState<_TagPickerSheet> {
           existing?.id ??
           await ref.read(diaryDaoProvider).insertTag(
             name: name,
-            colorValue:
-                (color ??
-                        nextNoteTagColor([
-                          for (final tag in tags) Color(tag.colorValue),
-                        ]))
-                    .toARGB32(),
+            // The picker hands back a colour; what is stored is which family it
+            // was. `taskColorKeyOf` is where the two meet, and the fallback
+            // covers a colour that belongs to no family — which the picker
+            // cannot produce, but a stored one predating the palette could.
+            colorKey:
+                taskColorKeyOf(
+                  color ??
+                      taskColorForKey(
+                        nextNoteTagColorKey([
+                          for (final tag in tags) tag.colorKey,
+                        ]),
+                      ),
+                ) ??
+                fallbackTaskColorKey,
           );
 
       if (!mounted) return;
@@ -469,7 +480,7 @@ class _TagOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = Color(tag.colorValue);
+    final color = taskColorForKey(tag.colorKey);
     final tones = noteTagChipTones(theme, color);
     final off = insetSurface(theme);
 

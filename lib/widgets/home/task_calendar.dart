@@ -17,6 +17,7 @@ class TaskCalendar extends ConsumerWidget {
     required this.calendarFormat,
     required this.onDaySelected,
     required this.onPageChanged,
+    required this.onTodayPressed,
   });
 
   final DateTime focusedDay;
@@ -24,6 +25,7 @@ class TaskCalendar extends ConsumerWidget {
   final CalendarFormat calendarFormat;
   final void Function(DateTime selectedDay, DateTime focusedDay) onDaySelected;
   final void Function(DateTime focusedDay) onPageChanged;
+  final VoidCallback onTodayPressed;
 
   static const _maxMarkers = 4;
 
@@ -100,7 +102,8 @@ class TaskCalendar extends ConsumerWidget {
         selectedTextStyle: TextStyle(color: onTaskColor(selectedDayColor)),
       ),
       calendarBuilders: CalendarBuilders<Task>(
-        headerTitleBuilder: (context, day) => _CalendarHeaderTitle(day: day),
+        headerTitleBuilder: (context, day) =>
+            _CalendarHeaderTitle(day: day, onTodayPressed: onTodayPressed),
         markerBuilder: (context, day, dayTasks) {
           if (dayTasks.isEmpty) return const SizedBox.shrink();
           return Positioned(bottom: 1, child: _TaskMarkers(tasks: dayTasks));
@@ -113,9 +116,10 @@ class TaskCalendar extends ConsumerWidget {
 }
 
 class _CalendarHeaderTitle extends StatelessWidget {
-  const _CalendarHeaderTitle({required this.day});
+  const _CalendarHeaderTitle({required this.day, required this.onTodayPressed});
 
   final DateTime day;
+  final VoidCallback onTodayPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -125,24 +129,83 @@ class _CalendarHeaderTitle extends StatelessWidget {
         ? month
         : '${month[0].toUpperCase()}${month.substring(1)}';
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
+    return Row(
       children: [
-        Text(
-          monthLabel,
-          style: theme.textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.w700,
+        // The header title is handed the whole row (both chevrons and the format
+        // button are off), so the month has to give the button its width rather
+        // than take it all and overflow.
+        Expanded(
+          // The year is set smaller than the month, so the two only read as one
+          // line when they share a baseline rather than a centre.
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Flexible(
+                child: Text(
+                  monthLabel,
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${day.year}',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant.withValues(
+                    alpha: 0.7,
+                  ),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
           ),
         ),
-        Text(
-          '${day.year}',
-          style: theme.textTheme.titleMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
-            fontWeight: FontWeight.w500,
-          ),
-        ),
+        _TodayButton(onTap: onTodayPressed),
       ],
+    );
+  }
+}
+
+/// Sends the calendar back to today, and carries today's date as its label so it
+/// reads as the day it lands on.
+class _TodayButton extends StatelessWidget {
+  const _TodayButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Material(
+      color: insetSurface(theme),
+      borderRadius: BorderRadius.circular(12),
+      // The ink has to be clipped to the same shape, or a tap flashes square
+      // corners over the rounded ones.
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Tooltip(
+          message: 'Сегодня',
+          child: SizedBox(
+            width: 40,
+            height: 40,
+            child: Center(
+              child: Text(
+                '${DateTime.now().day}',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: theme.colorScheme.onSurface,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

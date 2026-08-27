@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 import 'package:todo_app/database/app_database.dart';
+import 'package:todo_app/utils/task_palette.dart';
 import 'package:todo_app/utils/note_labels.dart';
 import 'package:todo_app/utils/surfaces.dart';
 import 'package:todo_app/utils/task_colors.dart';
@@ -168,7 +169,7 @@ class NoteTagChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final tones = noteTagChipTones(theme, Color(tag.colorValue), on: surface);
+    final tones = noteTagChipTones(theme, taskColorForKey(tag.colorKey), on: surface);
 
     return _ChipShell(
       fill: tones.fill,

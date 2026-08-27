@@ -5,7 +5,26 @@ import 'package:todo_app/utils/task_colors.dart';
 /// is what large areas are painted with — the timeline pill, the tinted box
 /// behind an icon — so the accent stays a small, saturated mark on top of it.
 class TaskSwatch {
-  const TaskSwatch({required this.accent, required this.light});
+  const TaskSwatch({
+    required this.key,
+    required this.accent,
+    required this.light,
+  });
+
+  /// What names this family *outside* the app.
+  ///
+  /// A colour is a fact about this version of the design; a key is a fact about
+  /// the diary. A note's tag stores the key, so the palette can be repainted —
+  /// a shade nudged, a family made warmer — and every tag ever written follows
+  /// along, on every device, without a migration.
+  ///
+  /// The same move the task icons already made: they used to store a Material
+  /// code point, which only means something inside one font, and migration v10
+  /// turned them into keys into [taskIcons].
+  ///
+  /// **Never rename one.** A key that changes is a tag whose colour is suddenly
+  /// unknown everywhere it was already saved.
+  final String key;
 
   final Color accent;
   final Color light;
@@ -14,14 +33,56 @@ class TaskSwatch {
 /// Seven families, accent + light tone each. The accents double as the app's
 /// primary colours ([appColorPalette] in `settings/theme_provider.dart`).
 const taskPalette = <TaskSwatch>[
-  TaskSwatch(accent: Color(0xFF8B7CF6), light: Color(0xFFE8E5FF)), // violet
-  TaskSwatch(accent: Color(0xFF76B894), light: Color(0xFFE2F2E7)), // green
-  TaskSwatch(accent: Color(0xFFF5A76F), light: Color(0xFFFCE8D8)), // orange
-  TaskSwatch(accent: Color(0xFF72B7D8), light: Color(0xFFDFF1F8)), // blue
-  TaskSwatch(accent: Color(0xFFD98BA8), light: Color(0xFFF6E1E9)), // pink
-  TaskSwatch(accent: Color(0xFFF4C95D), light: Color(0xFFFFF2CC)), // yellow
-  TaskSwatch(accent: Color(0xFFE97B70), light: Color(0xFFFFE3E0)), // red
+  TaskSwatch(
+    key: 'violet',
+    accent: Color(0xFF8B7CF6),
+    light: Color(0xFFE8E5FF),
+  ),
+  TaskSwatch(key: 'green', accent: Color(0xFF76B894), light: Color(0xFFE2F2E7)),
+  TaskSwatch(
+    key: 'orange',
+    accent: Color(0xFFF5A76F),
+    light: Color(0xFFFCE8D8),
+  ),
+  TaskSwatch(key: 'blue', accent: Color(0xFF72B7D8), light: Color(0xFFDFF1F8)),
+  TaskSwatch(key: 'pink', accent: Color(0xFFD98BA8), light: Color(0xFFF6E1E9)),
+  TaskSwatch(
+    key: 'yellow',
+    accent: Color(0xFFF4C95D),
+    light: Color(0xFFFFF2CC),
+  ),
+  TaskSwatch(key: 'red', accent: Color(0xFFE97B70), light: Color(0xFFFFE3E0)),
 ];
+
+/// The family a stored key names, or null when nothing here answers to it.
+///
+/// Null is an ordinary answer, not a fault: a key written by a newer version of
+/// the app is one this one has never heard of, and a tag with an unfamiliar
+/// colour should still be readable. Callers fall back to [fallbackTaskColorKey].
+TaskSwatch? taskSwatchForKey(String? key) {
+  for (final swatch in taskPalette) {
+    if (swatch.key == key) return swatch;
+  }
+  return null;
+}
+
+/// The colour a stored key names, falling back to the first family.
+Color taskColorForKey(String? key) =>
+    (taskSwatchForKey(key) ?? taskPalette.first).accent;
+
+/// The key naming [accent], or null when the colour is in no family.
+///
+/// Used by the migration that turned stored colours into keys, and by the tag
+/// picker, which hands out colours and has to write down which one was taken.
+String? taskColorKeyOf(Color accent) {
+  for (final swatch in taskPalette) {
+    if (swatch.accent.toARGB32() == accent.toARGB32()) return swatch.key;
+  }
+  return null;
+}
+
+/// What a tag falls back to when its key means nothing here.
+const fallbackTaskColorKey = 'violet';
 
 /// How much white the palette's light tones carry over their accent. Used to
 /// stand in for a colour that predates the palette, so an old task still gets a

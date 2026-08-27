@@ -21,6 +21,28 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
       'PRIMARY KEY AUTOINCREMENT',
     ),
   );
+  static const VerificationMeta _uidMeta = const VerificationMeta('uid');
+  @override
+  late final GeneratedColumn<String> uid = GeneratedColumn<String>(
+    'uid',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _dirtyMeta = const VerificationMeta('dirty');
+  @override
+  late final GeneratedColumn<bool> dirty = GeneratedColumn<bool>(
+    'dirty',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("dirty" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
   static const VerificationMeta _parentIdMeta = const VerificationMeta(
     'parentId',
   );
@@ -219,6 +241,8 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
   @override
   List<GeneratedColumn> get $columns => [
     id,
+    uid,
+    dirty,
     parentId,
     title,
     description,
@@ -252,6 +276,18 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
     final data = instance.toColumns(true);
     if (data.containsKey('id')) {
       context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('uid')) {
+      context.handle(
+        _uidMeta,
+        uid.isAcceptableOrUnknown(data['uid']!, _uidMeta),
+      );
+    }
+    if (data.containsKey('dirty')) {
+      context.handle(
+        _dirtyMeta,
+        dirty.isAcceptableOrUnknown(data['dirty']!, _dirtyMeta),
+      );
     }
     if (data.containsKey('parent_id')) {
       context.handle(
@@ -382,6 +418,14 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
         DriftSqlType.int,
         data['${effectivePrefix}id'],
       )!,
+      uid: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}uid'],
+      ),
+      dirty: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}dirty'],
+      )!,
       parentId: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}parent_id'],
@@ -482,6 +526,13 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
 
 class Task extends DataClass implements Insertable<Task> {
   final int id;
+
+  /// The task's identity across devices — see [SyncTombstones] for why the
+  /// local [id] cannot be it.
+  final String? uid;
+
+  /// Changed here and not yet sent. See [SyncTombstones].
+  final bool dirty;
   final int? parentId;
   final String title;
   final String? description;
@@ -517,6 +568,8 @@ class Task extends DataClass implements Insertable<Task> {
   final DateTime updatedAt;
   const Task({
     required this.id,
+    this.uid,
+    required this.dirty,
     this.parentId,
     required this.title,
     this.description,
@@ -540,6 +593,10 @@ class Task extends DataClass implements Insertable<Task> {
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
+    if (!nullToAbsent || uid != null) {
+      map['uid'] = Variable<String>(uid);
+    }
+    map['dirty'] = Variable<bool>(dirty);
     if (!nullToAbsent || parentId != null) {
       map['parent_id'] = Variable<int>(parentId);
     }
@@ -600,6 +657,8 @@ class Task extends DataClass implements Insertable<Task> {
   TasksCompanion toCompanion(bool nullToAbsent) {
     return TasksCompanion(
       id: Value(id),
+      uid: uid == null && nullToAbsent ? const Value.absent() : Value(uid),
+      dirty: Value(dirty),
       parentId: parentId == null && nullToAbsent
           ? const Value.absent()
           : Value(parentId),
@@ -654,6 +713,8 @@ class Task extends DataClass implements Insertable<Task> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return Task(
       id: serializer.fromJson<int>(json['id']),
+      uid: serializer.fromJson<String?>(json['uid']),
+      dirty: serializer.fromJson<bool>(json['dirty']),
       parentId: serializer.fromJson<int?>(json['parentId']),
       title: serializer.fromJson<String>(json['title']),
       description: serializer.fromJson<String?>(json['description']),
@@ -689,6 +750,8 @@ class Task extends DataClass implements Insertable<Task> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
+      'uid': serializer.toJson<String?>(uid),
+      'dirty': serializer.toJson<bool>(dirty),
       'parentId': serializer.toJson<int?>(parentId),
       'title': serializer.toJson<String>(title),
       'description': serializer.toJson<String?>(description),
@@ -718,6 +781,8 @@ class Task extends DataClass implements Insertable<Task> {
 
   Task copyWith({
     int? id,
+    Value<String?> uid = const Value.absent(),
+    bool? dirty,
     Value<int?> parentId = const Value.absent(),
     String? title,
     Value<String?> description = const Value.absent(),
@@ -738,6 +803,8 @@ class Task extends DataClass implements Insertable<Task> {
     DateTime? updatedAt,
   }) => Task(
     id: id ?? this.id,
+    uid: uid.present ? uid.value : this.uid,
+    dirty: dirty ?? this.dirty,
     parentId: parentId.present ? parentId.value : this.parentId,
     title: title ?? this.title,
     description: description.present ? description.value : this.description,
@@ -772,6 +839,8 @@ class Task extends DataClass implements Insertable<Task> {
   Task copyWithCompanion(TasksCompanion data) {
     return Task(
       id: data.id.present ? data.id.value : this.id,
+      uid: data.uid.present ? data.uid.value : this.uid,
+      dirty: data.dirty.present ? data.dirty.value : this.dirty,
       parentId: data.parentId.present ? data.parentId.value : this.parentId,
       title: data.title.present ? data.title.value : this.title,
       description: data.description.present
@@ -819,6 +888,8 @@ class Task extends DataClass implements Insertable<Task> {
   String toString() {
     return (StringBuffer('Task(')
           ..write('id: $id, ')
+          ..write('uid: $uid, ')
+          ..write('dirty: $dirty, ')
           ..write('parentId: $parentId, ')
           ..write('title: $title, ')
           ..write('description: $description, ')
@@ -842,8 +913,10 @@ class Task extends DataClass implements Insertable<Task> {
   }
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     id,
+    uid,
+    dirty,
     parentId,
     title,
     description,
@@ -862,12 +935,14 @@ class Task extends DataClass implements Insertable<Task> {
     startDate,
     createdAt,
     updatedAt,
-  );
+  ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is Task &&
           other.id == this.id &&
+          other.uid == this.uid &&
+          other.dirty == this.dirty &&
           other.parentId == this.parentId &&
           other.title == this.title &&
           other.description == this.description &&
@@ -890,6 +965,8 @@ class Task extends DataClass implements Insertable<Task> {
 
 class TasksCompanion extends UpdateCompanion<Task> {
   final Value<int> id;
+  final Value<String?> uid;
+  final Value<bool> dirty;
   final Value<int?> parentId;
   final Value<String> title;
   final Value<String?> description;
@@ -910,6 +987,8 @@ class TasksCompanion extends UpdateCompanion<Task> {
   final Value<DateTime> updatedAt;
   const TasksCompanion({
     this.id = const Value.absent(),
+    this.uid = const Value.absent(),
+    this.dirty = const Value.absent(),
     this.parentId = const Value.absent(),
     this.title = const Value.absent(),
     this.description = const Value.absent(),
@@ -931,6 +1010,8 @@ class TasksCompanion extends UpdateCompanion<Task> {
   });
   TasksCompanion.insert({
     this.id = const Value.absent(),
+    this.uid = const Value.absent(),
+    this.dirty = const Value.absent(),
     this.parentId = const Value.absent(),
     required String title,
     this.description = const Value.absent(),
@@ -952,6 +1033,8 @@ class TasksCompanion extends UpdateCompanion<Task> {
   }) : title = Value(title);
   static Insertable<Task> custom({
     Expression<int>? id,
+    Expression<String>? uid,
+    Expression<bool>? dirty,
     Expression<int>? parentId,
     Expression<String>? title,
     Expression<String>? description,
@@ -973,6 +1056,8 @@ class TasksCompanion extends UpdateCompanion<Task> {
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
+      if (uid != null) 'uid': uid,
+      if (dirty != null) 'dirty': dirty,
       if (parentId != null) 'parent_id': parentId,
       if (title != null) 'title': title,
       if (description != null) 'description': description,
@@ -998,6 +1083,8 @@ class TasksCompanion extends UpdateCompanion<Task> {
 
   TasksCompanion copyWith({
     Value<int>? id,
+    Value<String?>? uid,
+    Value<bool>? dirty,
     Value<int?>? parentId,
     Value<String>? title,
     Value<String?>? description,
@@ -1019,6 +1106,8 @@ class TasksCompanion extends UpdateCompanion<Task> {
   }) {
     return TasksCompanion(
       id: id ?? this.id,
+      uid: uid ?? this.uid,
+      dirty: dirty ?? this.dirty,
       parentId: parentId ?? this.parentId,
       title: title ?? this.title,
       description: description ?? this.description,
@@ -1046,6 +1135,12 @@ class TasksCompanion extends UpdateCompanion<Task> {
     final map = <String, Expression>{};
     if (id.present) {
       map['id'] = Variable<int>(id.value);
+    }
+    if (uid.present) {
+      map['uid'] = Variable<String>(uid.value);
+    }
+    if (dirty.present) {
+      map['dirty'] = Variable<bool>(dirty.value);
     }
     if (parentId.present) {
       map['parent_id'] = Variable<int>(parentId.value);
@@ -1116,6 +1211,8 @@ class TasksCompanion extends UpdateCompanion<Task> {
   String toString() {
     return (StringBuffer('TasksCompanion(')
           ..write('id: $id, ')
+          ..write('uid: $uid, ')
+          ..write('dirty: $dirty, ')
           ..write('parentId: $parentId, ')
           ..write('title: $title, ')
           ..write('description: $description, ')
@@ -1202,8 +1299,41 @@ class $TaskLogsTable extends TaskLogs with TableInfo<$TaskLogsTable, TaskLog> {
     type: DriftSqlType.double,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _dirtyMeta = const VerificationMeta('dirty');
   @override
-  List<GeneratedColumn> get $columns => [id, taskId, date, completed, value];
+  late final GeneratedColumn<bool> dirty = GeneratedColumn<bool>(
+    'dirty',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("dirty" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: Constant(DateTime.fromMillisecondsSinceEpoch(0)),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    taskId,
+    date,
+    completed,
+    value,
+    dirty,
+    updatedAt,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -1247,6 +1377,18 @@ class $TaskLogsTable extends TaskLogs with TableInfo<$TaskLogsTable, TaskLog> {
         value.isAcceptableOrUnknown(data['value']!, _valueMeta),
       );
     }
+    if (data.containsKey('dirty')) {
+      context.handle(
+        _dirtyMeta,
+        dirty.isAcceptableOrUnknown(data['dirty']!, _dirtyMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    }
     return context;
   }
 
@@ -1276,6 +1418,14 @@ class $TaskLogsTable extends TaskLogs with TableInfo<$TaskLogsTable, TaskLog> {
         DriftSqlType.double,
         data['${effectivePrefix}value'],
       ),
+      dirty: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}dirty'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
     );
   }
 
@@ -1288,15 +1438,38 @@ class $TaskLogsTable extends TaskLogs with TableInfo<$TaskLogsTable, TaskLog> {
 class TaskLog extends DataClass implements Insertable<TaskLog> {
   final int id;
   final int taskId;
+
+  /// The calendar day this row is about, as **local midnight**. Never an
+  /// instant: see the class comment, and [TasksDao.dayOf], which is the only
+  /// thing that writes it.
   final DateTime date;
   final bool completed;
   final double? value;
+
+  /// Changed here and not yet sent. See [SyncTombstones].
+  final bool dirty;
+
+  /// When the **device** last changed this row. Needed because the merge rule
+  /// compares edit times and a log had no notion of one.
+  ///
+  /// The default is a bare constant — the epoch — and that is not laziness.
+  /// SQLite refuses `ALTER TABLE ... ADD COLUMN` when the default is not
+  /// constant: `CURRENT_TIMESTAMP`, which is what drift emits for
+  /// `currentDateAndTime`, fails with "Cannot add a column with non-constant
+  /// default". Worse, it fails **only on a table that already has rows** — an
+  /// empty one accepts it — so the obvious spelling migrates a developer's
+  /// device and bricks every phone that has ever ticked a day. The v14
+  /// migration stamps the existing rows itself, and every write in [TasksDao]
+  /// passes a value, so the epoch is never what a row actually carries.
+  final DateTime updatedAt;
   const TaskLog({
     required this.id,
     required this.taskId,
     required this.date,
     required this.completed,
     this.value,
+    required this.dirty,
+    required this.updatedAt,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1308,6 +1481,8 @@ class TaskLog extends DataClass implements Insertable<TaskLog> {
     if (!nullToAbsent || value != null) {
       map['value'] = Variable<double>(value);
     }
+    map['dirty'] = Variable<bool>(dirty);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
     return map;
   }
 
@@ -1320,6 +1495,8 @@ class TaskLog extends DataClass implements Insertable<TaskLog> {
       value: value == null && nullToAbsent
           ? const Value.absent()
           : Value(value),
+      dirty: Value(dirty),
+      updatedAt: Value(updatedAt),
     );
   }
 
@@ -1334,6 +1511,8 @@ class TaskLog extends DataClass implements Insertable<TaskLog> {
       date: serializer.fromJson<DateTime>(json['date']),
       completed: serializer.fromJson<bool>(json['completed']),
       value: serializer.fromJson<double?>(json['value']),
+      dirty: serializer.fromJson<bool>(json['dirty']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
   }
   @override
@@ -1345,6 +1524,8 @@ class TaskLog extends DataClass implements Insertable<TaskLog> {
       'date': serializer.toJson<DateTime>(date),
       'completed': serializer.toJson<bool>(completed),
       'value': serializer.toJson<double?>(value),
+      'dirty': serializer.toJson<bool>(dirty),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
   }
 
@@ -1354,12 +1535,16 @@ class TaskLog extends DataClass implements Insertable<TaskLog> {
     DateTime? date,
     bool? completed,
     Value<double?> value = const Value.absent(),
+    bool? dirty,
+    DateTime? updatedAt,
   }) => TaskLog(
     id: id ?? this.id,
     taskId: taskId ?? this.taskId,
     date: date ?? this.date,
     completed: completed ?? this.completed,
     value: value.present ? value.value : this.value,
+    dirty: dirty ?? this.dirty,
+    updatedAt: updatedAt ?? this.updatedAt,
   );
   TaskLog copyWithCompanion(TaskLogsCompanion data) {
     return TaskLog(
@@ -1368,6 +1553,8 @@ class TaskLog extends DataClass implements Insertable<TaskLog> {
       date: data.date.present ? data.date.value : this.date,
       completed: data.completed.present ? data.completed.value : this.completed,
       value: data.value.present ? data.value.value : this.value,
+      dirty: data.dirty.present ? data.dirty.value : this.dirty,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
   }
 
@@ -1378,13 +1565,16 @@ class TaskLog extends DataClass implements Insertable<TaskLog> {
           ..write('taskId: $taskId, ')
           ..write('date: $date, ')
           ..write('completed: $completed, ')
-          ..write('value: $value')
+          ..write('value: $value, ')
+          ..write('dirty: $dirty, ')
+          ..write('updatedAt: $updatedAt')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, taskId, date, completed, value);
+  int get hashCode =>
+      Object.hash(id, taskId, date, completed, value, dirty, updatedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1393,7 +1583,9 @@ class TaskLog extends DataClass implements Insertable<TaskLog> {
           other.taskId == this.taskId &&
           other.date == this.date &&
           other.completed == this.completed &&
-          other.value == this.value);
+          other.value == this.value &&
+          other.dirty == this.dirty &&
+          other.updatedAt == this.updatedAt);
 }
 
 class TaskLogsCompanion extends UpdateCompanion<TaskLog> {
@@ -1402,12 +1594,16 @@ class TaskLogsCompanion extends UpdateCompanion<TaskLog> {
   final Value<DateTime> date;
   final Value<bool> completed;
   final Value<double?> value;
+  final Value<bool> dirty;
+  final Value<DateTime> updatedAt;
   const TaskLogsCompanion({
     this.id = const Value.absent(),
     this.taskId = const Value.absent(),
     this.date = const Value.absent(),
     this.completed = const Value.absent(),
     this.value = const Value.absent(),
+    this.dirty = const Value.absent(),
+    this.updatedAt = const Value.absent(),
   });
   TaskLogsCompanion.insert({
     this.id = const Value.absent(),
@@ -1415,6 +1611,8 @@ class TaskLogsCompanion extends UpdateCompanion<TaskLog> {
     required DateTime date,
     this.completed = const Value.absent(),
     this.value = const Value.absent(),
+    this.dirty = const Value.absent(),
+    this.updatedAt = const Value.absent(),
   }) : taskId = Value(taskId),
        date = Value(date);
   static Insertable<TaskLog> custom({
@@ -1423,6 +1621,8 @@ class TaskLogsCompanion extends UpdateCompanion<TaskLog> {
     Expression<DateTime>? date,
     Expression<bool>? completed,
     Expression<double>? value,
+    Expression<bool>? dirty,
+    Expression<DateTime>? updatedAt,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -1430,6 +1630,8 @@ class TaskLogsCompanion extends UpdateCompanion<TaskLog> {
       if (date != null) 'date': date,
       if (completed != null) 'completed': completed,
       if (value != null) 'value': value,
+      if (dirty != null) 'dirty': dirty,
+      if (updatedAt != null) 'updated_at': updatedAt,
     });
   }
 
@@ -1439,6 +1641,8 @@ class TaskLogsCompanion extends UpdateCompanion<TaskLog> {
     Value<DateTime>? date,
     Value<bool>? completed,
     Value<double?>? value,
+    Value<bool>? dirty,
+    Value<DateTime>? updatedAt,
   }) {
     return TaskLogsCompanion(
       id: id ?? this.id,
@@ -1446,6 +1650,8 @@ class TaskLogsCompanion extends UpdateCompanion<TaskLog> {
       date: date ?? this.date,
       completed: completed ?? this.completed,
       value: value ?? this.value,
+      dirty: dirty ?? this.dirty,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
@@ -1467,6 +1673,12 @@ class TaskLogsCompanion extends UpdateCompanion<TaskLog> {
     if (value.present) {
       map['value'] = Variable<double>(value.value);
     }
+    if (dirty.present) {
+      map['dirty'] = Variable<bool>(dirty.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
     return map;
   }
 
@@ -1477,7 +1689,9 @@ class TaskLogsCompanion extends UpdateCompanion<TaskLog> {
           ..write('taskId: $taskId, ')
           ..write('date: $date, ')
           ..write('completed: $completed, ')
-          ..write('value: $value')
+          ..write('value: $value, ')
+          ..write('dirty: $dirty, ')
+          ..write('updatedAt: $updatedAt')
           ..write(')'))
         .toString();
   }
@@ -2272,6 +2486,28 @@ class $DiaryEntriesTable extends DiaryEntries
       'PRIMARY KEY AUTOINCREMENT',
     ),
   );
+  static const VerificationMeta _uidMeta = const VerificationMeta('uid');
+  @override
+  late final GeneratedColumn<String> uid = GeneratedColumn<String>(
+    'uid',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _dirtyMeta = const VerificationMeta('dirty');
+  @override
+  late final GeneratedColumn<bool> dirty = GeneratedColumn<bool>(
+    'dirty',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("dirty" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
   static const VerificationMeta _titleMeta = const VerificationMeta('title');
   @override
   late final GeneratedColumn<String> title = GeneratedColumn<String>(
@@ -2365,6 +2601,8 @@ class $DiaryEntriesTable extends DiaryEntries
   @override
   List<GeneratedColumn> get $columns => [
     id,
+    uid,
+    dirty,
     title,
     body,
     coverImage,
@@ -2388,6 +2626,18 @@ class $DiaryEntriesTable extends DiaryEntries
     final data = instance.toColumns(true);
     if (data.containsKey('id')) {
       context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('uid')) {
+      context.handle(
+        _uidMeta,
+        uid.isAcceptableOrUnknown(data['uid']!, _uidMeta),
+      );
+    }
+    if (data.containsKey('dirty')) {
+      context.handle(
+        _dirtyMeta,
+        dirty.isAcceptableOrUnknown(data['dirty']!, _dirtyMeta),
+      );
     }
     if (data.containsKey('title')) {
       context.handle(
@@ -2444,6 +2694,14 @@ class $DiaryEntriesTable extends DiaryEntries
         DriftSqlType.int,
         data['${effectivePrefix}id'],
       )!,
+      uid: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}uid'],
+      ),
+      dirty: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}dirty'],
+      )!,
       title: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}title'],
@@ -2492,6 +2750,13 @@ class $DiaryEntriesTable extends DiaryEntries
 
 class DiaryEntry extends DataClass implements Insertable<DiaryEntry> {
   final int id;
+
+  /// The note's identity across devices — see [SyncTombstones] for why the
+  /// local [id] cannot be it.
+  final String? uid;
+
+  /// Changed here and not yet sent. See [SyncTombstones].
+  final bool dirty;
   final String title;
 
   /// The note's text as a Parchment (Quill.js) Delta, JSON-encoded. Plain text
@@ -2523,6 +2788,8 @@ class DiaryEntry extends DataClass implements Insertable<DiaryEntry> {
   final DateTime updatedAt;
   const DiaryEntry({
     required this.id,
+    this.uid,
+    required this.dirty,
     required this.title,
     required this.body,
     this.coverImage,
@@ -2536,6 +2803,10 @@ class DiaryEntry extends DataClass implements Insertable<DiaryEntry> {
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
+    if (!nullToAbsent || uid != null) {
+      map['uid'] = Variable<String>(uid);
+    }
+    map['dirty'] = Variable<bool>(dirty);
     map['title'] = Variable<String>(title);
     map['body'] = Variable<String>(body);
     if (!nullToAbsent || coverImage != null) {
@@ -2556,6 +2827,8 @@ class DiaryEntry extends DataClass implements Insertable<DiaryEntry> {
   DiaryEntriesCompanion toCompanion(bool nullToAbsent) {
     return DiaryEntriesCompanion(
       id: Value(id),
+      uid: uid == null && nullToAbsent ? const Value.absent() : Value(uid),
+      dirty: Value(dirty),
       title: Value(title),
       body: Value(body),
       coverImage: coverImage == null && nullToAbsent
@@ -2576,6 +2849,8 @@ class DiaryEntry extends DataClass implements Insertable<DiaryEntry> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return DiaryEntry(
       id: serializer.fromJson<int>(json['id']),
+      uid: serializer.fromJson<String?>(json['uid']),
+      dirty: serializer.fromJson<bool>(json['dirty']),
       title: serializer.fromJson<String>(json['title']),
       body: serializer.fromJson<String>(json['body']),
       coverImage: serializer.fromJson<String?>(json['coverImage']),
@@ -2593,6 +2868,8 @@ class DiaryEntry extends DataClass implements Insertable<DiaryEntry> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
+      'uid': serializer.toJson<String?>(uid),
+      'dirty': serializer.toJson<bool>(dirty),
       'title': serializer.toJson<String>(title),
       'body': serializer.toJson<String>(body),
       'coverImage': serializer.toJson<String?>(coverImage),
@@ -2608,6 +2885,8 @@ class DiaryEntry extends DataClass implements Insertable<DiaryEntry> {
 
   DiaryEntry copyWith({
     int? id,
+    Value<String?> uid = const Value.absent(),
+    bool? dirty,
     String? title,
     String? body,
     Value<String?> coverImage = const Value.absent(),
@@ -2618,6 +2897,8 @@ class DiaryEntry extends DataClass implements Insertable<DiaryEntry> {
     DateTime? updatedAt,
   }) => DiaryEntry(
     id: id ?? this.id,
+    uid: uid.present ? uid.value : this.uid,
+    dirty: dirty ?? this.dirty,
     title: title ?? this.title,
     body: body ?? this.body,
     coverImage: coverImage.present ? coverImage.value : this.coverImage,
@@ -2630,6 +2911,8 @@ class DiaryEntry extends DataClass implements Insertable<DiaryEntry> {
   DiaryEntry copyWithCompanion(DiaryEntriesCompanion data) {
     return DiaryEntry(
       id: data.id.present ? data.id.value : this.id,
+      uid: data.uid.present ? data.uid.value : this.uid,
+      dirty: data.dirty.present ? data.dirty.value : this.dirty,
       title: data.title.present ? data.title.value : this.title,
       body: data.body.present ? data.body.value : this.body,
       coverImage: data.coverImage.present
@@ -2649,6 +2932,8 @@ class DiaryEntry extends DataClass implements Insertable<DiaryEntry> {
   String toString() {
     return (StringBuffer('DiaryEntry(')
           ..write('id: $id, ')
+          ..write('uid: $uid, ')
+          ..write('dirty: $dirty, ')
           ..write('title: $title, ')
           ..write('body: $body, ')
           ..write('coverImage: $coverImage, ')
@@ -2664,6 +2949,8 @@ class DiaryEntry extends DataClass implements Insertable<DiaryEntry> {
   @override
   int get hashCode => Object.hash(
     id,
+    uid,
+    dirty,
     title,
     body,
     coverImage,
@@ -2678,6 +2965,8 @@ class DiaryEntry extends DataClass implements Insertable<DiaryEntry> {
       identical(this, other) ||
       (other is DiaryEntry &&
           other.id == this.id &&
+          other.uid == this.uid &&
+          other.dirty == this.dirty &&
           other.title == this.title &&
           other.body == this.body &&
           other.coverImage == this.coverImage &&
@@ -2690,6 +2979,8 @@ class DiaryEntry extends DataClass implements Insertable<DiaryEntry> {
 
 class DiaryEntriesCompanion extends UpdateCompanion<DiaryEntry> {
   final Value<int> id;
+  final Value<String?> uid;
+  final Value<bool> dirty;
   final Value<String> title;
   final Value<String> body;
   final Value<String?> coverImage;
@@ -2700,6 +2991,8 @@ class DiaryEntriesCompanion extends UpdateCompanion<DiaryEntry> {
   final Value<DateTime> updatedAt;
   const DiaryEntriesCompanion({
     this.id = const Value.absent(),
+    this.uid = const Value.absent(),
+    this.dirty = const Value.absent(),
     this.title = const Value.absent(),
     this.body = const Value.absent(),
     this.coverImage = const Value.absent(),
@@ -2711,6 +3004,8 @@ class DiaryEntriesCompanion extends UpdateCompanion<DiaryEntry> {
   });
   DiaryEntriesCompanion.insert({
     this.id = const Value.absent(),
+    this.uid = const Value.absent(),
+    this.dirty = const Value.absent(),
     this.title = const Value.absent(),
     this.body = const Value.absent(),
     this.coverImage = const Value.absent(),
@@ -2722,6 +3017,8 @@ class DiaryEntriesCompanion extends UpdateCompanion<DiaryEntry> {
   });
   static Insertable<DiaryEntry> custom({
     Expression<int>? id,
+    Expression<String>? uid,
+    Expression<bool>? dirty,
     Expression<String>? title,
     Expression<String>? body,
     Expression<String>? coverImage,
@@ -2733,6 +3030,8 @@ class DiaryEntriesCompanion extends UpdateCompanion<DiaryEntry> {
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
+      if (uid != null) 'uid': uid,
+      if (dirty != null) 'dirty': dirty,
       if (title != null) 'title': title,
       if (body != null) 'body': body,
       if (coverImage != null) 'cover_image': coverImage,
@@ -2746,6 +3045,8 @@ class DiaryEntriesCompanion extends UpdateCompanion<DiaryEntry> {
 
   DiaryEntriesCompanion copyWith({
     Value<int>? id,
+    Value<String?>? uid,
+    Value<bool>? dirty,
     Value<String>? title,
     Value<String>? body,
     Value<String?>? coverImage,
@@ -2757,6 +3058,8 @@ class DiaryEntriesCompanion extends UpdateCompanion<DiaryEntry> {
   }) {
     return DiaryEntriesCompanion(
       id: id ?? this.id,
+      uid: uid ?? this.uid,
+      dirty: dirty ?? this.dirty,
       title: title ?? this.title,
       body: body ?? this.body,
       coverImage: coverImage ?? this.coverImage,
@@ -2773,6 +3076,12 @@ class DiaryEntriesCompanion extends UpdateCompanion<DiaryEntry> {
     final map = <String, Expression>{};
     if (id.present) {
       map['id'] = Variable<int>(id.value);
+    }
+    if (uid.present) {
+      map['uid'] = Variable<String>(uid.value);
+    }
+    if (dirty.present) {
+      map['dirty'] = Variable<bool>(dirty.value);
     }
     if (title.present) {
       map['title'] = Variable<String>(title.value);
@@ -2807,6 +3116,8 @@ class DiaryEntriesCompanion extends UpdateCompanion<DiaryEntry> {
   String toString() {
     return (StringBuffer('DiaryEntriesCompanion(')
           ..write('id: $id, ')
+          ..write('uid: $uid, ')
+          ..write('dirty: $dirty, ')
           ..write('title: $title, ')
           ..write('body: $body, ')
           ..write('coverImage: $coverImage, ')
@@ -2839,6 +3150,28 @@ class $NoteMoodsTable extends NoteMoods
       'PRIMARY KEY AUTOINCREMENT',
     ),
   );
+  static const VerificationMeta _uidMeta = const VerificationMeta('uid');
+  @override
+  late final GeneratedColumn<String> uid = GeneratedColumn<String>(
+    'uid',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _dirtyMeta = const VerificationMeta('dirty');
+  @override
+  late final GeneratedColumn<bool> dirty = GeneratedColumn<bool>(
+    'dirty',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("dirty" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
   static const VerificationMeta _nameMeta = const VerificationMeta('name');
   @override
   late final GeneratedColumn<String> name = GeneratedColumn<String>(
@@ -2870,7 +3203,14 @@ class $NoteMoodsTable extends NoteMoods
     defaultValue: currentDateAndTime,
   );
   @override
-  List<GeneratedColumn> get $columns => [id, name, emoji, createdAt];
+  List<GeneratedColumn> get $columns => [
+    id,
+    uid,
+    dirty,
+    name,
+    emoji,
+    createdAt,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -2885,6 +3225,18 @@ class $NoteMoodsTable extends NoteMoods
     final data = instance.toColumns(true);
     if (data.containsKey('id')) {
       context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('uid')) {
+      context.handle(
+        _uidMeta,
+        uid.isAcceptableOrUnknown(data['uid']!, _uidMeta),
+      );
+    }
+    if (data.containsKey('dirty')) {
+      context.handle(
+        _dirtyMeta,
+        dirty.isAcceptableOrUnknown(data['dirty']!, _dirtyMeta),
+      );
     }
     if (data.containsKey('name')) {
       context.handle(
@@ -2921,6 +3273,14 @@ class $NoteMoodsTable extends NoteMoods
         DriftSqlType.int,
         data['${effectivePrefix}id'],
       )!,
+      uid: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}uid'],
+      ),
+      dirty: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}dirty'],
+      )!,
       name: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}name'],
@@ -2945,6 +3305,15 @@ class $NoteMoodsTable extends NoteMoods
 class NoteMood extends DataClass implements Insertable<NoteMood> {
   final int id;
 
+  /// Identity across devices. The eight seeded moods carry the **fixed** uids
+  /// of `defaultNoteMoods` rather than fresh ones: the seeding runs separately
+  /// on every device, so without that two phones would send the same eight
+  /// moods up as sixteen rows.
+  final String? uid;
+
+  /// Changed here and not yet sent. See [SyncTombstones].
+  final bool dirty;
+
   /// What the chip says — "Спокойствие". Unique in practice, not by constraint:
   /// the picker refuses a name it already holds, which is a better place to say
   /// so than a failed insert.
@@ -2957,6 +3326,8 @@ class NoteMood extends DataClass implements Insertable<NoteMood> {
   final DateTime createdAt;
   const NoteMood({
     required this.id,
+    this.uid,
+    required this.dirty,
     required this.name,
     required this.emoji,
     required this.createdAt,
@@ -2965,6 +3336,10 @@ class NoteMood extends DataClass implements Insertable<NoteMood> {
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
+    if (!nullToAbsent || uid != null) {
+      map['uid'] = Variable<String>(uid);
+    }
+    map['dirty'] = Variable<bool>(dirty);
     map['name'] = Variable<String>(name);
     map['emoji'] = Variable<String>(emoji);
     map['created_at'] = Variable<DateTime>(createdAt);
@@ -2974,6 +3349,8 @@ class NoteMood extends DataClass implements Insertable<NoteMood> {
   NoteMoodsCompanion toCompanion(bool nullToAbsent) {
     return NoteMoodsCompanion(
       id: Value(id),
+      uid: uid == null && nullToAbsent ? const Value.absent() : Value(uid),
+      dirty: Value(dirty),
       name: Value(name),
       emoji: Value(emoji),
       createdAt: Value(createdAt),
@@ -2987,6 +3364,8 @@ class NoteMood extends DataClass implements Insertable<NoteMood> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return NoteMood(
       id: serializer.fromJson<int>(json['id']),
+      uid: serializer.fromJson<String?>(json['uid']),
+      dirty: serializer.fromJson<bool>(json['dirty']),
       name: serializer.fromJson<String>(json['name']),
       emoji: serializer.fromJson<String>(json['emoji']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
@@ -2997,6 +3376,8 @@ class NoteMood extends DataClass implements Insertable<NoteMood> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
+      'uid': serializer.toJson<String?>(uid),
+      'dirty': serializer.toJson<bool>(dirty),
       'name': serializer.toJson<String>(name),
       'emoji': serializer.toJson<String>(emoji),
       'createdAt': serializer.toJson<DateTime>(createdAt),
@@ -3005,11 +3386,15 @@ class NoteMood extends DataClass implements Insertable<NoteMood> {
 
   NoteMood copyWith({
     int? id,
+    Value<String?> uid = const Value.absent(),
+    bool? dirty,
     String? name,
     String? emoji,
     DateTime? createdAt,
   }) => NoteMood(
     id: id ?? this.id,
+    uid: uid.present ? uid.value : this.uid,
+    dirty: dirty ?? this.dirty,
     name: name ?? this.name,
     emoji: emoji ?? this.emoji,
     createdAt: createdAt ?? this.createdAt,
@@ -3017,6 +3402,8 @@ class NoteMood extends DataClass implements Insertable<NoteMood> {
   NoteMood copyWithCompanion(NoteMoodsCompanion data) {
     return NoteMood(
       id: data.id.present ? data.id.value : this.id,
+      uid: data.uid.present ? data.uid.value : this.uid,
+      dirty: data.dirty.present ? data.dirty.value : this.dirty,
       name: data.name.present ? data.name.value : this.name,
       emoji: data.emoji.present ? data.emoji.value : this.emoji,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
@@ -3027,6 +3414,8 @@ class NoteMood extends DataClass implements Insertable<NoteMood> {
   String toString() {
     return (StringBuffer('NoteMood(')
           ..write('id: $id, ')
+          ..write('uid: $uid, ')
+          ..write('dirty: $dirty, ')
           ..write('name: $name, ')
           ..write('emoji: $emoji, ')
           ..write('createdAt: $createdAt')
@@ -3035,12 +3424,14 @@ class NoteMood extends DataClass implements Insertable<NoteMood> {
   }
 
   @override
-  int get hashCode => Object.hash(id, name, emoji, createdAt);
+  int get hashCode => Object.hash(id, uid, dirty, name, emoji, createdAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is NoteMood &&
           other.id == this.id &&
+          other.uid == this.uid &&
+          other.dirty == this.dirty &&
           other.name == this.name &&
           other.emoji == this.emoji &&
           other.createdAt == this.createdAt);
@@ -3048,17 +3439,23 @@ class NoteMood extends DataClass implements Insertable<NoteMood> {
 
 class NoteMoodsCompanion extends UpdateCompanion<NoteMood> {
   final Value<int> id;
+  final Value<String?> uid;
+  final Value<bool> dirty;
   final Value<String> name;
   final Value<String> emoji;
   final Value<DateTime> createdAt;
   const NoteMoodsCompanion({
     this.id = const Value.absent(),
+    this.uid = const Value.absent(),
+    this.dirty = const Value.absent(),
     this.name = const Value.absent(),
     this.emoji = const Value.absent(),
     this.createdAt = const Value.absent(),
   });
   NoteMoodsCompanion.insert({
     this.id = const Value.absent(),
+    this.uid = const Value.absent(),
+    this.dirty = const Value.absent(),
     required String name,
     required String emoji,
     this.createdAt = const Value.absent(),
@@ -3066,12 +3463,16 @@ class NoteMoodsCompanion extends UpdateCompanion<NoteMood> {
        emoji = Value(emoji);
   static Insertable<NoteMood> custom({
     Expression<int>? id,
+    Expression<String>? uid,
+    Expression<bool>? dirty,
     Expression<String>? name,
     Expression<String>? emoji,
     Expression<DateTime>? createdAt,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
+      if (uid != null) 'uid': uid,
+      if (dirty != null) 'dirty': dirty,
       if (name != null) 'name': name,
       if (emoji != null) 'emoji': emoji,
       if (createdAt != null) 'created_at': createdAt,
@@ -3080,12 +3481,16 @@ class NoteMoodsCompanion extends UpdateCompanion<NoteMood> {
 
   NoteMoodsCompanion copyWith({
     Value<int>? id,
+    Value<String?>? uid,
+    Value<bool>? dirty,
     Value<String>? name,
     Value<String>? emoji,
     Value<DateTime>? createdAt,
   }) {
     return NoteMoodsCompanion(
       id: id ?? this.id,
+      uid: uid ?? this.uid,
+      dirty: dirty ?? this.dirty,
       name: name ?? this.name,
       emoji: emoji ?? this.emoji,
       createdAt: createdAt ?? this.createdAt,
@@ -3097,6 +3502,12 @@ class NoteMoodsCompanion extends UpdateCompanion<NoteMood> {
     final map = <String, Expression>{};
     if (id.present) {
       map['id'] = Variable<int>(id.value);
+    }
+    if (uid.present) {
+      map['uid'] = Variable<String>(uid.value);
+    }
+    if (dirty.present) {
+      map['dirty'] = Variable<bool>(dirty.value);
     }
     if (name.present) {
       map['name'] = Variable<String>(name.value);
@@ -3114,6 +3525,8 @@ class NoteMoodsCompanion extends UpdateCompanion<NoteMood> {
   String toString() {
     return (StringBuffer('NoteMoodsCompanion(')
           ..write('id: $id, ')
+          ..write('uid: $uid, ')
+          ..write('dirty: $dirty, ')
           ..write('name: $name, ')
           ..write('emoji: $emoji, ')
           ..write('createdAt: $createdAt')
@@ -3140,6 +3553,28 @@ class $NoteTagsTable extends NoteTags with TableInfo<$NoteTagsTable, NoteTag> {
       'PRIMARY KEY AUTOINCREMENT',
     ),
   );
+  static const VerificationMeta _uidMeta = const VerificationMeta('uid');
+  @override
+  late final GeneratedColumn<String> uid = GeneratedColumn<String>(
+    'uid',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _dirtyMeta = const VerificationMeta('dirty');
+  @override
+  late final GeneratedColumn<bool> dirty = GeneratedColumn<bool>(
+    'dirty',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("dirty" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
   static const VerificationMeta _nameMeta = const VerificationMeta('name');
   @override
   late final GeneratedColumn<String> name = GeneratedColumn<String>(
@@ -3149,16 +3584,17 @@ class $NoteTagsTable extends NoteTags with TableInfo<$NoteTagsTable, NoteTag> {
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
-  static const VerificationMeta _colorValueMeta = const VerificationMeta(
-    'colorValue',
+  static const VerificationMeta _colorKeyMeta = const VerificationMeta(
+    'colorKey',
   );
   @override
-  late final GeneratedColumn<int> colorValue = GeneratedColumn<int>(
-    'color_value',
+  late final GeneratedColumn<String> colorKey = GeneratedColumn<String>(
+    'color_key',
     aliasedName,
     false,
-    type: DriftSqlType.int,
-    requiredDuringInsert: true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('violet'),
   );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
@@ -3173,7 +3609,14 @@ class $NoteTagsTable extends NoteTags with TableInfo<$NoteTagsTable, NoteTag> {
     defaultValue: currentDateAndTime,
   );
   @override
-  List<GeneratedColumn> get $columns => [id, name, colorValue, createdAt];
+  List<GeneratedColumn> get $columns => [
+    id,
+    uid,
+    dirty,
+    name,
+    colorKey,
+    createdAt,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -3189,6 +3632,18 @@ class $NoteTagsTable extends NoteTags with TableInfo<$NoteTagsTable, NoteTag> {
     if (data.containsKey('id')) {
       context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
     }
+    if (data.containsKey('uid')) {
+      context.handle(
+        _uidMeta,
+        uid.isAcceptableOrUnknown(data['uid']!, _uidMeta),
+      );
+    }
+    if (data.containsKey('dirty')) {
+      context.handle(
+        _dirtyMeta,
+        dirty.isAcceptableOrUnknown(data['dirty']!, _dirtyMeta),
+      );
+    }
     if (data.containsKey('name')) {
       context.handle(
         _nameMeta,
@@ -3197,13 +3652,11 @@ class $NoteTagsTable extends NoteTags with TableInfo<$NoteTagsTable, NoteTag> {
     } else if (isInserting) {
       context.missing(_nameMeta);
     }
-    if (data.containsKey('color_value')) {
+    if (data.containsKey('color_key')) {
       context.handle(
-        _colorValueMeta,
-        colorValue.isAcceptableOrUnknown(data['color_value']!, _colorValueMeta),
+        _colorKeyMeta,
+        colorKey.isAcceptableOrUnknown(data['color_key']!, _colorKeyMeta),
       );
-    } else if (isInserting) {
-      context.missing(_colorValueMeta);
     }
     if (data.containsKey('created_at')) {
       context.handle(
@@ -3224,13 +3677,21 @@ class $NoteTagsTable extends NoteTags with TableInfo<$NoteTagsTable, NoteTag> {
         DriftSqlType.int,
         data['${effectivePrefix}id'],
       )!,
+      uid: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}uid'],
+      ),
+      dirty: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}dirty'],
+      )!,
       name: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}name'],
       )!,
-      colorValue: attachedDatabase.typeMapping.read(
-        DriftSqlType.int,
-        data['${effectivePrefix}color_value'],
+      colorKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}color_key'],
       )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
@@ -3248,27 +3709,51 @@ class $NoteTagsTable extends NoteTags with TableInfo<$NoteTagsTable, NoteTag> {
 class NoteTag extends DataClass implements Insertable<NoteTag> {
   final int id;
 
+  /// Identity across devices. See [SyncTombstones].
+  final String? uid;
+
+  /// Changed here and not yet sent. See [SyncTombstones].
+  final bool dirty;
+
   /// Without the leading "#" — that is punctuation the chip draws, not part of
   /// the name, and storing it would put it into every comparison.
   final String name;
 
-  /// One of the accents of `taskPalette`, stored the way a task stores its
-  /// colour: `Color(v)`. Not nullable — a tag with no colour has nothing to be
-  /// recognised by.
-  final int colorValue;
+  /// Which family of `taskPalette` the chip is painted in — `violet`, `red`,
+  /// and so on. A **key**, not the colour itself.
+  ///
+  /// A task stores its raw ARGB, and a tag used to as well. The difference is
+  /// that a tag travels: it goes to the server and comes back on another phone,
+  /// possibly running a different version of the app. A number like
+  /// `0xFF8B7CF6` only means something inside one version of one palette —
+  /// exactly the reason task icons stopped storing a Material code point in
+  /// migration v10 and started storing a key into `taskIcons`.
+  ///
+  /// With a key the design can be repainted and every tag ever written follows,
+  /// everywhere, with no migration. It also sidesteps a mismatch that only
+  /// showed up at the boundary: an opaque ARGB begins with `0xFF` and so
+  /// exceeds 2^31, which SQLite stored without comment and Postgres `integer`
+  /// refused outright.
+  final String colorKey;
   final DateTime createdAt;
   const NoteTag({
     required this.id,
+    this.uid,
+    required this.dirty,
     required this.name,
-    required this.colorValue,
+    required this.colorKey,
     required this.createdAt,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
+    if (!nullToAbsent || uid != null) {
+      map['uid'] = Variable<String>(uid);
+    }
+    map['dirty'] = Variable<bool>(dirty);
     map['name'] = Variable<String>(name);
-    map['color_value'] = Variable<int>(colorValue);
+    map['color_key'] = Variable<String>(colorKey);
     map['created_at'] = Variable<DateTime>(createdAt);
     return map;
   }
@@ -3276,8 +3761,10 @@ class NoteTag extends DataClass implements Insertable<NoteTag> {
   NoteTagsCompanion toCompanion(bool nullToAbsent) {
     return NoteTagsCompanion(
       id: Value(id),
+      uid: uid == null && nullToAbsent ? const Value.absent() : Value(uid),
+      dirty: Value(dirty),
       name: Value(name),
-      colorValue: Value(colorValue),
+      colorKey: Value(colorKey),
       createdAt: Value(createdAt),
     );
   }
@@ -3289,8 +3776,10 @@ class NoteTag extends DataClass implements Insertable<NoteTag> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return NoteTag(
       id: serializer.fromJson<int>(json['id']),
+      uid: serializer.fromJson<String?>(json['uid']),
+      dirty: serializer.fromJson<bool>(json['dirty']),
       name: serializer.fromJson<String>(json['name']),
-      colorValue: serializer.fromJson<int>(json['colorValue']),
+      colorKey: serializer.fromJson<String>(json['colorKey']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
     );
   }
@@ -3299,30 +3788,36 @@ class NoteTag extends DataClass implements Insertable<NoteTag> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
+      'uid': serializer.toJson<String?>(uid),
+      'dirty': serializer.toJson<bool>(dirty),
       'name': serializer.toJson<String>(name),
-      'colorValue': serializer.toJson<int>(colorValue),
+      'colorKey': serializer.toJson<String>(colorKey),
       'createdAt': serializer.toJson<DateTime>(createdAt),
     };
   }
 
   NoteTag copyWith({
     int? id,
+    Value<String?> uid = const Value.absent(),
+    bool? dirty,
     String? name,
-    int? colorValue,
+    String? colorKey,
     DateTime? createdAt,
   }) => NoteTag(
     id: id ?? this.id,
+    uid: uid.present ? uid.value : this.uid,
+    dirty: dirty ?? this.dirty,
     name: name ?? this.name,
-    colorValue: colorValue ?? this.colorValue,
+    colorKey: colorKey ?? this.colorKey,
     createdAt: createdAt ?? this.createdAt,
   );
   NoteTag copyWithCompanion(NoteTagsCompanion data) {
     return NoteTag(
       id: data.id.present ? data.id.value : this.id,
+      uid: data.uid.present ? data.uid.value : this.uid,
+      dirty: data.dirty.present ? data.dirty.value : this.dirty,
       name: data.name.present ? data.name.value : this.name,
-      colorValue: data.colorValue.present
-          ? data.colorValue.value
-          : this.colorValue,
+      colorKey: data.colorKey.present ? data.colorKey.value : this.colorKey,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
     );
   }
@@ -3331,67 +3826,84 @@ class NoteTag extends DataClass implements Insertable<NoteTag> {
   String toString() {
     return (StringBuffer('NoteTag(')
           ..write('id: $id, ')
+          ..write('uid: $uid, ')
+          ..write('dirty: $dirty, ')
           ..write('name: $name, ')
-          ..write('colorValue: $colorValue, ')
+          ..write('colorKey: $colorKey, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, name, colorValue, createdAt);
+  int get hashCode => Object.hash(id, uid, dirty, name, colorKey, createdAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is NoteTag &&
           other.id == this.id &&
+          other.uid == this.uid &&
+          other.dirty == this.dirty &&
           other.name == this.name &&
-          other.colorValue == this.colorValue &&
+          other.colorKey == this.colorKey &&
           other.createdAt == this.createdAt);
 }
 
 class NoteTagsCompanion extends UpdateCompanion<NoteTag> {
   final Value<int> id;
+  final Value<String?> uid;
+  final Value<bool> dirty;
   final Value<String> name;
-  final Value<int> colorValue;
+  final Value<String> colorKey;
   final Value<DateTime> createdAt;
   const NoteTagsCompanion({
     this.id = const Value.absent(),
+    this.uid = const Value.absent(),
+    this.dirty = const Value.absent(),
     this.name = const Value.absent(),
-    this.colorValue = const Value.absent(),
+    this.colorKey = const Value.absent(),
     this.createdAt = const Value.absent(),
   });
   NoteTagsCompanion.insert({
     this.id = const Value.absent(),
+    this.uid = const Value.absent(),
+    this.dirty = const Value.absent(),
     required String name,
-    required int colorValue,
+    this.colorKey = const Value.absent(),
     this.createdAt = const Value.absent(),
-  }) : name = Value(name),
-       colorValue = Value(colorValue);
+  }) : name = Value(name);
   static Insertable<NoteTag> custom({
     Expression<int>? id,
+    Expression<String>? uid,
+    Expression<bool>? dirty,
     Expression<String>? name,
-    Expression<int>? colorValue,
+    Expression<String>? colorKey,
     Expression<DateTime>? createdAt,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
+      if (uid != null) 'uid': uid,
+      if (dirty != null) 'dirty': dirty,
       if (name != null) 'name': name,
-      if (colorValue != null) 'color_value': colorValue,
+      if (colorKey != null) 'color_key': colorKey,
       if (createdAt != null) 'created_at': createdAt,
     });
   }
 
   NoteTagsCompanion copyWith({
     Value<int>? id,
+    Value<String?>? uid,
+    Value<bool>? dirty,
     Value<String>? name,
-    Value<int>? colorValue,
+    Value<String>? colorKey,
     Value<DateTime>? createdAt,
   }) {
     return NoteTagsCompanion(
       id: id ?? this.id,
+      uid: uid ?? this.uid,
+      dirty: dirty ?? this.dirty,
       name: name ?? this.name,
-      colorValue: colorValue ?? this.colorValue,
+      colorKey: colorKey ?? this.colorKey,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -3402,11 +3914,17 @@ class NoteTagsCompanion extends UpdateCompanion<NoteTag> {
     if (id.present) {
       map['id'] = Variable<int>(id.value);
     }
+    if (uid.present) {
+      map['uid'] = Variable<String>(uid.value);
+    }
+    if (dirty.present) {
+      map['dirty'] = Variable<bool>(dirty.value);
+    }
     if (name.present) {
       map['name'] = Variable<String>(name.value);
     }
-    if (colorValue.present) {
-      map['color_value'] = Variable<int>(colorValue.value);
+    if (colorKey.present) {
+      map['color_key'] = Variable<String>(colorKey.value);
     }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
@@ -3418,8 +3936,10 @@ class NoteTagsCompanion extends UpdateCompanion<NoteTag> {
   String toString() {
     return (StringBuffer('NoteTagsCompanion(')
           ..write('id: $id, ')
+          ..write('uid: $uid, ')
+          ..write('dirty: $dirty, ')
           ..write('name: $name, ')
-          ..write('colorValue: $colorValue, ')
+          ..write('colorKey: $colorKey, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -3868,6 +4388,290 @@ class DiaryEntryTagsCompanion extends UpdateCompanion<DiaryEntryTag> {
   }
 }
 
+class $SyncTombstonesTable extends SyncTombstones
+    with TableInfo<$SyncTombstonesTable, SyncTombstone> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SyncTombstonesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _sourceTableMeta = const VerificationMeta(
+    'sourceTable',
+  );
+  @override
+  late final GeneratedColumn<String> sourceTable = GeneratedColumn<String>(
+    'source_table',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _uidMeta = const VerificationMeta('uid');
+  @override
+  late final GeneratedColumn<String> uid = GeneratedColumn<String>(
+    'uid',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _deletedAtMeta = const VerificationMeta(
+    'deletedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> deletedAt = GeneratedColumn<DateTime>(
+    'deleted_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [sourceTable, uid, deletedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sync_tombstones';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SyncTombstone> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('source_table')) {
+      context.handle(
+        _sourceTableMeta,
+        sourceTable.isAcceptableOrUnknown(
+          data['source_table']!,
+          _sourceTableMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceTableMeta);
+    }
+    if (data.containsKey('uid')) {
+      context.handle(
+        _uidMeta,
+        uid.isAcceptableOrUnknown(data['uid']!, _uidMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_uidMeta);
+    }
+    if (data.containsKey('deleted_at')) {
+      context.handle(
+        _deletedAtMeta,
+        deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {sourceTable, uid};
+  @override
+  SyncTombstone map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SyncTombstone(
+      sourceTable: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_table'],
+      )!,
+      uid: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}uid'],
+      )!,
+      deletedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}deleted_at'],
+      )!,
+    );
+  }
+
+  @override
+  $SyncTombstonesTable createAlias(String alias) {
+    return $SyncTombstonesTable(attachedDatabase, alias);
+  }
+}
+
+class SyncTombstone extends DataClass implements Insertable<SyncTombstone> {
+  /// Which table the row was in — `diary_entries`, `note_moods`, `note_tags`,
+  /// `tasks`. A plain string: this table outlives the row it describes, so it
+  /// cannot point at one. Not `tableName`, which is drift's own on [Table].
+  ///
+  /// It is also the name the **server** knows the table by, because that is
+  /// what the push uses to address the row it has to mark deleted. The two
+  /// spellings have to stay the same on both sides.
+  final String sourceTable;
+
+  /// The [DiaryEntries.uid] or [Tasks.uid] of what was deleted.
+  ///
+  /// [TaskLogs] never appears here, and that is a property of the app rather
+  /// than an omission: the only statement in it that deletes a log deletes
+  /// every log of one task, so a log's disappearance is always already told by
+  /// its task's. On the server the same fact is a foreign key.
+  final String uid;
+  final DateTime deletedAt;
+  const SyncTombstone({
+    required this.sourceTable,
+    required this.uid,
+    required this.deletedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['source_table'] = Variable<String>(sourceTable);
+    map['uid'] = Variable<String>(uid);
+    map['deleted_at'] = Variable<DateTime>(deletedAt);
+    return map;
+  }
+
+  SyncTombstonesCompanion toCompanion(bool nullToAbsent) {
+    return SyncTombstonesCompanion(
+      sourceTable: Value(sourceTable),
+      uid: Value(uid),
+      deletedAt: Value(deletedAt),
+    );
+  }
+
+  factory SyncTombstone.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SyncTombstone(
+      sourceTable: serializer.fromJson<String>(json['sourceTable']),
+      uid: serializer.fromJson<String>(json['uid']),
+      deletedAt: serializer.fromJson<DateTime>(json['deletedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'sourceTable': serializer.toJson<String>(sourceTable),
+      'uid': serializer.toJson<String>(uid),
+      'deletedAt': serializer.toJson<DateTime>(deletedAt),
+    };
+  }
+
+  SyncTombstone copyWith({
+    String? sourceTable,
+    String? uid,
+    DateTime? deletedAt,
+  }) => SyncTombstone(
+    sourceTable: sourceTable ?? this.sourceTable,
+    uid: uid ?? this.uid,
+    deletedAt: deletedAt ?? this.deletedAt,
+  );
+  SyncTombstone copyWithCompanion(SyncTombstonesCompanion data) {
+    return SyncTombstone(
+      sourceTable: data.sourceTable.present
+          ? data.sourceTable.value
+          : this.sourceTable,
+      uid: data.uid.present ? data.uid.value : this.uid,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncTombstone(')
+          ..write('sourceTable: $sourceTable, ')
+          ..write('uid: $uid, ')
+          ..write('deletedAt: $deletedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(sourceTable, uid, deletedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SyncTombstone &&
+          other.sourceTable == this.sourceTable &&
+          other.uid == this.uid &&
+          other.deletedAt == this.deletedAt);
+}
+
+class SyncTombstonesCompanion extends UpdateCompanion<SyncTombstone> {
+  final Value<String> sourceTable;
+  final Value<String> uid;
+  final Value<DateTime> deletedAt;
+  final Value<int> rowid;
+  const SyncTombstonesCompanion({
+    this.sourceTable = const Value.absent(),
+    this.uid = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SyncTombstonesCompanion.insert({
+    required String sourceTable,
+    required String uid,
+    this.deletedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : sourceTable = Value(sourceTable),
+       uid = Value(uid);
+  static Insertable<SyncTombstone> custom({
+    Expression<String>? sourceTable,
+    Expression<String>? uid,
+    Expression<DateTime>? deletedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (sourceTable != null) 'source_table': sourceTable,
+      if (uid != null) 'uid': uid,
+      if (deletedAt != null) 'deleted_at': deletedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SyncTombstonesCompanion copyWith({
+    Value<String>? sourceTable,
+    Value<String>? uid,
+    Value<DateTime>? deletedAt,
+    Value<int>? rowid,
+  }) {
+    return SyncTombstonesCompanion(
+      sourceTable: sourceTable ?? this.sourceTable,
+      uid: uid ?? this.uid,
+      deletedAt: deletedAt ?? this.deletedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (sourceTable.present) {
+      map['source_table'] = Variable<String>(sourceTable.value);
+    }
+    if (uid.present) {
+      map['uid'] = Variable<String>(uid.value);
+    }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncTombstonesCompanion(')
+          ..write('sourceTable: $sourceTable, ')
+          ..write('uid: $uid, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -3882,6 +4686,27 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     this,
   );
   late final $DiaryEntryTagsTable diaryEntryTags = $DiaryEntryTagsTable(this);
+  late final $SyncTombstonesTable syncTombstones = $SyncTombstonesTable(this);
+  late final Index tasksUid = Index(
+    'tasks_uid',
+    'CREATE UNIQUE INDEX tasks_uid ON tasks (uid)',
+  );
+  late final Index taskLogsTaskDay = Index(
+    'task_logs_task_day',
+    'CREATE UNIQUE INDEX task_logs_task_day ON task_logs (task_id, date)',
+  );
+  late final Index diaryEntriesUid = Index(
+    'diary_entries_uid',
+    'CREATE UNIQUE INDEX diary_entries_uid ON diary_entries (uid)',
+  );
+  late final Index noteMoodsUid = Index(
+    'note_moods_uid',
+    'CREATE UNIQUE INDEX note_moods_uid ON note_moods (uid)',
+  );
+  late final Index noteTagsUid = Index(
+    'note_tags_uid',
+    'CREATE UNIQUE INDEX note_tags_uid ON note_tags (uid)',
+  );
   late final TasksDao tasksDao = TasksDao(this as AppDatabase);
   late final EventsDao eventsDao = EventsDao(this as AppDatabase);
   late final DiaryDao diaryDao = DiaryDao(this as AppDatabase);
@@ -3899,12 +4724,20 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     noteTags,
     diaryEntryMoods,
     diaryEntryTags,
+    syncTombstones,
+    tasksUid,
+    taskLogsTaskDay,
+    diaryEntriesUid,
+    noteMoodsUid,
+    noteTagsUid,
   ];
 }
 
 typedef $$TasksTableCreateCompanionBuilder =
     TasksCompanion Function({
       Value<int> id,
+      Value<String?> uid,
+      Value<bool> dirty,
       Value<int?> parentId,
       required String title,
       Value<String?> description,
@@ -3927,6 +4760,8 @@ typedef $$TasksTableCreateCompanionBuilder =
 typedef $$TasksTableUpdateCompanionBuilder =
     TasksCompanion Function({
       Value<int> id,
+      Value<String?> uid,
+      Value<bool> dirty,
       Value<int?> parentId,
       Value<String> title,
       Value<String?> description,
@@ -4016,6 +4851,16 @@ class $$TasksTableFilterComposer extends Composer<_$AppDatabase, $TasksTable> {
   });
   ColumnFilters<int> get id => $composableBuilder(
     column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get dirty => $composableBuilder(
+    column: $table.dirty,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -4195,6 +5040,16 @@ class $$TasksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get dirty => $composableBuilder(
+    column: $table.dirty,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get title => $composableBuilder(
     column: $table.title,
     builder: (column) => ColumnOrderings(column),
@@ -4315,6 +5170,12 @@ class $$TasksTableAnnotationComposer
   });
   GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get uid =>
+      $composableBuilder(column: $table.uid, builder: (column) => column);
+
+  GeneratedColumn<bool> get dirty =>
+      $composableBuilder(column: $table.dirty, builder: (column) => column);
 
   GeneratedColumn<String> get title =>
       $composableBuilder(column: $table.title, builder: (column) => column);
@@ -4498,6 +5359,8 @@ class $$TasksTableTableManager
           updateCompanionCallback:
               ({
                 Value<int> id = const Value.absent(),
+                Value<String?> uid = const Value.absent(),
+                Value<bool> dirty = const Value.absent(),
                 Value<int?> parentId = const Value.absent(),
                 Value<String> title = const Value.absent(),
                 Value<String?> description = const Value.absent(),
@@ -4518,6 +5381,8 @@ class $$TasksTableTableManager
                 Value<DateTime> updatedAt = const Value.absent(),
               }) => TasksCompanion(
                 id: id,
+                uid: uid,
+                dirty: dirty,
                 parentId: parentId,
                 title: title,
                 description: description,
@@ -4540,6 +5405,8 @@ class $$TasksTableTableManager
           createCompanionCallback:
               ({
                 Value<int> id = const Value.absent(),
+                Value<String?> uid = const Value.absent(),
+                Value<bool> dirty = const Value.absent(),
                 Value<int?> parentId = const Value.absent(),
                 required String title,
                 Value<String?> description = const Value.absent(),
@@ -4560,6 +5427,8 @@ class $$TasksTableTableManager
                 Value<DateTime> updatedAt = const Value.absent(),
               }) => TasksCompanion.insert(
                 id: id,
+                uid: uid,
+                dirty: dirty,
                 parentId: parentId,
                 title: title,
                 description: description,
@@ -4702,6 +5571,8 @@ typedef $$TaskLogsTableCreateCompanionBuilder =
       required DateTime date,
       Value<bool> completed,
       Value<double?> value,
+      Value<bool> dirty,
+      Value<DateTime> updatedAt,
     });
 typedef $$TaskLogsTableUpdateCompanionBuilder =
     TaskLogsCompanion Function({
@@ -4710,6 +5581,8 @@ typedef $$TaskLogsTableUpdateCompanionBuilder =
       Value<DateTime> date,
       Value<bool> completed,
       Value<double?> value,
+      Value<bool> dirty,
+      Value<DateTime> updatedAt,
     });
 
 final class $$TaskLogsTableReferences
@@ -4760,6 +5633,16 @@ class $$TaskLogsTableFilterComposer
 
   ColumnFilters<double> get value => $composableBuilder(
     column: $table.value,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get dirty => $composableBuilder(
+    column: $table.dirty,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -4816,6 +5699,16 @@ class $$TaskLogsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get dirty => $composableBuilder(
+    column: $table.dirty,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$TasksTableOrderingComposer get taskId {
     final $$TasksTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -4860,6 +5753,12 @@ class $$TaskLogsTableAnnotationComposer
 
   GeneratedColumn<double> get value =>
       $composableBuilder(column: $table.value, builder: (column) => column);
+
+  GeneratedColumn<bool> get dirty =>
+      $composableBuilder(column: $table.dirty, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
 
   $$TasksTableAnnotationComposer get taskId {
     final $$TasksTableAnnotationComposer composer = $composerBuilder(
@@ -4918,12 +5817,16 @@ class $$TaskLogsTableTableManager
                 Value<DateTime> date = const Value.absent(),
                 Value<bool> completed = const Value.absent(),
                 Value<double?> value = const Value.absent(),
+                Value<bool> dirty = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
               }) => TaskLogsCompanion(
                 id: id,
                 taskId: taskId,
                 date: date,
                 completed: completed,
                 value: value,
+                dirty: dirty,
+                updatedAt: updatedAt,
               ),
           createCompanionCallback:
               ({
@@ -4932,12 +5835,16 @@ class $$TaskLogsTableTableManager
                 required DateTime date,
                 Value<bool> completed = const Value.absent(),
                 Value<double?> value = const Value.absent(),
+                Value<bool> dirty = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
               }) => TaskLogsCompanion.insert(
                 id: id,
                 taskId: taskId,
                 date: date,
                 completed: completed,
                 value: value,
+                dirty: dirty,
+                updatedAt: updatedAt,
               ),
           withReferenceMapper: (p0) => p0
               .map(
@@ -5532,6 +6439,8 @@ typedef $$EventsTableProcessedTableManager =
 typedef $$DiaryEntriesTableCreateCompanionBuilder =
     DiaryEntriesCompanion Function({
       Value<int> id,
+      Value<String?> uid,
+      Value<bool> dirty,
       Value<String> title,
       Value<String> body,
       Value<String?> coverImage,
@@ -5544,6 +6453,8 @@ typedef $$DiaryEntriesTableCreateCompanionBuilder =
 typedef $$DiaryEntriesTableUpdateCompanionBuilder =
     DiaryEntriesCompanion Function({
       Value<int> id,
+      Value<String?> uid,
+      Value<bool> dirty,
       Value<String> title,
       Value<String> body,
       Value<String?> coverImage,
@@ -5608,6 +6519,16 @@ class $$DiaryEntriesTableFilterComposer
   });
   ColumnFilters<int> get id => $composableBuilder(
     column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get dirty => $composableBuilder(
+    column: $table.dirty,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -5717,6 +6638,16 @@ class $$DiaryEntriesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get dirty => $composableBuilder(
+    column: $table.dirty,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get title => $composableBuilder(
     column: $table.title,
     builder: (column) => ColumnOrderings(column),
@@ -5769,6 +6700,12 @@ class $$DiaryEntriesTableAnnotationComposer
   });
   GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get uid =>
+      $composableBuilder(column: $table.uid, builder: (column) => column);
+
+  GeneratedColumn<bool> get dirty =>
+      $composableBuilder(column: $table.dirty, builder: (column) => column);
 
   GeneratedColumn<String> get title =>
       $composableBuilder(column: $table.title, builder: (column) => column);
@@ -5881,6 +6818,8 @@ class $$DiaryEntriesTableTableManager
           updateCompanionCallback:
               ({
                 Value<int> id = const Value.absent(),
+                Value<String?> uid = const Value.absent(),
+                Value<bool> dirty = const Value.absent(),
                 Value<String> title = const Value.absent(),
                 Value<String> body = const Value.absent(),
                 Value<String?> coverImage = const Value.absent(),
@@ -5891,6 +6830,8 @@ class $$DiaryEntriesTableTableManager
                 Value<DateTime> updatedAt = const Value.absent(),
               }) => DiaryEntriesCompanion(
                 id: id,
+                uid: uid,
+                dirty: dirty,
                 title: title,
                 body: body,
                 coverImage: coverImage,
@@ -5903,6 +6844,8 @@ class $$DiaryEntriesTableTableManager
           createCompanionCallback:
               ({
                 Value<int> id = const Value.absent(),
+                Value<String?> uid = const Value.absent(),
+                Value<bool> dirty = const Value.absent(),
                 Value<String> title = const Value.absent(),
                 Value<String> body = const Value.absent(),
                 Value<String?> coverImage = const Value.absent(),
@@ -5913,6 +6856,8 @@ class $$DiaryEntriesTableTableManager
                 Value<DateTime> updatedAt = const Value.absent(),
               }) => DiaryEntriesCompanion.insert(
                 id: id,
+                uid: uid,
+                dirty: dirty,
                 title: title,
                 body: body,
                 coverImage: coverImage,
@@ -6011,6 +6956,8 @@ typedef $$DiaryEntriesTableProcessedTableManager =
 typedef $$NoteMoodsTableCreateCompanionBuilder =
     NoteMoodsCompanion Function({
       Value<int> id,
+      Value<String?> uid,
+      Value<bool> dirty,
       required String name,
       required String emoji,
       Value<DateTime> createdAt,
@@ -6018,6 +6965,8 @@ typedef $$NoteMoodsTableCreateCompanionBuilder =
 typedef $$NoteMoodsTableUpdateCompanionBuilder =
     NoteMoodsCompanion Function({
       Value<int> id,
+      Value<String?> uid,
+      Value<bool> dirty,
       Value<String> name,
       Value<String> emoji,
       Value<DateTime> createdAt,
@@ -6059,6 +7008,16 @@ class $$NoteMoodsTableFilterComposer
   });
   ColumnFilters<int> get id => $composableBuilder(
     column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get dirty => $composableBuilder(
+    column: $table.dirty,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -6117,6 +7076,16 @@ class $$NoteMoodsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get dirty => $composableBuilder(
+    column: $table.dirty,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get name => $composableBuilder(
     column: $table.name,
     builder: (column) => ColumnOrderings(column),
@@ -6144,6 +7113,12 @@ class $$NoteMoodsTableAnnotationComposer
   });
   GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get uid =>
+      $composableBuilder(column: $table.uid, builder: (column) => column);
+
+  GeneratedColumn<bool> get dirty =>
+      $composableBuilder(column: $table.dirty, builder: (column) => column);
 
   GeneratedColumn<String> get name =>
       $composableBuilder(column: $table.name, builder: (column) => column);
@@ -6209,11 +7184,15 @@ class $$NoteMoodsTableTableManager
           updateCompanionCallback:
               ({
                 Value<int> id = const Value.absent(),
+                Value<String?> uid = const Value.absent(),
+                Value<bool> dirty = const Value.absent(),
                 Value<String> name = const Value.absent(),
                 Value<String> emoji = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
               }) => NoteMoodsCompanion(
                 id: id,
+                uid: uid,
+                dirty: dirty,
                 name: name,
                 emoji: emoji,
                 createdAt: createdAt,
@@ -6221,11 +7200,15 @@ class $$NoteMoodsTableTableManager
           createCompanionCallback:
               ({
                 Value<int> id = const Value.absent(),
+                Value<String?> uid = const Value.absent(),
+                Value<bool> dirty = const Value.absent(),
                 required String name,
                 required String emoji,
                 Value<DateTime> createdAt = const Value.absent(),
               }) => NoteMoodsCompanion.insert(
                 id: id,
+                uid: uid,
+                dirty: dirty,
                 name: name,
                 emoji: emoji,
                 createdAt: createdAt,
@@ -6291,15 +7274,19 @@ typedef $$NoteMoodsTableProcessedTableManager =
 typedef $$NoteTagsTableCreateCompanionBuilder =
     NoteTagsCompanion Function({
       Value<int> id,
+      Value<String?> uid,
+      Value<bool> dirty,
       required String name,
-      required int colorValue,
+      Value<String> colorKey,
       Value<DateTime> createdAt,
     });
 typedef $$NoteTagsTableUpdateCompanionBuilder =
     NoteTagsCompanion Function({
       Value<int> id,
+      Value<String?> uid,
+      Value<bool> dirty,
       Value<String> name,
-      Value<int> colorValue,
+      Value<String> colorKey,
       Value<DateTime> createdAt,
     });
 
@@ -6340,13 +7327,23 @@ class $$NoteTagsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get dirty => $composableBuilder(
+    column: $table.dirty,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<String> get name => $composableBuilder(
     column: $table.name,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<int> get colorValue => $composableBuilder(
-    column: $table.colorValue,
+  ColumnFilters<String> get colorKey => $composableBuilder(
+    column: $table.colorKey,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -6395,13 +7392,23 @@ class $$NoteTagsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get dirty => $composableBuilder(
+    column: $table.dirty,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get name => $composableBuilder(
     column: $table.name,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<int> get colorValue => $composableBuilder(
-    column: $table.colorValue,
+  ColumnOrderings<String> get colorKey => $composableBuilder(
+    column: $table.colorKey,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -6423,13 +7430,17 @@ class $$NoteTagsTableAnnotationComposer
   GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
 
+  GeneratedColumn<String> get uid =>
+      $composableBuilder(column: $table.uid, builder: (column) => column);
+
+  GeneratedColumn<bool> get dirty =>
+      $composableBuilder(column: $table.dirty, builder: (column) => column);
+
   GeneratedColumn<String> get name =>
       $composableBuilder(column: $table.name, builder: (column) => column);
 
-  GeneratedColumn<int> get colorValue => $composableBuilder(
-    column: $table.colorValue,
-    builder: (column) => column,
-  );
+  GeneratedColumn<String> get colorKey =>
+      $composableBuilder(column: $table.colorKey, builder: (column) => column);
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -6489,25 +7500,33 @@ class $$NoteTagsTableTableManager
           updateCompanionCallback:
               ({
                 Value<int> id = const Value.absent(),
+                Value<String?> uid = const Value.absent(),
+                Value<bool> dirty = const Value.absent(),
                 Value<String> name = const Value.absent(),
-                Value<int> colorValue = const Value.absent(),
+                Value<String> colorKey = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
               }) => NoteTagsCompanion(
                 id: id,
+                uid: uid,
+                dirty: dirty,
                 name: name,
-                colorValue: colorValue,
+                colorKey: colorKey,
                 createdAt: createdAt,
               ),
           createCompanionCallback:
               ({
                 Value<int> id = const Value.absent(),
+                Value<String?> uid = const Value.absent(),
+                Value<bool> dirty = const Value.absent(),
                 required String name,
-                required int colorValue,
+                Value<String> colorKey = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
               }) => NoteTagsCompanion.insert(
                 id: id,
+                uid: uid,
+                dirty: dirty,
                 name: name,
-                colorValue: colorValue,
+                colorKey: colorKey,
                 createdAt: createdAt,
               ),
           withReferenceMapper: (p0) => p0
@@ -7278,6 +8297,172 @@ typedef $$DiaryEntryTagsTableProcessedTableManager =
       DiaryEntryTag,
       PrefetchHooks Function({bool entryId, bool tagId})
     >;
+typedef $$SyncTombstonesTableCreateCompanionBuilder =
+    SyncTombstonesCompanion Function({
+      required String sourceTable,
+      required String uid,
+      Value<DateTime> deletedAt,
+      Value<int> rowid,
+    });
+typedef $$SyncTombstonesTableUpdateCompanionBuilder =
+    SyncTombstonesCompanion Function({
+      Value<String> sourceTable,
+      Value<String> uid,
+      Value<DateTime> deletedAt,
+      Value<int> rowid,
+    });
+
+class $$SyncTombstonesTableFilterComposer
+    extends Composer<_$AppDatabase, $SyncTombstonesTable> {
+  $$SyncTombstonesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get sourceTable => $composableBuilder(
+    column: $table.sourceTable,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SyncTombstonesTableOrderingComposer
+    extends Composer<_$AppDatabase, $SyncTombstonesTable> {
+  $$SyncTombstonesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get sourceTable => $composableBuilder(
+    column: $table.sourceTable,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SyncTombstonesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SyncTombstonesTable> {
+  $$SyncTombstonesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get sourceTable => $composableBuilder(
+    column: $table.sourceTable,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get uid =>
+      $composableBuilder(column: $table.uid, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+}
+
+class $$SyncTombstonesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SyncTombstonesTable,
+          SyncTombstone,
+          $$SyncTombstonesTableFilterComposer,
+          $$SyncTombstonesTableOrderingComposer,
+          $$SyncTombstonesTableAnnotationComposer,
+          $$SyncTombstonesTableCreateCompanionBuilder,
+          $$SyncTombstonesTableUpdateCompanionBuilder,
+          (
+            SyncTombstone,
+            BaseReferences<_$AppDatabase, $SyncTombstonesTable, SyncTombstone>,
+          ),
+          SyncTombstone,
+          PrefetchHooks Function()
+        > {
+  $$SyncTombstonesTableTableManager(
+    _$AppDatabase db,
+    $SyncTombstonesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SyncTombstonesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SyncTombstonesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SyncTombstonesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> sourceTable = const Value.absent(),
+                Value<String> uid = const Value.absent(),
+                Value<DateTime> deletedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SyncTombstonesCompanion(
+                sourceTable: sourceTable,
+                uid: uid,
+                deletedAt: deletedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String sourceTable,
+                required String uid,
+                Value<DateTime> deletedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SyncTombstonesCompanion.insert(
+                sourceTable: sourceTable,
+                uid: uid,
+                deletedAt: deletedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SyncTombstonesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SyncTombstonesTable,
+      SyncTombstone,
+      $$SyncTombstonesTableFilterComposer,
+      $$SyncTombstonesTableOrderingComposer,
+      $$SyncTombstonesTableAnnotationComposer,
+      $$SyncTombstonesTableCreateCompanionBuilder,
+      $$SyncTombstonesTableUpdateCompanionBuilder,
+      (
+        SyncTombstone,
+        BaseReferences<_$AppDatabase, $SyncTombstonesTable, SyncTombstone>,
+      ),
+      SyncTombstone,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -7300,4 +8485,6 @@ class $AppDatabaseManager {
       $$DiaryEntryMoodsTableTableManager(_db, _db.diaryEntryMoods);
   $$DiaryEntryTagsTableTableManager get diaryEntryTags =>
       $$DiaryEntryTagsTableTableManager(_db, _db.diaryEntryTags);
+  $$SyncTombstonesTableTableManager get syncTombstones =>
+      $$SyncTombstonesTableTableManager(_db, _db.syncTombstones);
 }

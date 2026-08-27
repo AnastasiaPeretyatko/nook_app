@@ -30,6 +30,7 @@ dependencies:
   fleather: ^1.27.0
   image_picker: ^1.1.2
   path_provider: ^2.1.5
+  supabase_flutter: ^2.17.2
 
 dev_dependencies:
   flutter_test:

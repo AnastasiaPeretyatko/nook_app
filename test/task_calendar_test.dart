@@ -31,6 +31,7 @@ Task _task({
   int? scheduledTimeMinutes,
   TaskStatus status = TaskStatus.active,
 }) => Task(
+  dirty: false,
   id: id,
   title: title,
   status: status,
@@ -59,6 +60,7 @@ Widget _calendar(List<Task> tasks) => ProviderScope(
         calendarFormat: CalendarFormat.month,
         onDaySelected: (_, _) {},
         onPageChanged: (_) {},
+        onTodayPressed: () {},
       ),
     ),
   ),

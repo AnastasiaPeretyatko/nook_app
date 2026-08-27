@@ -22,7 +22,7 @@ Task _task({
   required int start,
   int? end,
   int? colorValue,
-}) => Task(
+}) => Task(dirty: false, 
   id: id,
   title: title,
   status: TaskStatus.active,

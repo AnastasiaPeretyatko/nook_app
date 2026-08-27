@@ -37,13 +37,21 @@ DiaryEntry _note({
   status: status,
   createdAt: _day,
   updatedAt: _day,
+  // These rows never reach a database, let alone a server; the screen draws
+  // them and nothing here reads the sync marks.
+  dirty: false,
 );
 
 NoteMood _mood(int id, String emoji, String name) =>
-    NoteMood(id: id, emoji: emoji, name: name, createdAt: _day);
+    NoteMood(id: id, emoji: emoji, name: name, createdAt: _day, dirty: false);
 
-NoteTag _tag(int id, String name) =>
-    NoteTag(id: id, name: name, colorValue: 0xFF8B7CF6, createdAt: _day);
+NoteTag _tag(int id, String name) => NoteTag(
+  id: id,
+  name: name,
+  colorKey: 'violet',
+  createdAt: _day,
+  dirty: false,
+);
 
 late SharedPreferences _prefs;
 

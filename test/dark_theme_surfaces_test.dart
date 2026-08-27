@@ -19,7 +19,7 @@ final _today = DateTime(_now.year, _now.month, _now.day);
 
 final _dark = buildAppTheme(const Color(0xFFD33243), Brightness.dark);
 
-final _task = Task(
+final _task = Task(dirty: false, 
   id: 1,
   title: 'Read book',
   status: TaskStatus.active,

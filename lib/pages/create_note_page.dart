@@ -58,6 +58,18 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
   late final FleatherController _body;
   final _bodyFocus = FocusNode();
 
+  /// The form's own scroll, handed to the editor as well as to the list.
+  ///
+  /// The editor is `scrollable: false`, so it never scrolls anything itself —
+  /// but Fleather's `bringIntoView` reaches for its scroll controller without
+  /// asking whether it has one, and that is the first thing every drag of a
+  /// selection handle calls. Left to build its own, the controller is attached
+  /// to no scroll view, `position` throws, and the drag dies before the
+  /// selection is ever moved: the caret can be placed by tapping and cannot be
+  /// dragged. Sharing the list's controller both stops the throw and makes the
+  /// call mean what it says — the page scrolls to keep the caret in sight.
+  final _scroll = ScrollController();
+
   /// The note's cover, or null if it has none. A freshly picked one is still
   /// where the picker left it — the system's own cache — and copying it into the
   /// app's documents belongs to saving, so a new note that is abandoned leaves
@@ -161,6 +173,7 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
     _titleController.dispose();
     _body.dispose();
     _bodyFocus.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -371,6 +384,7 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
             ),
             Expanded(
               child: ListView(
+                controller: _scroll,
                 padding: const EdgeInsets.fromLTRB(_inset, 8, _inset, 24),
                 children: [
                   _CoverPicker(
@@ -405,7 +419,11 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
                     thickness: 1,
                     color: theme.colorScheme.outlineVariant,
                   ),
-                  _NoteBody(controller: _body, focusNode: _bodyFocus),
+                  _NoteBody(
+                    controller: _body,
+                    focusNode: _bodyFocus,
+                    scrollController: _scroll,
+                  ),
                   if (_attachments.isNotEmpty)
                     _AttachmentsStrip(
                       paths: [
@@ -791,10 +809,18 @@ class _Attachment extends StatelessWidget {
 /// its own either, so the hint is drawn behind it while the document is empty,
 /// and a minimum height gives the empty note an area to tap.
 class _NoteBody extends StatelessWidget {
-  const _NoteBody({required this.controller, required this.focusNode});
+  const _NoteBody({
+    required this.controller,
+    required this.focusNode,
+    required this.scrollController,
+  });
 
   final FleatherController controller;
   final FocusNode focusNode;
+
+  /// The page's scroll, not one of the editor's own — see
+  /// [_CreateNotePageState._scroll].
+  final ScrollController scrollController;
 
   static const double _minHeight = 220;
 
@@ -836,6 +862,7 @@ class _NoteBody extends StatelessWidget {
                       controller: controller,
                       focusNode: focusNode,
                       scrollable: false,
+                      scrollController: scrollController,
                       padding: EdgeInsets.zero,
                     ),
                   ),

@@ -7,6 +7,7 @@ mixin _$TasksDaoMixin on DatabaseAccessor<AppDatabase> {
   $TasksTable get tasks => attachedDatabase.tasks;
   $TaskLogsTable get taskLogs => attachedDatabase.taskLogs;
   $TaskSessionsTable get taskSessions => attachedDatabase.taskSessions;
+  $SyncTombstonesTable get syncTombstones => attachedDatabase.syncTombstones;
   TasksDaoManager get managers => TasksDaoManager(this);
 }
 
@@ -19,4 +20,9 @@ class TasksDaoManager {
       $$TaskLogsTableTableManager(_db.attachedDatabase, _db.taskLogs);
   $$TaskSessionsTableTableManager get taskSessions =>
       $$TaskSessionsTableTableManager(_db.attachedDatabase, _db.taskSessions);
+  $$SyncTombstonesTableTableManager get syncTombstones =>
+      $$SyncTombstonesTableTableManager(
+        _db.attachedDatabase,
+        _db.syncTombstones,
+      );
 }

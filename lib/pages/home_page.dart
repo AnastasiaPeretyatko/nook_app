@@ -28,8 +28,34 @@ class _HomePageState extends State<HomePage> {
   static const _flingVelocity = 400.0;
 
   DateTime _focusedDay = DateTime.now();
-  DateTime _selectedDay = DateTime.now();
+  DateTime _selectedDay = _dayOnly(DateTime.now());
   CalendarFormat _calendarFormat = CalendarFormat.week;
+
+  /// The day of [day], as local midnight — the one spelling of "which day is
+  /// showing" this screen keeps.
+  ///
+  /// Needed because the three places [_selectedDay] is written do **not** agree
+  /// on what a `DateTime` is: the field started life as `DateTime.now()`,
+  /// `table_calendar` hands `onDaySelected` a **UTC** midnight, and
+  /// [_changeSelectedDay] builds a local one. All three mean the same day and
+  /// compare as three different values.
+  ///
+  /// That matters in the one place the value is used *as a value* rather than as
+  /// a date: `DayScheduleSection` keys its `AnimatedSwitcher` on it and works out
+  /// which way to slide by comparing it against the previous one. So tapping
+  /// today's own date in the calendar read as a change and played a full
+  /// backwards day-change animation for a day that had not changed — and tapping
+  /// versus swiping onto the same day opened two `logsForDateProvider` streams
+  /// for it, the family being keyed by this too.
+  ///
+  /// Reading `year`/`month`/`day` off a UTC value gives its UTC components,
+  /// which for a calendar cell are exactly the date printed in it.
+  ///
+  /// Nothing downstream ever depended on the time: `recurrence.dart` strips it on
+  /// every comparison and `TasksDao.dayOf` folds a log onto its day on the way
+  /// into the database.
+  static DateTime _dayOnly(DateTime day) =>
+      DateTime(day.year, day.month, day.day);
 
   double _handleDragDelta = 0;
 
@@ -46,6 +72,15 @@ class _HomePageState extends State<HomePage> {
         _selectedDay.day + deltaDays,
       );
       _focusedDay = _selectedDay;
+    });
+  }
+
+  void _goToToday() {
+    final today = _dayOnly(DateTime.now());
+    if (_selectedDay == today && _focusedDay == today) return;
+    setState(() {
+      _selectedDay = today;
+      _focusedDay = today;
     });
   }
 
@@ -106,13 +141,14 @@ class _HomePageState extends State<HomePage> {
                 calendarFormat: _calendarFormat,
                 onDaySelected: (selectedDay, focusedDay) {
                   setState(() {
-                    _selectedDay = selectedDay;
+                    _selectedDay = _dayOnly(selectedDay);
                     _focusedDay = focusedDay;
                   });
                 },
                 onPageChanged: (focusedDay) {
                   _focusedDay = focusedDay;
                 },
+                onTodayPressed: _goToToday,
               ),
             ),
             const SizedBox(height: 16),

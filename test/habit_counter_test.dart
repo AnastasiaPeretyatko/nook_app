@@ -4,12 +4,16 @@ import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/utils/tracking.dart';
 import 'package:todo_app/widgets/habits/habits_grid.dart';
 
+/// Any moment at all: these tests never read a log's edit time. It exists
+/// because the sync needs one and the column is therefore not nullable.
+final _fixtureStamp = DateTime(2026, 1, 1);
+
 final _now = DateTime.now();
 final _today = DateTime(_now.year, _now.month, _now.day);
 final _monday = _today.subtract(Duration(days: _today.weekday - 1 + 7));
 final _days = List.generate(14, (i) => _monday.add(Duration(days: i)));
 
-Task _counterHabit({double? target}) => Task(
+Task _counterHabit({double? target}) => Task(dirty: false, 
   id: 1,
   title: 'Вода',
   status: TaskStatus.active,
@@ -22,7 +26,7 @@ Task _counterHabit({double? target}) => Task(
   updatedAt: _today,
 );
 
-TaskLog _log({required double count, bool completed = false}) => TaskLog(
+TaskLog _log({required double count, bool completed = false}) => TaskLog(dirty: false, updatedAt: _fixtureStamp, 
   id: 1,
   taskId: 1,
   date: _today,

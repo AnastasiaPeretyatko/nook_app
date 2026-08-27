@@ -62,7 +62,13 @@ Future<void> _pumpSettings(
   await tester.pumpAndSettle();
 }
 
-Finder _switch() => find.byType(SwitchListTile);
+/// The reminders switch specifically.
+///
+/// Named, not "the only `SwitchListTile` on the screen" — it is that again now
+/// that syncing has a screen of its own, but it has already stopped being it
+/// once, and `tester.widget<SwitchListTile>` throws on two matches rather than
+/// picking one.
+Finder _switch() => find.widgetWithText(SwitchListTile, 'Уведомления задач');
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

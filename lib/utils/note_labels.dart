@@ -17,7 +17,21 @@ import 'package:todo_app/utils/task_palette.dart';
 /// One entry of the seed list. Not a database row and not a widget's model —
 /// only what the migration needs to write one.
 class NoteMoodPreset {
-  const NoteMoodPreset(this.emoji, this.name);
+  const NoteMoodPreset(this.uid, this.emoji, this.name);
+
+  /// The identity this mood is written with, the same on every device.
+  ///
+  /// Written out rather than generated, and this is the whole point of it: the
+  /// seeding runs once per device, so a phone and a tablet each mint their own
+  /// eight moods. With fresh uuids the server would end up holding sixteen rows
+  /// for the same eight feelings, and a note marked "Радость" on one device
+  /// would point at a mood the other has never heard of. Fixed uuids make the
+  /// two sets the same set.
+  ///
+  /// They are ordinary v4 uuids, generated once and then frozen. **Never change
+  /// one**: a device that already seeded with the old value would treat the new
+  /// one as a different mood.
+  final String uid;
 
   final String emoji;
   final String name;
@@ -25,14 +39,14 @@ class NoteMoodPreset {
 
 /// The moods the diary starts with, in the order the picker shows them.
 const defaultNoteMoods = <NoteMoodPreset>[
-  NoteMoodPreset('😊', 'Радость'),
-  NoteMoodPreset('🌿', 'Спокойствие'),
-  NoteMoodPreset('🤔', 'Размышления'),
-  NoteMoodPreset('😢', 'Грусть'),
-  NoteMoodPreset('😴', 'Усталость'),
-  NoteMoodPreset('🙏', 'Благодарность'),
-  NoteMoodPreset('😰', 'Тревога'),
-  NoteMoodPreset('❤️', 'Любовь'),
+  NoteMoodPreset('0f8a4c3e-1d92-4b7a-9c15-6e2f8a01b4d3', '😊', 'Радость'),
+  NoteMoodPreset('2b6d91f7-84ca-4e35-b0d8-77c4e9a12f56', '🌿', 'Спокойствие'),
+  NoteMoodPreset('5c31e0a8-2f47-4d69-8b3e-91da6c25f087', '🤔', 'Размышления'),
+  NoteMoodPreset('7e94b2d1-6a08-4c52-9f7b-38e5c1470ab9', '😢', 'Грусть'),
+  NoteMoodPreset('9a07f3c5-4b81-4e20-a6d9-52fb8c364e1a', '😴', 'Усталость'),
+  NoteMoodPreset('b3d85e19-7c62-4a0f-8e41-6db29f057c34', '🙏', 'Благодарность'),
+  NoteMoodPreset('d51c7a26-9e34-4f8b-b273-40a6e8d91cf5', '😰', 'Тревога'),
+  NoteMoodPreset('f28b60d4-3a15-4c97-9e56-18c7b2f4a06e', '❤️', 'Любовь'),
 ];
 
 /// The emoji offered when a mood is being invented — "Другое" in the picker.
@@ -64,19 +78,23 @@ const suggestedNoteTags = <String>[
   'путешествия',
 ];
 
-/// The colour a tag created from a suggestion or from the "Новый тег" field
-/// starts on: the next family of [taskPalette] after the ones already in use, so
-/// two tags made one after the other do not come out the same colour.
+/// The family a tag created from a suggestion or from the "Новый тег" field
+/// starts on: the next one of [taskPalette] after those already in use, so two
+/// tags made one after the other do not come out the same colour.
+///
+/// Keys in, key out. A tag stores which family it belongs to rather than what
+/// colour that family currently is — see `TaskSwatch.key` — so this compares
+/// the same thing the tags hold.
 ///
 /// [used] is what the existing tags hold. Once every family is taken it wraps
-/// round by count — there are more possible tags than colours, and repeating is
+/// round by count: there are more possible tags than colours, and repeating is
 /// the honest outcome.
-Color nextNoteTagColor(Iterable<Color> used) {
-  final taken = used.map((c) => c.toARGB32()).toSet();
+String nextNoteTagColorKey(Iterable<String> used) {
+  final taken = used.toSet();
   for (final swatch in taskPalette) {
-    if (!taken.contains(swatch.accent.toARGB32())) return swatch.accent;
+    if (!taken.contains(swatch.key)) return swatch.key;
   }
-  return taskPalette[taken.length % taskPalette.length].accent;
+  return taskPalette[taken.length % taskPalette.length].key;
 }
 
 /// The pair of tones a tag's chip is painted with: the fill, and the ink to put

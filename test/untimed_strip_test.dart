@@ -8,6 +8,10 @@ import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/widgets/home/task_timeline.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
+/// Any moment at all: these tests never read a log's edit time. It exists
+/// because the sync needs one and the column is therefore not nullable.
+final _fixtureStamp = DateTime(2026, 1, 1);
+
 final _now = DateTime.now();
 final _today = DateTime(_now.year, _now.month, _now.day);
 
@@ -21,7 +25,7 @@ Task _task({
   TaskStatus status = TaskStatus.active,
   DateTime? startDate,
   int? parentId,
-}) => Task(
+}) => Task(dirty: false, 
   id: id,
   title: title,
   parentId: parentId,
@@ -176,13 +180,46 @@ void main() {
     expect((circle.decoration as BoxDecoration).color, _taskColor);
   });
 
-  testWidgets('the first circle sits flush with the left edge', (tester) async {
+  testWidgets('the first title clears the left edge, not the circle', (
+    tester,
+  ) async {
     await tester.pumpWidget(_timeline([_task(id: 1, title: 'Дело')]));
     await tester.pumpAndSettle();
 
-    // 12 is the margin the timeline's own rows use. The slot centres its circle,
-    // so the strip's leading padding has to compensate for that inset.
-    expect(tester.getTopLeft(_stripCircles()).dx, 12);
+    // This used to assert the circle sat at x=12, "the margin the timeline's own
+    // rows use", and it had been failing since the strip was designed. Both
+    // halves of that were wrong: the rows use `TaskTimeline.contentPad`, which
+    // is **4**, and they put a 56px time column to the left of their markers, so
+    // there was never a column for the circles to line up with.
+    //
+    // What the strip actually decides — spelled out on `_UntimedStrip.sideMargin`
+    // — is that the *title* owns the margin. A slot is 72 wide and centres a
+    // 52 circle in it, so pulling the circle out to the sheet's edge would drag
+    // the title 10px past it, against the wall. The margin is therefore kept by
+    // the slot, and the circle sits inside it.
+    final slot = tester.getRect(find.byType(SizedBox).at(0));
+    final circle = tester.getRect(_stripCircles());
+
+    expect(circle.left, greaterThan(slot.left));
+    expect(
+      circle.left,
+      12 + (72 - 52) / 2,
+      reason: 'sideMargin plus the slack the slot leaves around its circle',
+    );
+  });
+
+  testWidgets('the title is what keeps clear of the sheet edge', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_timeline([_task(id: 1, title: 'Дело')]));
+    await tester.pumpAndSettle();
+
+    // The point of the margin, asserted as the thing it is for rather than as
+    // the number it happens to be.
+    final sheet = tester.getRect(find.byType(TaskTimeline));
+    final title = tester.getRect(find.text('Дело'));
+
+    expect(title.left - sheet.left, greaterThanOrEqualTo(12));
   });
 
   testWidgets('neighbouring titles are kept apart', (tester) async {
@@ -222,7 +259,7 @@ void main() {
             _task(id: 2, title: 'Коробки', parentId: 1),
             _task(id: 3, title: 'Машина', parentId: 1),
           ],
-          logs: [TaskLog(id: 1, taskId: 2, date: _today, completed: true)],
+          logs: [TaskLog(dirty: false, updatedAt: _fixtureStamp, id: 1, taskId: 2, date: _today, completed: true)],
         ),
       );
       await tester.pumpAndSettle();
@@ -284,7 +321,7 @@ void main() {
     await tester.pumpWidget(
       _timeline(
         [_task(id: 1, title: 'Сделано')],
-        logs: [TaskLog(id: 1, taskId: 1, date: _today, completed: true)],
+        logs: [TaskLog(dirty: false, updatedAt: _fixtureStamp, id: 1, taskId: 1, date: _today, completed: true)],
       ),
     );
     await tester.pumpAndSettle();

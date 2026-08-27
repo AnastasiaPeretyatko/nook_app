@@ -33,6 +33,15 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Gradle writes reports here on every Android build. The `/build/` line above is
+# anchored to the repository root and does not reach this one.
+/android/build/
+
+# AI assistant workspaces and notes — local context, not part of the project.
+.claude/
+.cursor/
+CLAUDE.md
+
 # Symbolication related
 app.*.symbols
 

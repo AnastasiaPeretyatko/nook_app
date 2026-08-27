@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:todo_app/auth/supabase_init.dart';
 import 'package:todo_app/pages/create_note_page.dart';
 import 'package:todo_app/pages/create_task_page.dart';
 import 'package:todo_app/pages/diary_page.dart';
@@ -15,6 +16,8 @@ import 'package:todo_app/notifications/timer_notification.dart';
 import 'package:todo_app/settings/app_version.dart';
 import 'package:todo_app/settings/notification_settings.dart';
 import 'package:todo_app/settings/theme_provider.dart';
+import 'package:todo_app/sync/sync_controller.dart';
+import 'package:todo_app/utils/surfaces.dart';
 import 'package:todo_app/utils/task_colors.dart';
 import 'package:todo_app/widgets/app_bottom_nav_bar.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
@@ -23,9 +26,16 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('ru_RU', null);
   final prefs = await SharedPreferences.getInstance();
+  // Awaited, but it never throws and never waits on the network: an account is
+  // an extra, and a launch with no connection has to reach the same screens it
+  // always does.
+  final supabaseReady = await initSupabase();
   runApp(
     ProviderScope(
-      overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        supabaseReadyProvider.overrideWithValue(supabaseReady),
+      ],
       child: const MyApp(),
     ),
   );
@@ -38,38 +48,152 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
+class _MainScreenState extends State<MainScreen>
+    with SingleTickerProviderStateMixin {
   /// The diary's slot in [_pages]. The centre button reads it to decide what it
   /// creates, so the two lists and this constant have to stay in step.
   static const int _diaryIndex = 2;
 
+  /// One tab change, start to finish — the same 300ms the nav bar's indicator
+  /// takes to slide, so the bar and the page it points at arrive together.
+  static const Duration _tabMotion = Duration(milliseconds: 300);
+
   int _currentIndex = 1;
+
+  /// The tab being left behind, kept only for as long as it is still painted.
+  int _leavingIndex = 1;
+
+  late final AnimationController _motion = AnimationController(
+    vsync: this,
+    duration: _tabMotion,
+    // Settled: the first frame is a page already in place, not one arriving.
+    value: 1,
+  );
+
   static const List<Widget> _pages = [
-    HabitsPage(),
     HomePage(),
+    HabitsPage(),
     DiaryPage(),
     SettingsPage(),
   ];
 
   static const List<AppNavItem> _navItems = [
-    AppNavItem(icon: LucideIcons.repeat, label: 'Привычки'),
     AppNavItem(icon: LucideIcons.house, label: 'Home'),
+    AppNavItem(icon: LucideIcons.repeat, label: 'Привычки'),
     AppNavItem(icon: LucideIcons.book_open, label: 'Дневник'),
     AppNavItem(icon: LucideIcons.settings, label: 'Settings'),
   ];
 
   @override
+  void dispose() {
+    _motion.dispose();
+    super.dispose();
+  }
+
+  void _selectTab(int index) {
+    if (index == _currentIndex) return;
+    setState(() {
+      _leavingIndex = _currentIndex;
+      _currentIndex = index;
+    });
+    _motion.forward(from: 0);
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       extendBody: true,
-      body: IndexedStack(index: _currentIndex, children: _pages),
+      // Rebuilt every frame of the motion, and that costs nothing: the four
+      // pages are `const`, so the framework skips their subtrees and only these
+      // wrappers are built again.
+      body: AnimatedBuilder(
+        animation: _motion,
+        builder: (context, _) => Stack(
+          children: [for (var i = 0; i < _pages.length; i++) _tabPage(i)],
+        ),
+      ),
       bottomNavigationBar: AppBottomNavBar(
         items: _navItems,
         currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() => _currentIndex = index);
-        },
+        onTap: _selectTab,
         onCenterTap: _onCenterTap,
+      ),
+    );
+  }
+
+  /// One page of the stack, taking whatever part in the motion it has.
+  ///
+  /// Every page stays mounted and laid out, which is the whole constraint here:
+  /// an `AnimatedSwitcher` would have been three lines and throws the outgoing
+  /// subtree away, so the day the schedule is scrolled to, the diary's open tab
+  /// and whatever is typed in its search would be rebuilt from nothing on every
+  /// tap.
+  ///
+  /// So the three `maintain` flags that matter are on and the rest are not,
+  /// which is `IndexedStack`'s own bargain spelled out: state, tickers and
+  /// layout kept, painting withheld, and a hidden page left out of hit-testing,
+  /// semantics and focus. Not `Visibility.maintain` — that one maintains all
+  /// six, so a screen reader would read four screens at once and a focus
+  /// traversal could land in the search field of a diary nobody is looking at.
+  Widget _tabPage(int index) {
+    final t = _motion.value;
+    final isCurrent = index == _currentIndex;
+    final isLeaving = index == _leavingIndex && t < 1;
+
+    return Visibility(
+      visible: isCurrent || isLeaving,
+      maintainState: true,
+      maintainAnimation: true,
+      maintainSize: true,
+      // Only the page being arrived at answers a finger. The one on its way out
+      // is still on screen for another moment and must not.
+      child: IgnorePointer(
+        ignoring: !isCurrent,
+        child: _tabTransition(index, t: t),
+      ),
+    );
+  }
+
+  /// The page's place in the slide, as a leaf of paper over the one below.
+  ///
+  /// Only ever **one** of the two moves, and it is always the one with the
+  /// higher index: going right it arrives from off-screen and covers what was
+  /// there, going left it slides back off and uncovers it. The page underneath
+  /// holds still both times — that is what makes this a sheet being laid down
+  /// and picked up rather than two screens sliding past each other.
+  ///
+  /// Which of them is on top needs no arranging: the stack is built in tab
+  /// order, so the higher index is painted last, and the higher index is
+  /// exactly the page that moves.
+  Widget _tabTransition(int index, {required double t}) {
+    final page = _pages[index];
+    // Settled: handed over bare, so no transform and no shadow layer stands
+    // between the compositor and a screen that is simply being looked at.
+    if (t >= 1) return page;
+
+    final forward = _currentIndex > _leavingIndex;
+    final moving = index == (forward ? _currentIndex : _leavingIndex);
+    if (!moving) return page;
+
+    final travelled = Curves.easeInOutCubic.transform(t);
+    return FractionalTranslation(
+      // A fraction of the page's own width, so nothing here has to ask how wide
+      // the screen is or watch for it changing.
+      translation: Offset(forward ? 1 - travelled : travelled, 0),
+      child: DecoratedBox(
+        // Cast to the left, over the page being covered — without it the seam
+        // between two screens of the same tone is invisible, and in the dark
+        // theme there is no seam to see at all.
+        decoration: BoxDecoration(
+          boxShadow: [
+            BoxShadow(
+              color: surfaceShadow(Theme.of(context), light: 0.12),
+              blurRadius: 16,
+              offset: const Offset(-2, 0),
+            ),
+          ],
+        ),
+        child: page,
       ),
     );
   }
@@ -245,7 +369,10 @@ class _MyAppState extends ConsumerState<MyApp> {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [Locale('ru', 'RU')],
-      home: const MainScreen(),
+      // Wrapped around the app rather than placed on a screen: syncing has to
+      // keep up while the diary is nowhere in sight, and the lifecycle events
+      // it listens for belong to the whole app. It draws nothing.
+      home: const SyncScope(child: MainScreen()),
     );
   }
 }

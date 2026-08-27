@@ -15,6 +15,19 @@ final _yesterday = _today.subtract(const Duration(days: 1));
 /// Minutes since midnight, right now.
 int get _nowMinutes => _now.hour * 60 + _now.minute;
 
+/// A window that has already gone by **today**, so the pill it makes is drawn as
+/// begun and filled to the top.
+///
+/// Relative to the clock, not a fixed morning hour. `TaskTimeline` reads
+/// `DateTime.now()` itself and cannot be handed a different one, so a hard-coded
+/// 08:00–09:00 is only in the past when the suite happens to run after nine —
+/// which is why the two tests below passed all day and failed every morning.
+int get _pastStart => _nowMinutes - 120;
+int get _pastEnd => _nowMinutes - 60;
+
+/// In the first two hours of a day there is no such window to build.
+bool get _noPastWindow => _nowMinutes < 120;
+
 /// A one-off ranged task. [on] must be the day being rendered: without a repeat
 /// rule the task falls on its start date only.
 /// The pink family of the palette, so its light tone is an exact lookup.
@@ -26,7 +39,7 @@ Task _ranged({
   required int start,
   required int end,
   DateTime? on,
-}) => Task(
+}) => Task(dirty: false, 
   id: id,
   title: title,
   status: TaskStatus.active,
@@ -94,14 +107,20 @@ void main() {
       expect(_fillFraction(tester), 0);
     });
 
-    testWidgets('a finished task is filled to the top', (tester) async {
-      await tester.pumpWidget(
-        _timeline([_ranged(id: 1, title: 'Утро', start: 8 * 60, end: 9 * 60)]),
-      );
-      await tester.pumpAndSettle();
+    testWidgets(
+      'a finished task is filled to the top',
+      (tester) async {
+        await tester.pumpWidget(
+          _timeline([
+            _ranged(id: 1, title: 'Прошло', start: _pastStart, end: _pastEnd),
+          ]),
+        );
+        await tester.pumpAndSettle();
 
-      expect(_fillFraction(tester), 1);
-    });
+        expect(_fillFraction(tester), 1);
+      },
+      skip: _noPastWindow,
+    );
 
     testWidgets(
       'a running task is filled part way',
@@ -258,29 +277,34 @@ void main() {
   });
 
   group('the two tones of a family', () {
-    testWidgets('a pill is the light tone, filled with the accent', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        _timeline([_ranged(id: 1, title: 'Утро', start: 8 * 60, end: 9 * 60)]),
-      );
-      await tester.pumpAndSettle();
+    testWidgets(
+      'a pill is the light tone, filled with the accent',
+      (tester) async {
+        await tester.pumpWidget(
+          _timeline([
+            _ranged(id: 1, title: 'Прошло', start: _pastStart, end: _pastEnd),
+          ]),
+        );
+        await tester.pumpAndSettle();
 
-      // The body of the pill: a light-tone base with the accent filled over it.
-      final base = tester
-          .widgetList<ColoredBox>(find.byType(ColoredBox))
-          .map((b) => b.color)
-          .toList();
-      expect(base, contains(taskLightTone(_accent)));
+        // The body of the pill: a light-tone base with the accent filled over
+        // it.
+        final base = tester
+            .widgetList<ColoredBox>(find.byType(ColoredBox))
+            .map((b) => b.color)
+            .toList();
+        expect(base, contains(taskLightTone(_accent)));
 
-      final fill = tester.widget<AnimatedContainer>(
-        find.descendant(
-          of: find.byType(FractionallySizedBox),
-          matching: find.byType(AnimatedContainer),
-        ),
-      );
-      expect((fill.decoration as BoxDecoration?)?.color, _accent);
-    });
+        final fill = tester.widget<AnimatedContainer>(
+          find.descendant(
+            of: find.byType(FractionallySizedBox),
+            matching: find.byType(AnimatedContainer),
+          ),
+        );
+        expect((fill.decoration as BoxDecoration?)?.color, _accent);
+      },
+      skip: _noPastWindow,
+    );
 
     testWidgets('the glyph on a filled marker is white', (tester) async {
       await tester.pumpWidget(

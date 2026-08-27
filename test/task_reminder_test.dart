@@ -3,6 +3,10 @@ import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/notifications/app_notifications.dart';
 import 'package:todo_app/notifications/task_reminder.dart';
 
+/// Any moment at all: these tests never read a log's edit time. It exists
+/// because the sync needs one and the column is therefore not nullable.
+final _fixtureStamp = DateTime(2026, 1, 1);
+
 final _day = DateTime(2026, 5, 20); // a Wednesday
 DateTime _at(int hour, [int minute = 0]) => DateTime(2026, 5, 20, hour, minute);
 
@@ -19,7 +23,7 @@ Task _task({
   TaskStatus status = TaskStatus.active,
   int? parentId,
   DateTime? startDate,
-}) => Task(
+}) => Task(dirty: false, 
   id: id,
   title: title,
   parentId: parentId,
@@ -39,7 +43,7 @@ TaskLog _log({
   int taskId = 1,
   DateTime? date,
   bool completed = true,
-}) => TaskLog(id: id, taskId: taskId, date: date ?? _day, completed: completed);
+}) => TaskLog(dirty: false, updatedAt: _fixtureStamp, id: id, taskId: taskId, date: date ?? _day, completed: completed);
 
 List<TaskReminder> _reminders({
   List<Task>? tasks,

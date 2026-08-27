@@ -6,6 +6,10 @@ import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/utils/recurrence.dart';
 import 'package:todo_app/widgets/habits/habit_actions_sheet.dart';
 
+/// Any moment at all: these tests never read a log's edit time. It exists
+/// because the sync needs one and the column is therefore not nullable.
+final _fixtureStamp = DateTime(2026, 1, 1);
+
 final _now = DateTime.now();
 final _today = DateTime(_now.year, _now.month, _now.day);
 
@@ -16,7 +20,7 @@ Task _habit({
   required String title,
   RepeatType repeatType = RepeatType.daily,
   Set<int> weekdays = const {},
-}) => Task(
+}) => Task(dirty: false, 
   id: id,
   title: title,
   status: TaskStatus.active,
@@ -34,7 +38,7 @@ TaskLog _log({
   required int taskId,
   required int daysAgo,
   bool completed = true,
-}) => TaskLog(
+}) => TaskLog(dirty: false, updatedAt: _fixtureStamp, 
   id: id,
   taskId: taskId,
   date: _today.subtract(Duration(days: daysAgo)),

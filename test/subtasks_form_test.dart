@@ -257,13 +257,12 @@ void main() {
       expect(descriptionCard.top, greaterThan(titleCard.bottom));
     });
 
-    testWidgets('no divider sits between the title and the label', (
-      tester,
-    ) async {
+    testWidgets('nothing but a gap separates the two cards', (tester) async {
       await _openForm(tester);
 
-      final title = tester.getRect(_titleField());
-      final label = tester.getRect(find.text('Описание'));
+      final titleCard = _cardAround(tester, _titleField());
+      final descriptionCard = _cardAround(tester, find.text('Описание'));
+
       // Positions come off the render objects: the dividers are identical
       // widgets, so a finder cannot tell them apart.
       final dividerTops = find.byType(Divider).evaluate().map((e) {
@@ -271,9 +270,38 @@ void main() {
         return box.localToGlobal(Offset.zero).dy;
       }).toList();
 
+      // Between the **cards**, not between the title field and the label. Those
+      // two have a divider between them and always did — the one inside the
+      // title card, under the field, that separates it from `ColorPickerRow`.
+      // Measuring from the field caught that one and read it as the seam being
+      // wrong, which is why this test failed from the day it was written.
       expect(
-        dividerTops.where((y) => y > title.bottom && y < label.top),
+        dividerTops.where(
+          (y) => y > titleCard.bottom && y < descriptionCard.top,
+        ),
         isEmpty,
+        reason: 'a rule was drawn in the gap that should just be empty',
+      );
+    });
+
+    testWidgets('the description block is not cut into sections', (
+      tester,
+    ) async {
+      await _openForm(tester);
+
+      final card = _cardAround(tester, find.text('Описание'));
+      final dividerTops = find.byType(Divider).evaluate().map((e) {
+        final box = e.renderObject! as RenderBox;
+        return box.localToGlobal(Offset.zero).dy;
+      }).toList();
+
+      // The other half of the same design decision, and the one worth pinning:
+      // label, then subtasks, then the description text, then the button — one
+      // block. A divider anywhere inside makes it read as two sections.
+      expect(
+        dividerTops.where((y) => y >= card.top && y <= card.bottom),
+        isEmpty,
+        reason: 'the description card was split by a rule',
       );
     });
   });
