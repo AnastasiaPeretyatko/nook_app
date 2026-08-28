@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Every string the home-screen widget shows.
+
+     In the default folder and in Russian, with no localised variants, because
+     the app itself is Russian only — `MaterialApp` pins `ru_RU` whatever the
+     phone is set to, and a widget that spoke the system language would be the
+     one part of it that did.
+
+     The three "ещё N" forms are picked in Kotlin rather than through a
+     `<plurals>` block for the same reason: `getQuantityString` applies the
+     plural rules of the *resource* locale, so on an English phone these Russian
+     strings would be chosen by English rules and "ещё 3 задачи" would come out
+     as "ещё 3 задача". -->
+<resources>
+    <string name="widget_name">Сегодня</string>
+    <string name="widget_description">Задачи на сегодня: отметить сделанное, не открывая приложение.</string>
+
+    <string name="widget_title">Сегодня</string>
+    <string name="widget_add_task">Добавить задачу</string>
+    <string name="widget_progress">%1$d из %2$d</string>
+    <string name="widget_empty">На сегодня задач нет</string>
+    <!-- Shown when the stored week has run out: the app has not been opened in
+         days, so the widget has nothing to draw for today and is asking. -->
+    <string name="widget_stale">Откройте приложение, чтобы обновить</string>
+
+    <string name="widget_more_one">ещё %d задача</string>
+    <string name="widget_more_few">ещё %d задачи</string>
+    <string name="widget_more_many">ещё %d задач</string>
+</resources>

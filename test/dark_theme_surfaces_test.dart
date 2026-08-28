@@ -19,7 +19,8 @@ final _today = DateTime(_now.year, _now.month, _now.day);
 
 final _dark = buildAppTheme(const Color(0xFFD33243), Brightness.dark);
 
-final _task = Task(dirty: false, 
+final _task = Task(
+  dirty: false,
   id: 1,
   title: 'Read book',
   status: TaskStatus.active,
@@ -104,12 +105,14 @@ void _expectLabelsRead(WidgetTester tester, Color surface) {
 
 /// Fill colour of the tab bar's selected thumb, whatever tone it is.
 Color _tabThumbColour(WidgetTester tester) {
-  final container = tester.widgetList<Container>(find.byType(Container)).firstWhere(
-    (c) =>
-        c.decoration is BoxDecoration &&
-        (c.decoration! as BoxDecoration).borderRadius ==
-            BorderRadius.circular(999),
-  );
+  final container = tester
+      .widgetList<Container>(find.byType(Container))
+      .firstWhere(
+        (c) =>
+            c.decoration is BoxDecoration &&
+            (c.decoration! as BoxDecoration).borderRadius ==
+                BorderRadius.circular(999),
+      );
   return ((container.decoration! as BoxDecoration).color)!;
 }
 
@@ -150,8 +153,7 @@ void main() {
   group('the actions sheet in the dark theme', () {
     Widget sheet() => Scaffold(
       body: Builder(
-        builder: (context) =>
-            TaskActionsSheet(task: _task, completed: false),
+        builder: (context) => TaskActionsSheet(task: _task, completed: false),
       ),
     );
 
@@ -207,7 +209,9 @@ void main() {
       );
     });
 
-    testWidgets('the date, the tabs and the task rows all read', (tester) async {
+    testWidgets('the date, the tabs and the task rows all read', (
+      tester,
+    ) async {
       await tester.pumpWidget(_app(const HabitsPage()));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Задачи'));

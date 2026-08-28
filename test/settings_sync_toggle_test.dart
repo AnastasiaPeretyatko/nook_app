@@ -234,19 +234,17 @@ void main() {
     testWidgets('the settings screen leads here rather than deciding', (
       tester,
     ) async {
-      // The row is a way in, not a control: the reminders switch is the only
-      // switch left on that screen, and the sync state is only reported.
+      // The row is a way in, not a control — and so is every other row there
+      // now that reminders have a screen of their own: the settings list holds
+      // no switch at all and only reports what each screen is doing.
       final c = await container(user: someone);
       addTearDown(c.dispose);
       await pump(tester, c, home: const SettingsPage());
 
       expect(find.text('Синхронизация'), findsOneWidget);
       expect(syncSwitch(), findsNothing);
-      expect(find.byType(SwitchListTile), findsOneWidget);
-      expect(
-        find.widgetWithText(SwitchListTile, 'Уведомления задач'),
-        findsOneWidget,
-      );
+      expect(find.byType(SwitchListTile), findsNothing);
+      expect(find.text('Уведомления'), findsOneWidget);
     });
   });
 }

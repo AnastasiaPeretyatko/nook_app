@@ -98,6 +98,7 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
   /// True until the existing subtasks have been read. Saving before that would
   /// drop a duplicate's subtasks, so the save button waits.
   bool _loadingSubtasks = false;
+
   /// Key of the chosen task icon — see `taskIcons`.
   String? _selectedIconKey;
   Color? _selectedColor;
@@ -899,7 +900,9 @@ class _CardLabel extends StatelessWidget {
         alignment: AlignmentDirectional.centerStart,
         child: Text(
           text,
-          style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
         ),
       ),
     );
@@ -938,8 +941,12 @@ class _Field extends StatelessWidget {
         labelText: label,
         hintText: hint,
         border: InputBorder.none,
-        labelStyle: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-        hintStyle: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.55)),
+        labelStyle: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+        hintStyle: theme.textTheme.bodyLarge?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.55),
+        ),
         contentPadding: const EdgeInsets.symmetric(vertical: 12),
       ),
     );
@@ -973,7 +980,11 @@ class _AddSubtaskButton extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(LucideIcons.plus, size: 16, color: theme.colorScheme.primary),
+              Icon(
+                LucideIcons.plus,
+                size: 16,
+                color: theme.colorScheme.primary,
+              ),
               const SizedBox(width: 4),
               Text(
                 'Добавить подзадачу',
@@ -1027,7 +1038,11 @@ class _SubtaskRow extends StatelessWidget {
                   color: draft.done ? primary : Colors.transparent,
                   borderRadius: BorderRadius.circular(6),
                   border: Border.all(
-                    color: draft.done ? primary : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.55),
+                    color: draft.done
+                        ? primary
+                        : theme.colorScheme.onSurfaceVariant.withValues(
+                            alpha: 0.55,
+                          ),
                     width: 1.6,
                   ),
                 ),
@@ -1048,7 +1063,9 @@ class _SubtaskRow extends StatelessWidget {
               autofocus: draft.isNew,
               textCapitalization: TextCapitalization.sentences,
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: draft.done ? theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.75) : theme.colorScheme.onSurface,
+                color: draft.done
+                    ? theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.75)
+                    : theme.colorScheme.onSurface,
                 decoration: draft.done ? TextDecoration.lineThrough : null,
               ),
               decoration: InputDecoration(
@@ -1057,7 +1074,9 @@ class _SubtaskRow extends StatelessWidget {
                 border: InputBorder.none,
                 contentPadding: EdgeInsets.zero,
                 hintStyle: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.55),
+                  color: theme.colorScheme.onSurfaceVariant.withValues(
+                    alpha: 0.55,
+                  ),
                 ),
               ),
             ),
@@ -1113,7 +1132,9 @@ class _ToggleRow extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurface),
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: theme.colorScheme.onSurface,
+              ),
             ),
           ),
           // Colours come from `switchTheme` in `buildAppTheme`, so this row and
@@ -1242,7 +1263,9 @@ class _DurationSelector extends StatelessWidget {
       onSelected: (_) => onChanged(minutes),
       selectedColor: theme.colorScheme.primary,
       labelStyle: theme.textTheme.labelMedium?.copyWith(
-        color: selected ? onBrandFill(theme.colorScheme.primary) : theme.colorScheme.onSurfaceVariant,
+        color: selected
+            ? onBrandFill(theme.colorScheme.primary)
+            : theme.colorScheme.onSurfaceVariant,
         fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
       ),
       backgroundColor: insetSurface(theme),
@@ -1506,7 +1529,9 @@ class _Stepper extends StatelessWidget {
       children: [
         Text(
           label,
-          style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
         ),
         const SizedBox(height: 6),
         Container(
@@ -1593,8 +1618,12 @@ class _ModeSelector extends StatelessWidget {
             labelColor = onBrandFill(background);
           } else if (blocked) {
             background = disabledInsetSurface(theme);
-            iconColor = theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.55);
-            labelColor = theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.55);
+            iconColor = theme.colorScheme.onSurfaceVariant.withValues(
+              alpha: 0.55,
+            );
+            labelColor = theme.colorScheme.onSurfaceVariant.withValues(
+              alpha: 0.55,
+            );
           } else {
             background = insetSurface(theme);
             iconColor = theme.colorScheme.onSurfaceVariant;
@@ -1676,9 +1705,7 @@ class _RepeatTypeSelector extends StatelessWidget {
           margin: const EdgeInsets.symmetric(horizontal: 3),
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            color: selected
-                ? theme.colorScheme.primary
-                : insetSurface(theme),
+            color: selected ? theme.colorScheme.primary : insetSurface(theme),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Column(
@@ -1686,7 +1713,9 @@ class _RepeatTypeSelector extends StatelessWidget {
               Icon(
                 icon,
                 size: 22,
-                color: selected ? onBrandFill(theme.colorScheme.primary) : theme.colorScheme.onSurfaceVariant,
+                color: selected
+                    ? onBrandFill(theme.colorScheme.primary)
+                    : theme.colorScheme.onSurfaceVariant,
               ),
               const SizedBox(height: 4),
               Text(
@@ -1740,9 +1769,7 @@ class _WeekdayPicker extends StatelessWidget {
         height: 38,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: isSelected
-              ? theme.colorScheme.primary
-              : insetSurface(theme),
+          color: isSelected ? theme.colorScheme.primary : insetSurface(theme),
           shape: BoxShape.circle,
         ),
         child: Text(
@@ -1750,7 +1777,11 @@ class _WeekdayPicker extends StatelessWidget {
           style: theme.textTheme.labelMedium?.copyWith(
             color: isSelected
                 ? onBrandFill(theme.colorScheme.primary)
-                : (isWeekend ? theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.55) : theme.colorScheme.onSurfaceVariant),
+                : (isWeekend
+                      ? theme.colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.55,
+                        )
+                      : theme.colorScheme.onSurfaceVariant),
             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
           ),
         ),
@@ -1809,15 +1840,15 @@ class _MonthDayPicker extends StatelessWidget {
           height: 34,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: isSelected
-                ? theme.colorScheme.primary
-                : insetSurface(theme),
+            color: isSelected ? theme.colorScheme.primary : insetSurface(theme),
             shape: BoxShape.circle,
           ),
           child: Text(
             '$day',
             style: theme.textTheme.labelMedium?.copyWith(
-              color: isSelected ? onBrandFill(theme.colorScheme.primary) : theme.colorScheme.onSurfaceVariant,
+              color: isSelected
+                  ? onBrandFill(theme.colorScheme.primary)
+                  : theme.colorScheme.onSurfaceVariant,
               fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
             ),
           ),
@@ -2176,7 +2207,11 @@ class _AppearanceCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
-          Divider(height: 1, thickness: 0.5, color: theme.colorScheme.outlineVariant),
+          Divider(
+            height: 1,
+            thickness: 0.5,
+            color: theme.colorScheme.outlineVariant,
+          ),
           ColorPickerRow(selected: selectedColor, onChanged: onColorChanged),
         ],
       ),

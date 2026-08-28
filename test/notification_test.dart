@@ -16,7 +16,8 @@ Task _task({
   int? targetDurationMinutes = 10,
   TrackingMode trackingMode = TrackingMode.timer,
   TaskStatus status = TaskStatus.active,
-}) => Task(dirty: false, 
+}) => Task(
+  dirty: false,
   id: id,
   title: title,
   status: status,
@@ -40,7 +41,9 @@ TaskLog _log({
   DateTime? date,
   double? value,
   bool completed = false,
-}) => TaskLog(dirty: false, updatedAt: _fixtureStamp, 
+}) => TaskLog(
+  dirty: false,
+  updatedAt: _fixtureStamp,
   id: id,
   taskId: taskId,
   date: date ?? _day,

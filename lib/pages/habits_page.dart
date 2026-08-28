@@ -40,9 +40,9 @@ class _HabitsPageState extends State<HabitsPage> {
   /// The archive opens as a full route on top of the nav bar: the only way
   /// back is its own arrow, which is what keeps it out of the tab strip.
   void _onArchiveTapped() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const ArchivePage()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const ArchivePage()));
   }
 
   void _onPageChanged(int index) {
@@ -110,9 +110,14 @@ class _HabitsDateHeader extends StatelessWidget {
       fontWeight: FontWeight.w700,
     );
 
-    return RichText(
-      text: TextSpan(
-        style: baseStyle?.copyWith(color: theme.colorScheme.onSurface),
+    // `Text.rich` and not `RichText`: the bare one defaults to
+    // `TextScaler.noScaling`, so this heading stayed at its 24px while the
+    // calendar's month on the day screen — a plain `Text`, which reads
+    // `MediaQuery.textScalerOf` — grew with the system font size. Two headings
+    // written in the same style came out different sizes on every device whose
+    // font scale is not 1.0.
+    return Text.rich(
+      TextSpan(
         children: [
           TextSpan(text: dayMonth),
           const TextSpan(text: ' '),
@@ -124,6 +129,7 @@ class _HabitsDateHeader extends StatelessWidget {
           ),
         ],
       ),
+      style: baseStyle?.copyWith(color: theme.colorScheme.onSurface),
     );
   }
 }

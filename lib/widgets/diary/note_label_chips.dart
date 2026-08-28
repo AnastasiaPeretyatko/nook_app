@@ -169,7 +169,11 @@ class NoteTagChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final tones = noteTagChipTones(theme, taskColorForKey(tag.colorKey), on: surface);
+    final tones = noteTagChipTones(
+      theme,
+      taskColorForKey(tag.colorKey),
+      on: surface,
+    );
 
     return _ChipShell(
       fill: tones.fill,

@@ -101,7 +101,8 @@ class _MoodPickerSheetState extends ConsumerState<_MoodPickerSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final moods = ref.watch(noteMoodsProvider).valueOrNull ?? const <NoteMood>[];
+    final moods =
+        ref.watch(noteMoodsProvider).valueOrNull ?? const <NoteMood>[];
 
     return _SheetShell(
       title: 'Какое у вас настроение?',
@@ -150,9 +151,7 @@ class _MoodPickerSheetState extends ConsumerState<_MoodPickerSheet> {
           _AddButton(
             // Both halves are required: a mood is a word *and* a glyph.
             onPressed:
-                _saving ||
-                    _nameController.text.trim().isEmpty ||
-                    _emoji == null
+                _saving || _nameController.text.trim().isEmpty || _emoji == null
                 ? null
                 : () => _create(moods),
           ),
@@ -180,9 +179,7 @@ class _MoodPickerSheetState extends ConsumerState<_MoodPickerSheet> {
     final existing = _byName(moods, name);
     final id =
         existing?.id ??
-        await ref
-            .read(diaryDaoProvider)
-            .insertMood(name: name, emoji: emoji);
+        await ref.read(diaryDaoProvider).insertMood(name: name, emoji: emoji);
 
     widget.onChanged(id);
     if (mounted) Navigator.of(context).pop();
@@ -417,23 +414,25 @@ class _TagPickerSheetState extends ConsumerState<_TagPickerSheet> {
       final existing = _byName(tags, name);
       final id =
           existing?.id ??
-          await ref.read(diaryDaoProvider).insertTag(
-            name: name,
-            // The picker hands back a colour; what is stored is which family it
-            // was. `taskColorKeyOf` is where the two meet, and the fallback
-            // covers a colour that belongs to no family — which the picker
-            // cannot produce, but a stored one predating the palette could.
-            colorKey:
-                taskColorKeyOf(
-                  color ??
-                      taskColorForKey(
-                        nextNoteTagColorKey([
-                          for (final tag in tags) tag.colorKey,
-                        ]),
-                      ),
-                ) ??
-                fallbackTaskColorKey,
-          );
+          await ref
+              .read(diaryDaoProvider)
+              .insertTag(
+                name: name,
+                // The picker hands back a colour; what is stored is which family it
+                // was. `taskColorKeyOf` is where the two meet, and the fallback
+                // covers a colour that belongs to no family — which the picker
+                // cannot produce, but a stored one predating the palette could.
+                colorKey:
+                    taskColorKeyOf(
+                      color ??
+                          taskColorForKey(
+                            nextNoteTagColorKey([
+                              for (final tag in tags) tag.colorKey,
+                            ]),
+                          ),
+                    ) ??
+                    fallbackTaskColorKey,
+              );
 
       if (!mounted) return;
       setState(() {
@@ -692,7 +691,10 @@ class _NameField extends StatelessWidget {
         isDense: true,
         filled: true,
         fillColor: insetSurface(theme),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
@@ -774,8 +776,5 @@ class _OptionChip extends StatelessWidget {
 
 /// The tone a caption inside a sheet is written in — "Выберите смайл",
 /// "Популярные".
-TextStyle? _captionStyle(ThemeData theme) =>
-    theme.textTheme.labelMedium?.copyWith(
-      fontWeight: FontWeight.w600,
-      color: labelInk,
-    );
+TextStyle? _captionStyle(ThemeData theme) => theme.textTheme.labelMedium
+    ?.copyWith(fontWeight: FontWeight.w600, color: labelInk);

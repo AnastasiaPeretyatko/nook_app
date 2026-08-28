@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An unticked checkbox: a ring and nothing inside it.
+
+     A vector with a stroked path and no fill at all, and that is not a matter of
+     taste. The obvious spelling is an oval `<shape>` carrying only a `<stroke>`,
+     which draws as a ring right up until something tints it: a colour filter is
+     handed to the fill paint as well, and `GradientDrawable` then paints the
+     interior with it — so the ring came out as a solid grey disc on the device.
+     A vector has no fill paint to hand it to. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12,2.6 A9.4,9.4 0 1,0 12,21.4 A9.4,9.4 0 1,0 12,2.6 Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.2" />
+</vector>

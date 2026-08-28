@@ -20,7 +20,8 @@ class TaskReminder {
   /// [taskId] it identifies the reminder.
   final DateTime day;
 
-  /// The instant it should fire.
+  /// The instant it should fire — the occurrence's own time less the lead the
+  /// user asked for, so it may fall on the day before an early-morning task.
   final DateTime at;
   final String title;
   final String body;
@@ -61,12 +62,17 @@ const maxScheduledReminders = 64;
 /// passed, when its day is marked done, or when the task cannot be acted on —
 /// archived, or a subtask, which is reported through its parent and never
 /// stands on its own.
+///
+/// [leadMinutes] moves every reminder that far ahead of the time its task
+/// carries. The task's own time still names the occurrence and still is what the
+/// body says; only the firing instant moves.
 List<TaskReminder> taskRemindersFor({
   required List<Task> tasks,
   required List<TaskLog> logs,
   required DateTime now,
   int horizonDays = defaultReminderHorizonDays,
   int limit = maxScheduledReminders,
+  int leadMinutes = 0,
 }) {
   final completedDays = <(int, DateTime)>{
     for (final log in logs)
@@ -74,6 +80,7 @@ List<TaskReminder> taskRemindersFor({
   };
 
   final today = _dateOnly(now);
+  final lead = leadMinutes < 0 ? 0 : leadMinutes;
   final reminders = <TaskReminder>[];
 
   for (final task in tasks) {
@@ -88,8 +95,13 @@ List<TaskReminder> taskRemindersFor({
       if (!isTaskScheduledOn(task, day)) continue;
       if (completedDays.contains((task.id, day))) continue;
 
-      final at = day.add(Duration(minutes: startMinutes));
-      // Today's earlier occurrences are gone; firing them now would be noise.
+      final at = day.add(Duration(minutes: startMinutes - lead));
+      // Whatever is behind the clock is gone; firing it now would be noise.
+      // Judged on the firing instant and not on the task's own time, so a lead
+      // that has already elapsed drops the reminder rather than pulling it
+      // forward to this moment — the list is recomputed on every task edit and
+      // every tick, and a reminder pinned to "now" would fire again on each of
+      // them.
       if (!at.isAfter(now)) continue;
 
       reminders.add(
@@ -98,7 +110,7 @@ List<TaskReminder> taskRemindersFor({
           day: day,
           at: at,
           title: task.title,
-          body: _body(startMinutes, task.endTimeMinutes),
+          body: _body(startMinutes, task.endTimeMinutes, lead),
         ),
       );
     }
@@ -112,10 +124,14 @@ List<TaskReminder> taskRemindersFor({
   return reminders.length <= limit ? reminders : reminders.sublist(0, limit);
 }
 
-String _body(int startMinutes, int? endMinutes) {
+String _body(int startMinutes, int? endMinutes, int leadMinutes) {
   final start = _fmtTime(startMinutes);
-  if (endMinutes == null || endMinutes <= startMinutes) return start;
-  return '$start – ${_fmtTime(endMinutes)}';
+  final when = endMinutes == null || endMinutes <= startMinutes
+      ? start
+      : '$start – ${_fmtTime(endMinutes)}';
+  // Abbreviated to "мин" rather than declined: the lead is what changes here,
+  // and no spelling of it needs a plural rule.
+  return leadMinutes > 0 ? 'Через $leadMinutes мин · $when' : when;
 }
 
 String _fmtTime(int minutes) {

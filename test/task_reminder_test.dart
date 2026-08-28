@@ -23,7 +23,8 @@ Task _task({
   TaskStatus status = TaskStatus.active,
   int? parentId,
   DateTime? startDate,
-}) => Task(dirty: false, 
+}) => Task(
+  dirty: false,
   id: id,
   title: title,
   parentId: parentId,
@@ -43,7 +44,14 @@ TaskLog _log({
   int taskId = 1,
   DateTime? date,
   bool completed = true,
-}) => TaskLog(dirty: false, updatedAt: _fixtureStamp, id: id, taskId: taskId, date: date ?? _day, completed: completed);
+}) => TaskLog(
+  dirty: false,
+  updatedAt: _fixtureStamp,
+  id: id,
+  taskId: taskId,
+  date: date ?? _day,
+  completed: completed,
+);
 
 List<TaskReminder> _reminders({
   List<Task>? tasks,
@@ -51,12 +59,14 @@ List<TaskReminder> _reminders({
   DateTime? now,
   int horizonDays = defaultReminderHorizonDays,
   int limit = maxScheduledReminders,
+  int leadMinutes = 0,
 }) => taskRemindersFor(
   tasks: tasks ?? [_task()],
   logs: logs,
   now: now ?? _now,
   horizonDays: horizonDays,
   limit: limit,
+  leadMinutes: leadMinutes,
 );
 
 void main() {
@@ -132,6 +142,73 @@ void main() {
       final reminders = _reminders(tasks: [_task(endTimeMinutes: 10 * 60)]);
 
       expect(reminders.single.body, '10:00');
+    });
+  });
+
+  group('the lead time', () {
+    test('moves the firing instant ahead of the task', () {
+      final reminders = _reminders(leadMinutes: 5);
+
+      expect(reminders.single.at, _at(9, 55));
+      // The occurrence itself has not moved: it is still the day's task at ten,
+      // which is what its id and its text are about.
+      expect(reminders.single.day, _day);
+    });
+
+    test('the body says how long is left as well as the time', () {
+      expect(_reminders(leadMinutes: 5).single.body, 'Через 5 мин · 10:00');
+    });
+
+    test('a lead keeps the range of a task that has a duration', () {
+      final reminders = _reminders(
+        tasks: [_task(endTimeMinutes: 11 * 60 + 30)],
+        leadMinutes: 15,
+      );
+
+      expect(reminders.single.body, 'Через 15 мин · 10:00 – 11:30');
+    });
+
+    test('no lead reads exactly as it did before the setting existed', () {
+      expect(_reminders(leadMinutes: 0).single.body, '10:00');
+      expect(_reminders(leadMinutes: 0).single.at, _at(10, 0));
+    });
+
+    test('an early task is reminded of on the day before', () {
+      // 00:10 less half an hour is the previous evening, which is the point of
+      // asking to be warned in advance at all.
+      final reminders = _reminders(
+        tasks: [_task(scheduledTimeMinutes: 10, repeatType: RepeatType.daily)],
+        leadMinutes: 30,
+        horizonDays: 2,
+      );
+
+      expect(reminders.first.at, DateTime(2026, 5, 20, 23, 40));
+      expect(reminders.first.day, DateTime(2026, 5, 21));
+    });
+
+    test('a lead that has already elapsed drops the reminder', () {
+      // 09:03 less five minutes is 08:58, and it is 09:00. Not pulled forward
+      // to now: the list is recomputed on every edit and every tick, and a
+      // reminder pinned to this moment would fire again on each of them.
+      final reminders = _reminders(
+        tasks: [_task(scheduledTimeMinutes: 9 * 60 + 3)],
+        leadMinutes: 5,
+      );
+
+      expect(reminders, isEmpty);
+    });
+
+    test('the fingerprint changes with the lead', () {
+      // Otherwise the reminders scheduled under the old setting would be left
+      // alone as still-correct and keep firing at the old moment.
+      expect(
+        _reminders(leadMinutes: 0).single.fingerprint,
+        isNot(_reminders(leadMinutes: 5).single.fingerprint),
+      );
+    });
+
+    test('a negative lead is not a delay', () {
+      expect(_reminders(leadMinutes: -10).single.at, _at(10, 0));
     });
   });
 

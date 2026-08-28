@@ -53,10 +53,8 @@ Color disabledInsetSurface(ThemeData theme) =>
 
 /// Shadow under a raised surface. Barely there on white, heavier in the dark
 /// theme, where a faint shadow on near-black shows nothing at all.
-Color surfaceShadow(ThemeData theme, {double light = 0.05}) =>
-    Colors.black.withValues(
-      alpha: theme.brightness == Brightness.light ? light : 0.45,
-    );
+Color surfaceShadow(ThemeData theme, {double light = 0.05}) => Colors.black
+    .withValues(alpha: theme.brightness == Brightness.light ? light : 0.45);
 
 /// A row in a grouped list, raised a shade off the page it sits on.
 Color rowSurface(ThemeData theme) => theme.brightness == Brightness.light

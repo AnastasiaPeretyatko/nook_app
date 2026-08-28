@@ -22,7 +22,8 @@ Task _task({
   required int start,
   int? end,
   int? colorValue,
-}) => Task(dirty: false, 
+}) => Task(
+  dirty: false,
   id: id,
   title: title,
   status: TaskStatus.active,
@@ -59,9 +60,7 @@ Widget _darkTimeline({Widget? child}) => ProviderScope(
     ],
     supportedLocales: const [Locale('ru', 'RU')],
     theme: buildAppTheme(_accent, Brightness.dark),
-    home: Scaffold(
-      body: child ?? TaskTimeline(selectedDay: _today),
-    ),
+    home: Scaffold(body: child ?? TaskTimeline(selectedDay: _today)),
   ),
 );
 
@@ -111,10 +110,12 @@ void main() {
     // Lifted above the page behind it, which is the darkest surface.
     expect(
       sheet.computeLuminance(),
-      greaterThan(buildAppTheme(
-        _accent,
-        Brightness.dark,
-      ).colorScheme.surface.computeLuminance()),
+      greaterThan(
+        buildAppTheme(
+          _accent,
+          Brightness.dark,
+        ).colorScheme.surface.computeLuminance(),
+      ),
     );
   });
 

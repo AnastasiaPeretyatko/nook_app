@@ -194,7 +194,8 @@ DateTime? clientUpdatedAt(Map<String, dynamic> row) =>
     _moment(row[_clientUpdatedAt]);
 
 /// The server's own stamp — the pull watermark, and nothing else.
-DateTime? serverUpdatedAt(Map<String, dynamic> row) => _moment(row['updated_at']);
+DateTime? serverUpdatedAt(Map<String, dynamic> row) =>
+    _moment(row['updated_at']);
 
 /// Whether the row says it has been deleted elsewhere.
 bool isDeleted(Map<String, dynamic> row) => row['deleted_at'] != null;

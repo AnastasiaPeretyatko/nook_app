@@ -83,11 +83,8 @@ class ArchivePage extends ConsumerWidget {
           final done = roots
               .where((t) => t.status == TaskStatus.active)
               .where(
-                (t) => isTaskArchived(
-                  t,
-                  completed: isCompleted(t),
-                  today: today,
-                ),
+                (t) =>
+                    isTaskArchived(t, completed: isCompleted(t), today: today),
               )
               .toList();
 

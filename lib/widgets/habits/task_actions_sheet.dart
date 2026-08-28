@@ -333,7 +333,11 @@ class _SubtaskTile extends StatelessWidget {
                 ),
               ),
               child: done
-                  ? Icon(LucideIcons.check, size: 14, color: onTaskColor(accent))
+                  ? Icon(
+                      LucideIcons.check,
+                      size: 14,
+                      color: onTaskColor(accent),
+                    )
                   : null,
             ),
             const SizedBox(width: 10),

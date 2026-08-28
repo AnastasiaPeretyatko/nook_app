@@ -32,10 +32,7 @@ enum FirstSyncChoice {
 /// into another would make the new account's pull start in the middle and skip
 /// everything written before — silently, and with nothing that would ever go
 /// back for it.
-Future<void> applyFirstSyncChoice(
-  WidgetRef ref,
-  FirstSyncChoice choice,
-) async {
+Future<void> applyFirstSyncChoice(WidgetRef ref, FirstSyncChoice choice) async {
   final user = ref.read(currentUserProvider);
   if (user == null) return;
 
@@ -89,8 +86,7 @@ Future<FirstSyncChoice?> askAboutExistingData(
       ),
       actions: [
         TextButton(
-          onPressed: () =>
-              Navigator.of(context).pop(FirstSyncChoice.keepLocal),
+          onPressed: () => Navigator.of(context).pop(FirstSyncChoice.keepLocal),
           child: const Text('Не загружать'),
         ),
         TextButton(

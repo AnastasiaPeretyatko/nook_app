@@ -150,10 +150,7 @@ void pullDecisions() {
     test('unless it only arrived to say it was deleted', () {
       // Nothing to delete, and inserting it would resurrect it on this device
       // alone — the one place it had never existed.
-      expect(
-        decide(deleted: true, remoteAt: at(10)),
-        PullAction.skip,
-      );
+      expect(decide(deleted: true, remoteAt: at(10)), PullAction.skip);
     });
   });
 

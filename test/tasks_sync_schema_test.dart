@@ -101,14 +101,22 @@ CREATE TABLE task_logs (
           // that is not ticked, so the test can tell a rewrite from a merge:
           // the survivor has to move to midnight *and* pick up the tick and the
           // larger value from the row that is dropped.
-          log(1, splitDay.add(const Duration(hours: 14, minutes: 32)), false,
-              3.0);
+          log(
+            1,
+            splitDay.add(const Duration(hours: 14, minutes: 32)),
+            false,
+            3.0,
+          );
           log(1, splitDay, true, 1.0);
 
           // A subtask logs against its parent's anchor, and it too could carry
           // a time.
-          log(2, subtaskDay.add(const Duration(hours: 9, minutes: 15)), true,
-              null);
+          log(
+            2,
+            subtaskDay.add(const Duration(hours: 9, minutes: 15)),
+            true,
+            null,
+          );
 
           raw.execute('PRAGMA user_version = 13');
         },
@@ -145,9 +153,9 @@ CREATE TABLE task_logs (
     });
 
     test('two rows for one day are merged, not picked between', () async {
-      final logs = await (db.select(db.taskLogs)
-            ..where((l) => l.taskId.equals(1) & l.date.equals(splitDay)))
-          .get();
+      final logs = await (db.select(
+        db.taskLogs,
+      )..where((l) => l.taskId.equals(1) & l.date.equals(splitDay))).get();
 
       expect(logs, hasLength(1), reason: 'the duplicate survived');
       // Both halves of the merge: the tick came from the row that was dropped
@@ -157,38 +165,42 @@ CREATE TABLE task_logs (
     });
 
     test('a day that was never duplicated is left as it was', () async {
-      final logs = await (db.select(db.taskLogs)
-            ..where((l) => l.taskId.equals(1) & l.date.equals(cleanDay)))
-          .get();
+      final logs = await (db.select(
+        db.taskLogs,
+      )..where((l) => l.taskId.equals(1) & l.date.equals(cleanDay))).get();
 
       expect(logs, hasLength(1));
       expect(logs.single.completed, isTrue);
       expect(logs.single.value, isNull);
     });
 
-    test('getLogForDate no longer throws on the day that had two rows',
-        () async {
-      // The reason the index matters at all: the read goes through
-      // `getSingleOrNull()`, which throws on a second row — and with it
-      // `setLog`, `incrementCounter`, `toggleCompletion` and the task form.
-      final log = await db.tasksDao.getLogForDate(1, splitDay);
+    test(
+      'getLogForDate no longer throws on the day that had two rows',
+      () async {
+        // The reason the index matters at all: the read goes through
+        // `getSingleOrNull()`, which throws on a second row — and with it
+        // `setLog`, `incrementCounter`, `toggleCompletion` and the task form.
+        final log = await db.tasksDao.getLogForDate(1, splitDay);
 
-      expect(log, isNotNull);
-      expect(log!.completed, isTrue);
-    });
+        expect(log, isNotNull);
+        expect(log!.completed, isTrue);
+      },
+    );
 
-    test('a log is stamped with the day it is about, not with the epoch',
-        () async {
-      final logs = await db.select(db.taskLogs).get();
+    test(
+      'a log is stamped with the day it is about, not with the epoch',
+      () async {
+        final logs = await db.select(db.taskLogs).get();
 
-      for (final log in logs) {
-        expect(
-          log.updatedAt,
-          log.date,
-          reason: 'a log kept the column default instead of being stamped',
-        );
-      }
-    });
+        for (final log in logs) {
+          expect(
+            log.updatedAt,
+            log.date,
+            reason: 'a log kept the column default instead of being stamped',
+          );
+        }
+      },
+    );
 
     test('a task written before the migration is given a uid', () async {
       final rows = await db.select(db.tasks).get();
@@ -221,10 +233,10 @@ CREATE TABLE task_logs (
           )
           .get();
 
-      expect(
-        indexes.map((r) => r.read<String>('name')).toSet(),
-        {'task_logs_task_day', 'tasks_uid'},
-      );
+      expect(indexes.map((r) => r.read<String>('name')).toSet(), {
+        'task_logs_task_day',
+        'tasks_uid',
+      });
     });
   });
 }

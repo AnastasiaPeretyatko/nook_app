@@ -20,7 +20,8 @@ Task _habit({
   required String title,
   RepeatType repeatType = RepeatType.daily,
   Set<int> weekdays = const {},
-}) => Task(dirty: false, 
+}) => Task(
+  dirty: false,
   id: id,
   title: title,
   status: TaskStatus.active,
@@ -38,7 +39,9 @@ TaskLog _log({
   required int taskId,
   required int daysAgo,
   bool completed = true,
-}) => TaskLog(dirty: false, updatedAt: _fixtureStamp, 
+}) => TaskLog(
+  dirty: false,
+  updatedAt: _fixtureStamp,
   id: id,
   taskId: taskId,
   date: _today.subtract(Duration(days: daysAgo)),

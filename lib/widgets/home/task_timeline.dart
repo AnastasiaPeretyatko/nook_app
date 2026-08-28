@@ -41,6 +41,7 @@ class TaskTimeline extends ConsumerStatefulWidget {
   /// share it, so the strip's circles stay aligned with the markers below them.
   /// Deliberately small: the timeline reads better run out to the screen edges.
   static const double contentPad = 4;
+
   /// The vertical line the rows hang on. Theme-driven: the timeline sits on a
   /// sheet, so it has to read on both a white and a near-black surface.
   static Color lineColorOf(BuildContext context) =>
@@ -839,7 +840,9 @@ class _Checkbox extends StatelessWidget {
           ),
           color: completed ? color.withValues(alpha: 0.15) : null,
         ),
-        child: completed ? Icon(LucideIcons.check, size: 16, color: color) : null,
+        child: completed
+            ? Icon(LucideIcons.check, size: 16, color: color)
+            : null,
       ),
     );
   }

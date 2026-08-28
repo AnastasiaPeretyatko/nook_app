@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What fills the rows area when there is nothing to list: an empty day, or a
+     payload that has run out of days. Its own layout rather than a hidden
+     TextView in widget_today.xml, so it can take the whole space the rows would
+     have had and sit in the middle of it. -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_empty"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fontFamily="@font/nunito_semibold"
+    android:gravity="center"
+    android:includeFontPadding="false"
+    android:textSize="13sp" />

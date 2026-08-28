@@ -437,5 +437,20 @@ class AppDatabase extends _$AppDatabase {
 }
 
 QueryExecutor _openConnection() {
-  return driftDatabase(name: 'todo_app');
+  return driftDatabase(
+    name: 'todo_app',
+    // Run on every connection opened to the database file, and there are now two
+    // of them: the app has one, and the isolate that answers a tick made on the
+    // home-screen widget opens its own — see `lib/home_widget/widget_actions.dart`.
+    //
+    // SQLite serialises the two with a file lock, and its default behaviour when
+    // the lock is held is to fail the statement at once with "database is
+    // locked" rather than to wait. A tick arriving while the app happens to be
+    // pushing a sync would be exactly that failure. Five seconds is far longer
+    // than any statement here takes, so what the timeout buys is the difference
+    // between waiting a few milliseconds and losing the write.
+    native: DriftNativeOptions(
+      setup: (database) => database.execute('PRAGMA busy_timeout = 5000;'),
+    ),
+  );
 }

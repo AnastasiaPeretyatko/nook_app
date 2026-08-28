@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The card the whole widget is drawn on. White here and recoloured at runtime
+     with a colour filter, which is the only way a rounded shape can follow the
+     theme on API 24: RemoteViews can set a background *colour*, losing the
+     corners, but not tint a background drawable. So the card is an ImageView
+     lying under the content, and this is its picture. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="24dp" />
+    <solid android:color="#FFFFFFFF" />
+</shape>

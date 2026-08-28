@@ -61,7 +61,12 @@ final taskRemindersProvider = Provider<List<TaskReminder>>((ref) {
   final logs =
       ref.watch(logsBetweenProvider(range)).valueOrNull ?? const <TaskLog>[];
 
-  return taskRemindersFor(tasks: tasks, logs: logs, now: now);
+  return taskRemindersFor(
+    tasks: tasks,
+    logs: logs,
+    now: now,
+    leadMinutes: ref.watch(reminderLeadMinutesProvider),
+  );
 });
 
 /// Whether the platform will actually let the app post a notification.
@@ -106,6 +111,56 @@ class NotificationPermissionNotifier extends AsyncNotifier<bool?> {
           .syncReminders(
             ref.read(taskRemindersProvider),
             enabled: ref.read(taskRemindersEnabledProvider),
+          );
+    }
+  }
+}
+
+/// Whether the platform will let a reminder be scheduled to the minute.
+///
+/// The third of three answers about notifications, and the one that decides
+/// whether a reminder is *on time*: [taskRemindersEnabledProvider] is the user's
+/// wish, [notificationPermissionProvider] is whether anything may be posted at
+/// all, and this one is whether what is posted arrives when it was meant to.
+/// `null` where the question does not exist — iOS, desktop, tests.
+final exactAlarmPermissionProvider =
+    AsyncNotifierProvider<ExactAlarmPermissionNotifier, bool?>(
+      ExactAlarmPermissionNotifier.new,
+    );
+
+class ExactAlarmPermissionNotifier extends AsyncNotifier<bool?> {
+  @override
+  Future<bool?> build() =>
+      ref.read(appNotificationsProvider).canScheduleExactAlarms();
+
+  /// Re-reads the system's answer. Called when the app comes back to the
+  /// foreground: the permission is granted and revoked on a system screen, and
+  /// nothing tells the app which way it went.
+  Future<void> refresh() =>
+      _apply(ref.read(appNotificationsProvider).canScheduleExactAlarms());
+
+  /// Sends the user to that screen, then reports what they did there. Both
+  /// directions of the switch come here — Android offers no way to drop the
+  /// permission from inside the app.
+  Future<void> request() =>
+      _apply(ref.read(appNotificationsProvider).requestExactAlarms());
+
+  Future<void> _apply(Future<bool?> answer) async {
+    final allowed = await answer;
+    final changed = allowed != state.valueOrNull;
+    state = AsyncData(allowed);
+    // Everything already pending was queued as an inexact alarm and says
+    // exactly what it should say, so nothing about it looks stale — it has to be
+    // re-posted on purpose or the permission changes nothing until the next
+    // edit. Only granting: losing the permission cannot make an alarm that is
+    // already exact any less so.
+    if (changed && allowed == true) {
+      await ref
+          .read(appNotificationsProvider)
+          .syncReminders(
+            ref.read(taskRemindersProvider),
+            enabled: ref.read(taskRemindersEnabledProvider),
+            reschedule: true,
           );
     }
   }

@@ -16,7 +16,8 @@ final _days = List.generate(14, (i) => _monday.add(Duration(days: i)));
 /// Ten minutes, the target every habit here is set to.
 const _targetMinutes = 10;
 
-Task _timerHabit() => Task(dirty: false, 
+Task _timerHabit() => Task(
+  dirty: false,
   id: 1,
   title: 'Медитация',
   status: TaskStatus.active,
@@ -29,7 +30,9 @@ Task _timerHabit() => Task(dirty: false,
   updatedAt: _today,
 );
 
-TaskLog _log({required double seconds, bool completed = false}) => TaskLog(dirty: false, updatedAt: _fixtureStamp, 
+TaskLog _log({required double seconds, bool completed = false}) => TaskLog(
+  dirty: false,
+  updatedAt: _fixtureStamp,
   id: 1,
   taskId: 1,
   date: _today,

@@ -56,16 +56,19 @@ void main() {
       dao.insertEntry(DiaryEntriesCompanion.insert(title: Value(title)));
 
   group('nothing syncs until the question is answered', () {
-    test('a switch turned on by an account that never answered is inert', () async {
-      final c = await container(
-        stored: {'sync_enabled': true},
-        user: person('user-a'),
-      );
-      addTearDown(c.dispose);
+    test(
+      'a switch turned on by an account that never answered is inert',
+      () async {
+        final c = await container(
+          stored: {'sync_enabled': true},
+          user: person('user-a'),
+        );
+        addTearDown(c.dispose);
 
-      expect(c.read(syncNeedsDecisionProvider), isTrue);
-      expect(c.read(syncActiveProvider), isFalse);
-    });
+        expect(c.read(syncNeedsDecisionProvider), isTrue);
+        expect(c.read(syncActiveProvider), isFalse);
+      },
+    );
 
     test('an answered account syncs', () async {
       final c = await container(

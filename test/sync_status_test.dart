@@ -13,8 +13,7 @@ void main() {
   final now = DateTime.utc(2026, 8, 26, 12, 0);
   String label(SyncStatus status) => syncStatusLabel(status, now: now);
 
-  SyncStatus at(Duration ago) =>
-      SyncStatus(lastSuccessAt: now.subtract(ago));
+  SyncStatus at(Duration ago) => SyncStatus(lastSuccessAt: now.subtract(ago));
 
   group('what it says', () {
     test('before anything has ever worked', () {
@@ -45,23 +44,33 @@ void main() {
     test('a failure does not erase when it last worked', () {
       // The old answer is still true. Replacing it with nothing would say the
       // sync has never worked, which is a different and worse claim.
-      final status = at(const Duration(hours: 2))
-          .copyWith(phase: SyncPhase.failed);
+      final status = at(
+        const Duration(hours: 2),
+      ).copyWith(phase: SyncPhase.failed);
       expect(status.lastSuccessAt, isNotNull);
     });
   });
 
   group('how long ago', () {
     test('seconds read as "только что"', () {
-      expect(label(at(const Duration(seconds: 20))), 'Синхронизировано только что');
+      expect(
+        label(at(const Duration(seconds: 20))),
+        'Синхронизировано только что',
+      );
     });
 
     test('counts minutes three ways, as Russian does', () {
       expect(label(at(const Duration(minutes: 1))), endsWith('1 минуту назад'));
       expect(label(at(const Duration(minutes: 3))), endsWith('3 минуты назад'));
       expect(label(at(const Duration(minutes: 5))), endsWith('5 минут назад'));
-      expect(label(at(const Duration(minutes: 21))), endsWith('21 минуту назад'));
-      expect(label(at(const Duration(minutes: 11))), endsWith('11 минут назад'));
+      expect(
+        label(at(const Duration(minutes: 21))),
+        endsWith('21 минуту назад'),
+      );
+      expect(
+        label(at(const Duration(minutes: 11))),
+        endsWith('11 минут назад'),
+      );
     });
 
     test('counts hours the same way', () {
@@ -90,13 +99,16 @@ void main() {
   });
 
   group('as a value', () {
-    test('two identical statuses are equal, so nothing repaints for nothing', () {
-      expect(at(const Duration(minutes: 5)), at(const Duration(minutes: 5)));
-      expect(
-        at(const Duration(minutes: 5)).hashCode,
-        at(const Duration(minutes: 5)).hashCode,
-      );
-    });
+    test(
+      'two identical statuses are equal, so nothing repaints for nothing',
+      () {
+        expect(at(const Duration(minutes: 5)), at(const Duration(minutes: 5)));
+        expect(
+          at(const Duration(minutes: 5)).hashCode,
+          at(const Duration(minutes: 5)).hashCode,
+        );
+      },
+    );
 
     test('a changed phase is a changed status', () {
       expect(

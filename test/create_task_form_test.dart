@@ -34,7 +34,8 @@ Widget _form({TaskFormMode mode = TaskFormMode.create, Task? task}) =>
 /// tested.
 Task _valueTask({double? targetValue}) {
   final now = DateTime(2026, 5, 20);
-  return Task(dirty: false, 
+  return Task(
+    dirty: false,
     id: 1,
     title: 'Вода',
     status: TaskStatus.active,
@@ -67,7 +68,9 @@ Future<void> _plus(WidgetTester tester, String label) async {
   final row = find
       .ancestor(of: find.text(label), matching: find.byType(Row))
       .first;
-  await tester.tap(find.descendant(of: row, matching: find.byIcon(LucideIcons.plus)));
+  await tester.tap(
+    find.descendant(of: row, matching: find.byIcon(LucideIcons.plus)),
+  );
   await tester.pumpAndSettle();
 }
 
@@ -374,7 +377,10 @@ void main() {
       final hours = find
           .ancestor(of: find.text('Часы'), matching: find.byType(Column))
           .first;
-      final plus = find.descendant(of: hours, matching: find.byIcon(LucideIcons.plus));
+      final plus = find.descendant(
+        of: hours,
+        matching: find.byIcon(LucideIcons.plus),
+      );
       await tester.tap(plus);
       await tester.pumpAndSettle();
       await tester.tap(plus);

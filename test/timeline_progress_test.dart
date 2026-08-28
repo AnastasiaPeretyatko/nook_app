@@ -39,7 +39,8 @@ Task _ranged({
   required int start,
   required int end,
   DateTime? on,
-}) => Task(dirty: false, 
+}) => Task(
+  dirty: false,
   id: id,
   title: title,
   status: TaskStatus.active,
@@ -107,20 +108,16 @@ void main() {
       expect(_fillFraction(tester), 0);
     });
 
-    testWidgets(
-      'a finished task is filled to the top',
-      (tester) async {
-        await tester.pumpWidget(
-          _timeline([
-            _ranged(id: 1, title: 'Прошло', start: _pastStart, end: _pastEnd),
-          ]),
-        );
-        await tester.pumpAndSettle();
+    testWidgets('a finished task is filled to the top', (tester) async {
+      await tester.pumpWidget(
+        _timeline([
+          _ranged(id: 1, title: 'Прошло', start: _pastStart, end: _pastEnd),
+        ]),
+      );
+      await tester.pumpAndSettle();
 
-        expect(_fillFraction(tester), 1);
-      },
-      skip: _noPastWindow,
-    );
+      expect(_fillFraction(tester), 1);
+    }, skip: _noPastWindow);
 
     testWidgets(
       'a running task is filled part way',
@@ -277,34 +274,32 @@ void main() {
   });
 
   group('the two tones of a family', () {
-    testWidgets(
-      'a pill is the light tone, filled with the accent',
-      (tester) async {
-        await tester.pumpWidget(
-          _timeline([
-            _ranged(id: 1, title: 'Прошло', start: _pastStart, end: _pastEnd),
-          ]),
-        );
-        await tester.pumpAndSettle();
+    testWidgets('a pill is the light tone, filled with the accent', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _timeline([
+          _ranged(id: 1, title: 'Прошло', start: _pastStart, end: _pastEnd),
+        ]),
+      );
+      await tester.pumpAndSettle();
 
-        // The body of the pill: a light-tone base with the accent filled over
-        // it.
-        final base = tester
-            .widgetList<ColoredBox>(find.byType(ColoredBox))
-            .map((b) => b.color)
-            .toList();
-        expect(base, contains(taskLightTone(_accent)));
+      // The body of the pill: a light-tone base with the accent filled over
+      // it.
+      final base = tester
+          .widgetList<ColoredBox>(find.byType(ColoredBox))
+          .map((b) => b.color)
+          .toList();
+      expect(base, contains(taskLightTone(_accent)));
 
-        final fill = tester.widget<AnimatedContainer>(
-          find.descendant(
-            of: find.byType(FractionallySizedBox),
-            matching: find.byType(AnimatedContainer),
-          ),
-        );
-        expect((fill.decoration as BoxDecoration?)?.color, _accent);
-      },
-      skip: _noPastWindow,
-    );
+      final fill = tester.widget<AnimatedContainer>(
+        find.descendant(
+          of: find.byType(FractionallySizedBox),
+          matching: find.byType(AnimatedContainer),
+        ),
+      );
+      expect((fill.decoration as BoxDecoration?)?.color, _accent);
+    }, skip: _noPastWindow);
 
     testWidgets('the glyph on a filled marker is white', (tester) async {
       await tester.pumpWidget(

@@ -64,7 +64,10 @@ List<String> decodeImageNames(String? stored) {
   if (stored == null || stored.trim().isEmpty) return const [];
   final decoded = jsonDecode(stored);
   if (decoded is! List) return const [];
-  return [for (final name in decoded) if (name is String) name];
+  return [
+    for (final name in decoded)
+      if (name is String) name,
+  ];
 }
 
 String encodeImageNames(List<String> names) => jsonEncode(names);

@@ -70,8 +70,7 @@ class SyncStatusNotifier extends Notifier<SyncStatus> {
     );
   }
 
-  void reportRunning() =>
-      state = state.copyWith(phase: SyncPhase.running);
+  void reportRunning() => state = state.copyWith(phase: SyncPhase.running);
 
   Future<void> reportSuccess(DateTime at) async {
     state = SyncStatus(phase: SyncPhase.idle, lastSuccessAt: at);

@@ -125,7 +125,10 @@ void main() {
       // The server's `updated_at` is when the row was written, which is later
       // than the edit and unrelated to it. Taking it would make every pulled
       // note look freshly touched and jump it to the top of the diary.
-      expect(companion.updatedAt, Value(DateTime.parse('2026-08-26T10:00:00Z')));
+      expect(
+        companion.updatedAt,
+        Value(DateTime.parse('2026-08-26T10:00:00Z')),
+      );
     });
 
     test('survives a status it has never heard of', () {
@@ -139,7 +142,10 @@ void main() {
 
     test('survives a missing or malformed date', () {
       expect(entryFromRow(row(clientUpdated: null)).updatedAt.present, isTrue);
-      expect(entryFromRow(row(clientUpdated: 'вчера')).updatedAt.present, isTrue);
+      expect(
+        entryFromRow(row(clientUpdated: 'вчера')).updatedAt.present,
+        isTrue,
+      );
     });
 
     test('reads the deletion mark', () {
@@ -260,19 +266,16 @@ void main() {
       updatedAt: DateTime.utc(2026, 8, 26, 10),
     );
 
-    TaskLog mark({
-      DateTime? on,
-      bool completed = true,
-      double? value = 3,
-    }) => TaskLog(
-      id: 1,
-      taskId: 1,
-      date: on ?? DateTime(2026, 8, 26),
-      completed: completed,
-      value: value,
-      dirty: true,
-      updatedAt: DateTime.utc(2026, 8, 26, 10),
-    );
+    TaskLog mark({DateTime? on, bool completed = true, double? value = 3}) =>
+        TaskLog(
+          id: 1,
+          taskId: 1,
+          date: on ?? DateTime(2026, 8, 26),
+          completed: completed,
+          value: value,
+          dirty: true,
+          updatedAt: DateTime.utc(2026, 8, 26, 10),
+        );
 
     test('sends the uid as the identity, never the local id', () {
       final row = taskToRow(habit());
@@ -295,8 +298,10 @@ void main() {
     test('a parent is named by uid, and a root by nothing', () {
       // The one thing this file cannot work out for itself: a parent is a local
       // integer here and a uuid there, so the engine hands the uid in.
-      expect(taskToRow(habit(parentId: 7), parentUid: 'parent-uid')['parent_id'],
-          'parent-uid');
+      expect(
+        taskToRow(habit(parentId: 7), parentUid: 'parent-uid')['parent_id'],
+        'parent-uid',
+      );
       expect(taskToRow(habit())['parent_id'], isNull);
     });
 
@@ -483,7 +488,10 @@ void main() {
       );
 
       expect(taskToRow(task)['start_date'], '2026-08-26');
-      expect(taskFromRow(taskToRow(task)).startDate.value, DateTime(2026, 8, 26));
+      expect(
+        taskFromRow(taskToRow(task)).startDate.value,
+        DateTime(2026, 8, 26),
+      );
     });
 
     test('no start date stays no start date', () {

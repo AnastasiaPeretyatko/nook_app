@@ -58,7 +58,8 @@ class TasksList extends ConsumerWidget {
             .where((t) => t.status == TaskStatus.active)
             .where((t) => t.repeatType == null)
             .where(
-              (t) => !isTaskArchived(t, completed: isCompleted(t), today: today),
+              (t) =>
+                  !isTaskArchived(t, completed: isCompleted(t), today: today),
             )
             .toList();
 
@@ -369,7 +370,9 @@ class _Checkbox extends StatelessWidget {
           ),
           color: completed ? color.withValues(alpha: 0.15) : null,
         ),
-        child: completed ? Icon(LucideIcons.check, size: 16, color: color) : null,
+        child: completed
+            ? Icon(LucideIcons.check, size: 16, color: color)
+            : null,
       ),
     );
   }

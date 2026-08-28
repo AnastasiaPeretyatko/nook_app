@@ -45,10 +45,8 @@ class DiaryDao extends DatabaseAccessor<AppDatabase> with _$DiaryDaoMixin {
 
   Stream<List<DiaryEntry>> watchEntries() =>
       (select(diaryEntries)..orderBy([
-            (e) => OrderingTerm(
-              expression: e.updatedAt,
-              mode: OrderingMode.desc,
-            ),
+            (e) =>
+                OrderingTerm(expression: e.updatedAt, mode: OrderingMode.desc),
           ]))
           .watch();
 
@@ -186,14 +184,14 @@ class DiaryDao extends DatabaseAccessor<AppDatabase> with _$DiaryDaoMixin {
 
   /// Every mood, oldest first, which keeps the eight the app seeded in the order
   /// the design lists them and puts anything the user invents after them.
-  Stream<List<NoteMood>> watchMoods() =>
-      (select(noteMoods)..orderBy([(m) => OrderingTerm(expression: m.id)]))
-          .watch();
+  Stream<List<NoteMood>> watchMoods() => (select(
+    noteMoods,
+  )..orderBy([(m) => OrderingTerm(expression: m.id)])).watch();
 
   /// Every tag, oldest first — same reasoning as [watchMoods].
-  Stream<List<NoteTag>> watchTags() =>
-      (select(noteTags)..orderBy([(t) => OrderingTerm(expression: t.id)]))
-          .watch();
+  Stream<List<NoteTag>> watchTags() => (select(
+    noteTags,
+  )..orderBy([(t) => OrderingTerm(expression: t.id)])).watch();
 
   /// Adds a mood and hands back its id, so the picker can select what it just
   /// created without waiting for the stream to come round.
@@ -286,17 +284,16 @@ class DiaryDao extends DatabaseAccessor<AppDatabase> with _$DiaryDaoMixin {
   /// by the convention every other form on this app follows: a draft the user is
   /// editing must not be overwritten by the database underneath them.
   Future<List<int>> getMoodIdsForEntry(int entryId) async {
-    final rows =
-        await (select(diaryEntryMoods)
-              ..where((l) => l.entryId.equals(entryId)))
-            .get();
+    final rows = await (select(
+      diaryEntryMoods,
+    )..where((l) => l.entryId.equals(entryId))).get();
     return [for (final row in rows) row.moodId];
   }
 
   Future<List<int>> getTagIdsForEntry(int entryId) async {
-    final rows =
-        await (select(diaryEntryTags)..where((l) => l.entryId.equals(entryId)))
-            .get();
+    final rows = await (select(
+      diaryEntryTags,
+    )..where((l) => l.entryId.equals(entryId))).get();
     return [for (final row in rows) row.tagId];
   }
 
@@ -318,9 +315,9 @@ class DiaryDao extends DatabaseAccessor<AppDatabase> with _$DiaryDaoMixin {
   /// which writes the note in the same breath.)
   Future<void> setEntryMoods(int entryId, Iterable<int> moodIds) {
     return transaction(() async {
-      await (delete(diaryEntryMoods)
-            ..where((l) => l.entryId.equals(entryId)))
-          .go();
+      await (delete(
+        diaryEntryMoods,
+      )..where((l) => l.entryId.equals(entryId))).go();
       await _touchEntry(entryId);
       if (moodIds.isEmpty) return;
       await batch((b) {
@@ -335,8 +332,9 @@ class DiaryDao extends DatabaseAccessor<AppDatabase> with _$DiaryDaoMixin {
   /// Same shape as [setEntryMoods], and the note is marked for the same reason.
   Future<void> setEntryTags(int entryId, Iterable<int> tagIds) {
     return transaction(() async {
-      await (delete(diaryEntryTags)..where((l) => l.entryId.equals(entryId)))
-          .go();
+      await (delete(
+        diaryEntryTags,
+      )..where((l) => l.entryId.equals(entryId))).go();
       await _touchEntry(entryId);
       if (tagIds.isEmpty) return;
       await batch((b) {
@@ -386,10 +384,11 @@ class DiaryDao extends DatabaseAccessor<AppDatabase> with _$DiaryDaoMixin {
   /// question is about.
   Future<int> unsentEntryCount() async {
     final count = diaryEntries.id.count();
-    final row = await (selectOnly(diaryEntries)
-          ..addColumns([count])
-          ..where(diaryEntries.dirty.equals(true)))
-        .getSingle();
+    final row =
+        await (selectOnly(diaryEntries)
+              ..addColumns([count])
+              ..where(diaryEntries.dirty.equals(true)))
+            .getSingle();
     return row.read(count) ?? 0;
   }
 
@@ -406,9 +405,9 @@ class DiaryDao extends DatabaseAccessor<AppDatabase> with _$DiaryDaoMixin {
   /// Postgres if the label it points at had never been uploaded.
   Future<void> keepExistingEntriesLocal() {
     return transaction(() async {
-      await update(diaryEntries).write(
-        const DiaryEntriesCompanion(dirty: Value(false)),
-      );
+      await update(
+        diaryEntries,
+      ).write(const DiaryEntriesCompanion(dirty: Value(false)));
       // Deletions of notes that are staying here are nobody else's news.
       await delete(syncTombstones).go();
     });
@@ -431,29 +430,22 @@ class DiaryDao extends DatabaseAccessor<AppDatabase> with _$DiaryDaoMixin {
   /// this device and the caller should insert it instead — that is the caller's
   /// decision because only it knows the note's local parent ids.
   Future<bool> applyRemoteEntry(String uid, DiaryEntriesCompanion entry) async {
-    final changed = await (update(
-      diaryEntries,
-    )..where((e) => e.uid.equals(uid))).write(
-      entry.copyWith(uid: Value(uid), dirty: const Value(false)),
-    );
+    final changed =
+        await (update(diaryEntries)..where((e) => e.uid.equals(uid))).write(
+          entry.copyWith(uid: Value(uid), dirty: const Value(false)),
+        );
     return changed > 0;
   }
 
   Future<bool> applyRemoteMood(String uid, NoteMoodsCompanion mood) async {
-    final changed = await (update(
-      noteMoods,
-    )..where((m) => m.uid.equals(uid))).write(
-      mood.copyWith(uid: Value(uid), dirty: const Value(false)),
-    );
+    final changed = await (update(noteMoods)..where((m) => m.uid.equals(uid)))
+        .write(mood.copyWith(uid: Value(uid), dirty: const Value(false)));
     return changed > 0;
   }
 
   Future<bool> applyRemoteTag(String uid, NoteTagsCompanion tag) async {
-    final changed = await (update(
-      noteTags,
-    )..where((t) => t.uid.equals(uid))).write(
-      tag.copyWith(uid: Value(uid), dirty: const Value(false)),
-    );
+    final changed = await (update(noteTags)..where((t) => t.uid.equals(uid)))
+        .write(tag.copyWith(uid: Value(uid), dirty: const Value(false)));
     return changed > 0;
   }
 
@@ -463,19 +455,17 @@ class DiaryDao extends DatabaseAccessor<AppDatabase> with _$DiaryDaoMixin {
   /// row dirty — right for a note the user just wrote, wrong for one that came
   /// down the wire already carrying both answers.
   Future<int> insertRemoteEntry(String uid, DiaryEntriesCompanion entry) =>
-      into(diaryEntries).insert(
-        entry.copyWith(uid: Value(uid), dirty: const Value(false)),
-      );
+      into(
+        diaryEntries,
+      ).insert(entry.copyWith(uid: Value(uid), dirty: const Value(false)));
 
-  Future<int> insertRemoteMood(String uid, NoteMoodsCompanion mood) =>
-      into(noteMoods).insert(
-        mood.copyWith(uid: Value(uid), dirty: const Value(false)),
-      );
+  Future<int> insertRemoteMood(String uid, NoteMoodsCompanion mood) => into(
+    noteMoods,
+  ).insert(mood.copyWith(uid: Value(uid), dirty: const Value(false)));
 
-  Future<int> insertRemoteTag(String uid, NoteTagsCompanion tag) =>
-      into(noteTags).insert(
-        tag.copyWith(uid: Value(uid), dirty: const Value(false)),
-      );
+  Future<int> insertRemoteTag(String uid, NoteTagsCompanion tag) => into(
+    noteTags,
+  ).insert(tag.copyWith(uid: Value(uid), dirty: const Value(false)));
 
   /// Finds a note by the identity the server knows it by.
   Future<DiaryEntry?> entryByUid(String uid) =>
@@ -497,9 +487,8 @@ class DiaryDao extends DatabaseAccessor<AppDatabase> with _$DiaryDaoMixin {
     for (final entry in sentAt.entries) {
       await (update(diaryEntries)..where(
             (e) =>
-                e.uid.equals(entry.key) & e.updatedAt.isSmallerOrEqualValue(
-                  entry.value,
-                ),
+                e.uid.equals(entry.key) &
+                e.updatedAt.isSmallerOrEqualValue(entry.value),
           ))
           .write(const DiaryEntriesCompanion(dirty: Value(false)));
     }
@@ -558,9 +547,9 @@ class DiaryDao extends DatabaseAccessor<AppDatabase> with _$DiaryDaoMixin {
   /// two phones would trade the same set forever.
   Future<void> applyRemoteEntryMoods(int entryId, Iterable<int> moodIds) {
     return transaction(() async {
-      await (delete(diaryEntryMoods)
-            ..where((l) => l.entryId.equals(entryId)))
-          .go();
+      await (delete(
+        diaryEntryMoods,
+      )..where((l) => l.entryId.equals(entryId))).go();
       if (moodIds.isEmpty) return;
       await batch((b) {
         b.insertAll(diaryEntryMoods, [
@@ -573,8 +562,9 @@ class DiaryDao extends DatabaseAccessor<AppDatabase> with _$DiaryDaoMixin {
 
   Future<void> applyRemoteEntryTags(int entryId, Iterable<int> tagIds) {
     return transaction(() async {
-      await (delete(diaryEntryTags)..where((l) => l.entryId.equals(entryId)))
-          .go();
+      await (delete(
+        diaryEntryTags,
+      )..where((l) => l.entryId.equals(entryId))).go();
       if (tagIds.isEmpty) return;
       await batch((b) {
         b.insertAll(diaryEntryTags, [
@@ -594,11 +584,12 @@ class DiaryDao extends DatabaseAccessor<AppDatabase> with _$DiaryDaoMixin {
     return transaction(() async {
       final entry = await entryByUid(uid);
       if (entry == null) return false;
-      await (delete(diaryEntryMoods)
-            ..where((l) => l.entryId.equals(entry.id)))
-          .go();
-      await (delete(diaryEntryTags)..where((l) => l.entryId.equals(entry.id)))
-          .go();
+      await (delete(
+        diaryEntryMoods,
+      )..where((l) => l.entryId.equals(entry.id))).go();
+      await (delete(
+        diaryEntryTags,
+      )..where((l) => l.entryId.equals(entry.id))).go();
       await (delete(diaryEntries)..where((e) => e.id.equals(entry.id))).go();
       return true;
     });

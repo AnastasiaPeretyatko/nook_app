@@ -29,7 +29,8 @@ Task _task({
   int? colorValue = 0xFFFFC1CC,
   String? iconKey,
 }) {
-  return Task(dirty: false, 
+  return Task(
+    dirty: false,
     id: id,
     title: title,
     status: TaskStatus.active,
@@ -110,10 +111,35 @@ final _tasks = <Task>[
 ];
 
 final _logs = <TaskLog>[
-  TaskLog(dirty: false, updatedAt: _fixtureStamp, id: 1, taskId: 1, date: _today, completed: true),
-  TaskLog(dirty: false, updatedAt: _fixtureStamp, id: 2, taskId: 3, date: _today, completed: false, value: 3),
-  TaskLog(dirty: false, updatedAt: _fixtureStamp, id: 3, taskId: 2, date: _today, completed: false, value: 120),
-  TaskLog(dirty: false, updatedAt: _fixtureStamp, 
+  TaskLog(
+    dirty: false,
+    updatedAt: _fixtureStamp,
+    id: 1,
+    taskId: 1,
+    date: _today,
+    completed: true,
+  ),
+  TaskLog(
+    dirty: false,
+    updatedAt: _fixtureStamp,
+    id: 2,
+    taskId: 3,
+    date: _today,
+    completed: false,
+    value: 3,
+  ),
+  TaskLog(
+    dirty: false,
+    updatedAt: _fixtureStamp,
+    id: 3,
+    taskId: 2,
+    date: _today,
+    completed: false,
+    value: 120,
+  ),
+  TaskLog(
+    dirty: false,
+    updatedAt: _fixtureStamp,
     id: 4,
     taskId: 1,
     date: _today.subtract(const Duration(days: 3)),

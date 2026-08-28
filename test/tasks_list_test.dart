@@ -22,7 +22,8 @@ Task _task({
   TaskStatus status = TaskStatus.active,
   RepeatType? repeatType,
   DateTime? startDate,
-}) => Task(dirty: false, 
+}) => Task(
+  dirty: false,
   id: id,
   title: title,
   parentId: parentId,
@@ -36,22 +37,23 @@ Task _task({
   updatedAt: _today,
 );
 
-Widget _list(List<Task> tasks, {List<TaskLog> logs = const []}) => ProviderScope(
-  overrides: [
-    allTasksProvider.overrideWith((ref) => Stream.value(tasks)),
-    allLogsProvider.overrideWith((ref) => Stream.value(logs)),
-  ],
-  child: MaterialApp(
-    locale: const Locale('ru', 'RU'),
-    localizationsDelegates: const [
-      GlobalMaterialLocalizations.delegate,
-      GlobalWidgetsLocalizations.delegate,
-      GlobalCupertinoLocalizations.delegate,
-    ],
-    supportedLocales: const [Locale('ru', 'RU')],
-    home: const Scaffold(body: TasksList()),
-  ),
-);
+Widget _list(List<Task> tasks, {List<TaskLog> logs = const []}) =>
+    ProviderScope(
+      overrides: [
+        allTasksProvider.overrideWith((ref) => Stream.value(tasks)),
+        allLogsProvider.overrideWith((ref) => Stream.value(logs)),
+      ],
+      child: MaterialApp(
+        locale: const Locale('ru', 'RU'),
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: const [Locale('ru', 'RU')],
+        home: const Scaffold(body: TasksList()),
+      ),
+    );
 
 void main() {
   setUpAll(() async {
@@ -69,7 +71,16 @@ void main() {
             _task(id: 2, title: 'Коробки', parentId: 1),
             _task(id: 3, title: 'Машина', parentId: 1),
           ],
-          logs: [TaskLog(dirty: false, updatedAt: _fixtureStamp, id: 1, taskId: 2, date: _today, completed: true)],
+          logs: [
+            TaskLog(
+              dirty: false,
+              updatedAt: _fixtureStamp,
+              id: 1,
+              taskId: 2,
+              date: _today,
+              completed: true,
+            ),
+          ],
         ),
       );
       await tester.pumpAndSettle();
@@ -100,8 +111,22 @@ void main() {
             _task(id: 3, title: 'Машина', parentId: 1),
           ],
           logs: [
-            TaskLog(dirty: false, updatedAt: _fixtureStamp, id: 1, taskId: 2, date: _today, completed: true),
-            TaskLog(dirty: false, updatedAt: _fixtureStamp, id: 2, taskId: 3, date: _today, completed: true),
+            TaskLog(
+              dirty: false,
+              updatedAt: _fixtureStamp,
+              id: 1,
+              taskId: 2,
+              date: _today,
+              completed: true,
+            ),
+            TaskLog(
+              dirty: false,
+              updatedAt: _fixtureStamp,
+              id: 2,
+              taskId: 3,
+              date: _today,
+              completed: true,
+            ),
           ],
         ),
       );
@@ -124,7 +149,16 @@ void main() {
             _task(id: 1, title: 'Переезд'),
             _task(id: 2, title: 'Коробки', parentId: 1),
           ],
-          logs: [TaskLog(dirty: false, updatedAt: _fixtureStamp, id: 1, taskId: 2, date: _today, completed: false)],
+          logs: [
+            TaskLog(
+              dirty: false,
+              updatedAt: _fixtureStamp,
+              id: 1,
+              taskId: 2,
+              date: _today,
+              completed: false,
+            ),
+          ],
         ),
       );
       await tester.pumpAndSettle();
@@ -140,7 +174,16 @@ void main() {
             _task(id: 1, title: 'Переезд'),
             _task(id: 2, title: 'Коробки', parentId: 1),
           ],
-          logs: [TaskLog(dirty: false, updatedAt: _fixtureStamp, id: 1, taskId: 2, date: yesterday, completed: true)],
+          logs: [
+            TaskLog(
+              dirty: false,
+              updatedAt: _fixtureStamp,
+              id: 1,
+              taskId: 2,
+              date: yesterday,
+              completed: true,
+            ),
+          ],
         ),
       );
       await tester.pumpAndSettle();
@@ -158,7 +201,16 @@ void main() {
             _task(id: 1, title: 'Переезд', startDate: tomorrow),
             _task(id: 2, title: 'Коробки', parentId: 1, startDate: tomorrow),
           ],
-          logs: [TaskLog(dirty: false, updatedAt: _fixtureStamp, id: 1, taskId: 2, date: tomorrow, completed: true)],
+          logs: [
+            TaskLog(
+              dirty: false,
+              updatedAt: _fixtureStamp,
+              id: 1,
+              taskId: 2,
+              date: tomorrow,
+              completed: true,
+            ),
+          ],
         ),
       );
       await tester.pumpAndSettle();

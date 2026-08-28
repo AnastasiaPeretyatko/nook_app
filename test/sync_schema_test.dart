@@ -264,10 +264,9 @@ CREATE TABLE note_tags (
       }
 
       expect(await seeded(first), await seeded(second));
-      expect(
-        await seeded(first),
-        {for (final seed in defaultNoteMoods) seed.name: seed.uid},
-      );
+      expect(await seeded(first), {
+        for (final seed in defaultNoteMoods) seed.name: seed.uid,
+      });
     });
   });
 }

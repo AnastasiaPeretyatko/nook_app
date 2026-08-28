@@ -8,7 +8,8 @@ final _today = DateTime(_now.year, _now.month, _now.day);
 final _monday = _today.subtract(Duration(days: _today.weekday - 1 + 7));
 final _days = List.generate(14, (i) => _monday.add(Duration(days: i)));
 
-Task _habit(String title, {DateTime? startDate}) => Task(dirty: false, 
+Task _habit(String title, {DateTime? startDate}) => Task(
+  dirty: false,
   id: 1,
   title: title,
   status: TaskStatus.active,

@@ -234,17 +234,20 @@ void main() {
       );
     });
 
-    test('a second edit inside the same second still moves the stamp', () async {
-      final id = await addNote('Заметка');
-      final first = await note(id);
-      await dao.setBody(id, 'раз');
-      final second = await note(id);
-      await dao.setBody(id, 'два');
-      final third = await note(id);
+    test(
+      'a second edit inside the same second still moves the stamp',
+      () async {
+        final id = await addNote('Заметка');
+        final first = await note(id);
+        await dao.setBody(id, 'раз');
+        final second = await note(id);
+        await dao.setBody(id, 'два');
+        final third = await note(id);
 
-      expect(second.updatedAt.isAfter(first.updatedAt), isTrue);
-      expect(third.updatedAt.isAfter(second.updatedAt), isTrue);
-    });
+        expect(second.updatedAt.isAfter(first.updatedAt), isTrue);
+        expect(third.updatedAt.isAfter(second.updatedAt), isTrue);
+      },
+    );
 
     test('an untouched note is cleared', () async {
       final id = await addNote('Заметка');

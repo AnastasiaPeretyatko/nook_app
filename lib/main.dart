@@ -10,6 +10,9 @@ import 'package:todo_app/pages/diary_page.dart';
 import 'package:todo_app/pages/habits_page.dart';
 import 'package:todo_app/pages/home_page.dart';
 import 'package:todo_app/pages/settings_page.dart';
+import 'package:todo_app/home_widget/home_widget_scope.dart';
+import 'package:todo_app/home_widget/providers.dart';
+import 'package:todo_app/home_widget/widget_actions.dart';
 import 'package:todo_app/notifications/providers.dart';
 import 'package:todo_app/notifications/task_reminder.dart';
 import 'package:todo_app/notifications/timer_notification.dart';
@@ -17,7 +20,6 @@ import 'package:todo_app/settings/app_version.dart';
 import 'package:todo_app/settings/notification_settings.dart';
 import 'package:todo_app/settings/theme_provider.dart';
 import 'package:todo_app/sync/sync_controller.dart';
-import 'package:todo_app/utils/surfaces.dart';
 import 'package:todo_app/utils/task_colors.dart';
 import 'package:todo_app/widgets/app_bottom_nav_bar.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
@@ -41,18 +43,22 @@ Future<void> main() async {
   );
 }
 
-class MainScreen extends StatefulWidget {
+class MainScreen extends ConsumerStatefulWidget {
   const MainScreen({super.key});
 
   @override
-  State<MainScreen> createState() => _MainScreenState();
+  ConsumerState<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen>
+class _MainScreenState extends ConsumerState<MainScreen>
     with SingleTickerProviderStateMixin {
   /// The diary's slot in [_pages]. The centre button reads it to decide what it
   /// creates, so the two lists and this constant have to stay in step.
   static const int _diaryIndex = 2;
+
+  /// The schedule's slot in [_pages] — where a tap on the home-screen widget
+  /// lands, that being the screen the widget is a small copy of.
+  static const int _homeIndex = 0;
 
   /// One tab change, start to finish — the same 300ms the nav bar's indicator
   /// takes to slide, so the bar and the page it points at arrive together.
@@ -83,6 +89,25 @@ class _MainScreenState extends State<MainScreen>
     AppNavItem(icon: LucideIcons.book_open, label: 'Дневник'),
     AppNavItem(icon: LucideIcons.settings, label: 'Settings'),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Taps on the home-screen widget that mean "open the app somewhere". They
+    // are reported by `HomeWidgetScope` above this screen, because a launch has
+    // to be caught before any screen is on it; acting on one needs a tab and a
+    // navigator, which only this screen has.
+    ref.listenManual<WidgetTapRequest?>(widgetTapProvider, (_, request) {
+      switch (request?.action) {
+        case WidgetTapAction.open:
+          _selectTab(_homeIndex);
+        case WidgetTapAction.create:
+          _openTaskForm();
+        case _:
+          break;
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -154,47 +179,35 @@ class _MainScreenState extends State<MainScreen>
     );
   }
 
-  /// The page's place in the slide, as a leaf of paper over the one below.
+  /// The page's place in the slide, as one of two screens lying side by side on
+  /// a single sheet that is pulled across the window.
   ///
-  /// Only ever **one** of the two moves, and it is always the one with the
-  /// higher index: going right it arrives from off-screen and covers what was
-  /// there, going left it slides back off and uncovers it. The page underneath
-  /// holds still both times — that is what makes this a sheet being laid down
-  /// and picked up rather than two screens sliding past each other.
-  ///
-  /// Which of them is on top needs no arranging: the stack is built in tab
-  /// order, so the higher index is painted last, and the higher index is
-  /// exactly the page that moves.
+  /// **Both** move, by the same amount and in the same direction, so neither is
+  /// ever laid over the other: going right the arriving page waits off the right
+  /// edge and the one being left runs out to the left, going back the pair
+  /// travels the other way. Nothing overlaps at any point of the motion, which
+  /// is why there is no shadow here — the only seam is the join between the two,
+  /// and it is off-screen the moment the sheet comes to rest.
   Widget _tabTransition(int index, {required double t}) {
     final page = _pages[index];
-    // Settled: handed over bare, so no transform and no shadow layer stands
-    // between the compositor and a screen that is simply being looked at.
+    // Settled: handed over bare, so no transform stands between the compositor
+    // and a screen that is simply being looked at.
     if (t >= 1) return page;
+    if (index != _currentIndex && index != _leavingIndex) return page;
 
     final forward = _currentIndex > _leavingIndex;
-    final moving = index == (forward ? _currentIndex : _leavingIndex);
-    if (!moving) return page;
-
     final travelled = Curves.easeInOutCubic.transform(t);
+    // How far the sheet has been pulled, and where this page sat on it before
+    // the pull began — the page being left is the one under the window, so it
+    // starts at zero.
+    final pulled = forward ? -travelled : travelled;
+    final start = index == _currentIndex ? (forward ? 1.0 : -1.0) : 0.0;
+
     return FractionalTranslation(
       // A fraction of the page's own width, so nothing here has to ask how wide
       // the screen is or watch for it changing.
-      translation: Offset(forward ? 1 - travelled : travelled, 0),
-      child: DecoratedBox(
-        // Cast to the left, over the page being covered — without it the seam
-        // between two screens of the same tone is invisible, and in the dark
-        // theme there is no seam to see at all.
-        decoration: BoxDecoration(
-          boxShadow: [
-            BoxShadow(
-              color: surfaceShadow(Theme.of(context), light: 0.12),
-              blurRadius: 16,
-              offset: const Offset(-2, 0),
-            ),
-          ],
-        ),
-        child: page,
-      ),
+      translation: Offset(start + pulled, 0),
+      child: page,
     );
   }
 
@@ -203,13 +216,21 @@ class _MainScreenState extends State<MainScreen>
   /// behaves the same way wherever it is pressed — only what it creates
   /// changes. The nav bar stays unaware of pages: it only reports the tap.
   void _onCenterTap() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => _currentIndex == _diaryIndex
-            ? const CreateNotePage()
-            : const CreateTaskPage(),
-      ),
-    );
+    if (_currentIndex == _diaryIndex) {
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const CreateNotePage()));
+      return;
+    }
+    _openTaskForm();
+  }
+
+  /// The task form, pushed. Two callers: the centre button, and
+  /// "Добавить задачу" on the home-screen widget.
+  void _openTaskForm() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const CreateTaskPage()));
   }
 }
 
@@ -372,7 +393,9 @@ class _MyAppState extends ConsumerState<MyApp> {
       // Wrapped around the app rather than placed on a screen: syncing has to
       // keep up while the diary is nowhere in sight, and the lifecycle events
       // it listens for belong to the whole app. It draws nothing.
-      home: const SyncScope(child: MainScreen()),
+      home: const SyncScope(
+        child: HomeWidgetScope(child: MainScreen()),
+      ),
     );
   }
 }

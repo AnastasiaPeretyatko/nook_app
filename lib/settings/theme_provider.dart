@@ -12,22 +12,25 @@ final themeModeProvider = NotifierProvider<ThemeModeNotifier, ThemeMode>(
 );
 
 class ThemeModeNotifier extends Notifier<ThemeMode> {
-  static const _prefsKey = 'theme_mode';
+  /// Public because the home-screen widget is rebuilt in a background isolate
+  /// that has no providers — see `lib/home_widget/widget_theme.dart`. It reads
+  /// the setting straight out of the same store, through this key and [decode].
+  static const prefsKey = 'theme_mode';
 
   @override
   ThemeMode build() {
     final prefs = ref.watch(sharedPreferencesProvider);
-    return _decode(prefs.getString(_prefsKey));
+    return decode(prefs.getString(prefsKey));
   }
 
   Future<void> setThemeMode(ThemeMode mode) async {
     if (mode == state) return;
     state = mode;
     final prefs = ref.read(sharedPreferencesProvider);
-    await prefs.setString(_prefsKey, mode.name);
+    await prefs.setString(prefsKey, mode.name);
   }
 
-  static ThemeMode _decode(String? value) {
+  static ThemeMode decode(String? value) {
     return switch (value) {
       'light' => ThemeMode.light,
       'dark' => ThemeMode.dark,
@@ -56,12 +59,13 @@ final appColorProvider = NotifierProvider<AppColorNotifier, Color>(
 );
 
 class AppColorNotifier extends Notifier<Color> {
-  static const _prefsKey = 'app_color';
+  /// Public for the same reason as [ThemeModeNotifier.prefsKey].
+  static const prefsKey = 'app_color';
 
   @override
   Color build() {
     final prefs = ref.watch(sharedPreferencesProvider);
-    final stored = prefs.getInt(_prefsKey);
+    final stored = prefs.getInt(prefsKey);
     return stored != null ? Color(stored) : appColorPalette.first;
   }
 
@@ -69,6 +73,6 @@ class AppColorNotifier extends Notifier<Color> {
     if (color.toARGB32() == state.toARGB32()) return;
     state = color;
     final prefs = ref.read(sharedPreferencesProvider);
-    await prefs.setInt(_prefsKey, color.toARGB32());
+    await prefs.setInt(prefsKey, color.toARGB32());
   }
 }

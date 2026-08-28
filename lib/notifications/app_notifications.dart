@@ -94,9 +94,16 @@ class AppNotifications {
   /// remembered in memory, so reminders queued by a previous launch are still
   /// recognised — and reminders whose text or time changed are replaced instead
   /// of firing with what they used to say.
+  ///
+  /// [reschedule] re-posts even the reminders that are already correct. For the
+  /// moment exact alarms are granted: what is pending then says the right thing
+  /// at the right time and is still an *inexact* alarm, which no fingerprint can
+  /// tell apart — the fingerprint is about the text and the instant, not about
+  /// how the platform was asked to keep them.
   Future<void> syncReminders(
     List<TaskReminder> wanted, {
     required bool enabled,
+    bool reschedule = false,
   }) async {
     if (!_supported) return;
     final target = enabled ? wanted : const <TaskReminder>[];
@@ -118,7 +125,8 @@ class AppNotifications {
       if (!keep) await _guard(() => _plugin.cancel(id: entry.key));
     }
     for (final entry in byId.entries) {
-      if (pending[entry.key] == entry.value.fingerprint) continue;
+      final current = pending[entry.key] == entry.value.fingerprint;
+      if (current && !reschedule) continue;
       await _scheduleReminder(entry.key, entry.value);
     }
   }
@@ -168,6 +176,10 @@ class AppNotifications {
     try {
       await schedule(AndroidScheduleMode.exactAllowWhileIdle);
     } catch (error) {
+      // Exact is refused whenever `SCHEDULE_EXACT_ALARM` is not granted, which
+      // from Android 14 on is the default. The inexact fallback is what makes a
+      // reminder arrive minutes late; [canScheduleExactAlarms] is how the
+      // settings screen tells the user that is what is happening.
       debugPrint('Reminder falling back to inexact: $error');
       await _guard(() => schedule(AndroidScheduleMode.inexactAllowWhileIdle));
     }
@@ -374,6 +386,63 @@ class AppNotifications {
     return null;
   }
 
+  /// Whether the platform will let a reminder be scheduled as an *exact* alarm.
+  ///
+  /// `null` where the question does not exist: iOS, desktop, tests. On iOS a
+  /// scheduled notification is exact anyway, so there is nothing to grant and
+  /// nothing to warn about.
+  ///
+  /// Android is the whole reason this exists. `SCHEDULE_EXACT_ALARM` is denied
+  /// by default from Android 14 on, and a denied one is not an error — the
+  /// schedule falls back to an inexact alarm, which the system batches and holds
+  /// back in Doze. That is a reminder arriving ten or fifteen minutes late, or
+  /// later still under an OEM battery saver, which for a reminder is the same as
+  /// not arriving.
+  ///
+  /// Read from the system every time: it is revocable from system settings while
+  /// the app is not running.
+  Future<bool?> canScheduleExactAlarms() async {
+    if (!_supported) return null;
+    if (!await _ensureReady(requestPermission: false)) return null;
+
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    if (android == null) return null;
+
+    bool? allowed;
+    await _guard(() async {
+      allowed = await android.canScheduleExactNotifications();
+    });
+    return allowed;
+  }
+
+  /// Asks for the exact-alarm permission and reports what the system says.
+  ///
+  /// Never called on its own: the request opens a system settings screen, which
+  /// is far too rude to spring on someone mid-task, so it hangs off a switch the
+  /// user reached for. Android has no in-app dialog for this one — the screen
+  /// *is* the request, and it is also the only way to take the permission back,
+  /// which is why the switch sends both directions here.
+  Future<bool?> requestExactAlarms() async {
+    if (!_supported) return null;
+    if (!await _ensureReady(requestPermission: false)) return null;
+
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    if (android == null) return null;
+
+    await _guard(() async {
+      await android.requestExactAlarmsPermission();
+    });
+    // Asked again rather than trusted: the request completes when the user
+    // comes back from that screen, whichever way they left it.
+    return canScheduleExactAlarms();
+  }
+
   /// Opens this app's page in the system notification settings.
   ///
   /// The only way back from a denial: Android answers a second
@@ -403,10 +472,11 @@ class AppNotifications {
             'entry until the permission is granted in system settings.',
           );
         }
-        // Exact alarms are deliberately *not* requested: asking throws the user
-        // out into a system settings screen mid-task, which is far too rude for
-        // a convenience. Alerts fall back to inexact ones, which fire a little
-        // late rather than not at all.
+        // Exact alarms are deliberately *not* asked for here: the request opens
+        // a system settings screen, which must never happen behind a tap that
+        // was about something else. It belongs to the switch that offers it —
+        // see [requestExactAlarms]. Without it alerts fall back to inexact
+        // ones, which fire late rather than not at all.
       }
 
       final ios = _plugin

@@ -13,7 +13,8 @@ final _today = DateTime(_now.year, _now.month, _now.day);
 final _monday = _today.subtract(Duration(days: _today.weekday - 1 + 7));
 final _days = List.generate(14, (i) => _monday.add(Duration(days: i)));
 
-Task _counterHabit({double? target}) => Task(dirty: false, 
+Task _counterHabit({double? target}) => Task(
+  dirty: false,
   id: 1,
   title: 'Вода',
   status: TaskStatus.active,
@@ -26,7 +27,9 @@ Task _counterHabit({double? target}) => Task(dirty: false,
   updatedAt: _today,
 );
 
-TaskLog _log({required double count, bool completed = false}) => TaskLog(dirty: false, updatedAt: _fixtureStamp, 
+TaskLog _log({required double count, bool completed = false}) => TaskLog(
+  dirty: false,
+  updatedAt: _fixtureStamp,
   id: 1,
   taskId: 1,
   date: _today,

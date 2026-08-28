@@ -11,7 +11,8 @@ Task _task({
   int? repeatDaysMask,
   DateTime? startDate,
 }) {
-  return Task(dirty: false, 
+  return Task(
+    dirty: false,
     id: 1,
     title: 'Задача',
     status: TaskStatus.active,

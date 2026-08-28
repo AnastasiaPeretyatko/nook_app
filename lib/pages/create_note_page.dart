@@ -216,9 +216,9 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
 
   void _reportPickerFailure() {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Не удалось открыть галерею')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Не удалось открыть галерею')));
   }
 
   Future<void> _pickCover() async {
@@ -340,10 +340,7 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
   /// Removes the files the edit dropped — a cover replaced, an attachment taken
   /// off. Nothing else refers to them, so leaving them in the directory is a leak
   /// nobody can find later.
-  Future<void> _deleteDropped(
-    DiaryEntry entry, {
-    required List<String> kept,
-  }) {
+  Future<void> _deleteDropped(DiaryEntry entry, {required List<String> kept}) {
     final had = [?entry.coverImage, ...decodeImageNames(entry.images)];
     return deleteNoteImages(had.where((name) => !kept.contains(name)));
   }

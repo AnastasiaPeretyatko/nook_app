@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'package:todo_app/home_widget/providers.dart';
+import 'package:todo_app/home_widget/widget_actions.dart';
 import 'package:todo_app/widgets/home/day_schedule_section.dart';
 import 'package:todo_app/widgets/home/task_calendar.dart';
 
-class HomePage extends StatefulWidget {
+class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  ConsumerState<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends ConsumerState<HomePage> {
   /// Steps the handle walks through, shortest calendar first. The middle step is
   /// what keeps a drag from flipping the whole month open in one jump.
   static const _formatStages = [
@@ -58,6 +61,18 @@ class _HomePageState extends State<HomePage> {
       DateTime(day.year, day.month, day.day);
 
   double _handleDragDelta = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // A tap on the home-screen widget means "show me what that widget was
+    // showing", and the widget only ever shows today. Without this the app would
+    // come back on whatever day was last swiped to, which for a screen opened
+    // from a tick on today's list is the wrong one.
+    ref.listenManual<WidgetTapRequest?>(widgetTapProvider, (_, request) {
+      if (request?.action == WidgetTapAction.open) _goToToday();
+    });
+  }
 
   void _setCalendarFormat(CalendarFormat format) {
     if (_calendarFormat == format) return;

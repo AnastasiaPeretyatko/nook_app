@@ -25,7 +25,8 @@ Task _task({
   TaskStatus status = TaskStatus.active,
   DateTime? startDate,
   int? parentId,
-}) => Task(dirty: false, 
+}) => Task(
+  dirty: false,
   id: id,
   title: title,
   parentId: parentId,
@@ -259,7 +260,16 @@ void main() {
             _task(id: 2, title: 'Коробки', parentId: 1),
             _task(id: 3, title: 'Машина', parentId: 1),
           ],
-          logs: [TaskLog(dirty: false, updatedAt: _fixtureStamp, id: 1, taskId: 2, date: _today, completed: true)],
+          logs: [
+            TaskLog(
+              dirty: false,
+              updatedAt: _fixtureStamp,
+              id: 1,
+              taskId: 2,
+              date: _today,
+              completed: true,
+            ),
+          ],
         ),
       );
       await tester.pumpAndSettle();
@@ -321,7 +331,16 @@ void main() {
     await tester.pumpWidget(
       _timeline(
         [_task(id: 1, title: 'Сделано')],
-        logs: [TaskLog(dirty: false, updatedAt: _fixtureStamp, id: 1, taskId: 1, date: _today, completed: true)],
+        logs: [
+          TaskLog(
+            dirty: false,
+            updatedAt: _fixtureStamp,
+            id: 1,
+            taskId: 1,
+            date: _today,
+            completed: true,
+          ),
+        ],
       ),
     );
     await tester.pumpAndSettle();

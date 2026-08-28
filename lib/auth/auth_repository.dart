@@ -42,10 +42,8 @@ class AuthRepository {
   /// [userChanges], so a caller must listen rather than await an answer here.
   /// A user who backs out of the browser produces no event and no error, which
   /// is right: cancelling is not a failure.
-  Future<bool> signInWithGoogle() => _auth.signInWithOAuth(
-    OAuthProvider.google,
-    redirectTo: authRedirectUrl,
-  );
+  Future<bool> signInWithGoogle() =>
+      _auth.signInWithOAuth(OAuthProvider.google, redirectTo: authRedirectUrl);
 
   Future<void> signOut() => _auth.signOut();
 }

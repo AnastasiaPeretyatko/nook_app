@@ -68,6 +68,28 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
   Future<Task?> getTaskById(int id) =>
       (select(tasks)..where((t) => t.id.equals(id))).getSingleOrNull();
 
+  /// One-shot read of the root tasks, for the isolate that redraws the
+  /// home-screen widget.
+  ///
+  /// A `watch` would be wrong there rather than merely wasteful: that isolate is
+  /// woken to answer one tap and is killed straight after, so a stream has
+  /// nobody to deliver its second event to. Every screen in the app keeps using
+  /// [watchRootTasks].
+  Future<List<Task>> getRootTasks() =>
+      (select(tasks)..where((t) => t.parentId.isNull())).get();
+
+  /// One-shot read of the day marks between [start] and [end], `end` excluded.
+  /// The twin of [watchLogsBetween], for the same isolate and the same reason.
+  Future<List<TaskLog>> getLogsBetween(DateTime start, DateTime end) {
+    final from = dayOf(start);
+    final to = dayOf(end);
+    return (select(taskLogs)..where(
+          (l) =>
+              l.date.isBiggerOrEqualValue(from) & l.date.isSmallerThanValue(to),
+        ))
+        .get();
+  }
+
   /// Writes a new task, giving it the identity the server will know it by.
   ///
   /// The uid is minted here rather than by the caller: a row without one is
@@ -170,10 +192,9 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
   /// A uid is read **before** the row goes, which is why this is not a
   /// three-line delete.
   Future<List<String>> _deleteCascade(int id) async {
-    final family =
-        await (select(tasks)
-              ..where((t) => t.id.equals(id) | t.parentId.equals(id)))
-            .get();
+    final family = await (select(
+      tasks,
+    )..where((t) => t.id.equals(id) | t.parentId.equals(id))).get();
     if (family.isEmpty) return const [];
 
     final affectedIds = [for (final task in family) task.id];
@@ -436,11 +457,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
 
   /// Adds 1 to the counter log for [taskId] on [date], marking it completed
   /// once the running count reaches [target].
-  Future<void> incrementCounter(
-    int taskId,
-    DateTime date,
-    double target,
-  ) {
+  Future<void> incrementCounter(int taskId, DateTime date, double target) {
     return transaction(() async {
       final existing = await getLogForDate(taskId, date);
       final next = (existing?.value ?? 0) + 1;
@@ -501,10 +518,11 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
   /// the dialog disagree with what the user can see.
   Future<int> unsentTaskCount() async {
     final count = tasks.id.count();
-    final row = await (selectOnly(tasks)
-          ..addColumns([count])
-          ..where(tasks.dirty.equals(true) & tasks.parentId.isNull()))
-        .getSingle();
+    final row =
+        await (selectOnly(tasks)
+              ..addColumns([count])
+              ..where(tasks.dirty.equals(true) & tasks.parentId.isNull()))
+            .getSingle();
     return row.read(count) ?? 0;
   }
 
@@ -522,7 +540,9 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
   Future<void> keepExistingTasksLocal() {
     return transaction(() async {
       await update(tasks).write(const TasksCompanion(dirty: Value(false)));
-      await update(taskLogs).write(const TaskLogsCompanion(dirty: Value(false)));
+      await update(
+        taskLogs,
+      ).write(const TaskLogsCompanion(dirty: Value(false)));
       await delete(syncTombstones).go();
     });
   }
@@ -540,9 +560,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
               ..addColumns([tasks.id, tasks.uid])
               ..where(tasks.uid.isNotNull()))
             .get();
-    return {
-      for (final row in rows) row.read(tasks.id)!: row.read(tasks.uid)!,
-    };
+    return {for (final row in rows) row.read(tasks.id)!: row.read(tasks.uid)!};
   }
 
   /// Finds a task by the identity the server knows it by.
@@ -561,9 +579,8 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
   /// decision because only it knows how to translate a parent's uid into a
   /// local id.
   Future<bool> applyRemoteTask(String uid, TasksCompanion task) async {
-    final changed = await (update(tasks)..where((t) => t.uid.equals(uid))).write(
-      task.copyWith(uid: Value(uid), dirty: const Value(false)),
-    );
+    final changed = await (update(tasks)..where((t) => t.uid.equals(uid)))
+        .write(task.copyWith(uid: Value(uid), dirty: const Value(false)));
     return changed > 0;
   }
 
@@ -572,8 +589,9 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
   /// Separate from [insertTask] because that one mints a uid and leaves the row
   /// dirty — right for a task the user just made, wrong for one that came down
   /// the wire already carrying both answers.
-  Future<int> insertRemoteTask(String uid, TasksCompanion task) =>
-      into(tasks).insert(task.copyWith(uid: Value(uid), dirty: const Value(false)));
+  Future<int> insertRemoteTask(String uid, TasksCompanion task) => into(
+    tasks,
+  ).insert(task.copyWith(uid: Value(uid), dirty: const Value(false)));
 
   /// Writes a day mark as the server has it, keyed by the pair that identifies
   /// it rather than by any id.

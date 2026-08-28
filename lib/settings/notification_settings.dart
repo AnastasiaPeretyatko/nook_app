@@ -27,3 +27,68 @@ class TaskRemindersEnabledNotifier extends Notifier<bool> {
     await prefs.setBool(_prefsKey, enabled);
   }
 }
+
+/// How far ahead of a task's own time a reminder may be asked for, in minutes.
+///
+/// A closed list rather than a free number: it is what the notifications screen
+/// offers, and it is also what [reminderLeadLabel] is allowed to be asked
+/// about — every entry reads as "минут", so the label needs no plural rules.
+const reminderLeadOptions = [0, 5, 10, 15, 30];
+
+/// How long before a task's time its reminder fires, in minutes.
+///
+/// Zero is "on time" and the default, which is what the app did before this
+/// setting existed. Stored like the theme and the diary's view — one int key in
+/// the same [sharedPreferencesProvider].
+final reminderLeadMinutesProvider =
+    NotifierProvider<ReminderLeadMinutesNotifier, int>(
+      ReminderLeadMinutesNotifier.new,
+    );
+
+class ReminderLeadMinutesNotifier extends Notifier<int> {
+  static const _prefsKey = 'reminder_lead_minutes';
+
+  @override
+  int build() {
+    final prefs = ref.watch(sharedPreferencesProvider);
+    final stored = prefs.getInt(_prefsKey);
+    // A value that is no longer offered reads as "on time" rather than being
+    // kept: the list may shrink, and a lead nothing can select is a lead the
+    // user cannot get rid of.
+    return reminderLeadOptions.contains(stored) ? stored! : 0;
+  }
+
+  Future<void> setMinutes(int minutes) async {
+    if (minutes == state) return;
+    state = minutes;
+    final prefs = ref.read(sharedPreferencesProvider);
+    await prefs.setInt(_prefsKey, minutes);
+  }
+}
+
+/// What a lead time is called on screen.
+///
+/// Bare interval and no preposition: the row it names is "Напоминать за", and
+/// the sheet it fills is a list of intervals — either would read as a stutter
+/// with "за" repeated inside every line.
+String reminderLeadLabel(int minutes) =>
+    minutes <= 0 ? 'Вовремя' : '$minutes минут';
+
+/// The state of reminders in one line, for the settings row that leads to their
+/// screen — the same job [syncSummaryLabel] does for syncing.
+///
+/// A refusal by the phone is reported ahead of the lead time: a device that lets
+/// nothing through does not have a "5 minutes early" to speak of, and that is
+/// the one state the row exists to surface. [notificationsAllowed] is `null`
+/// where there is nothing to ask, which is not a refusal.
+String reminderSummaryLabel({
+  required bool enabled,
+  required bool? notificationsAllowed,
+  required int leadMinutes,
+}) {
+  if (!enabled) return 'Выключены';
+  if (notificationsAllowed == false) return 'Выключены в настройках телефона';
+  return leadMinutes <= 0
+      ? 'Напоминают вовремя'
+      : 'Напоминают за $leadMinutes минут';
+}

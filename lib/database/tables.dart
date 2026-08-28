@@ -105,8 +105,9 @@ class TaskLogs extends Table {
   /// device and bricks every phone that has ever ticked a day. The v14
   /// migration stamps the existing rows itself, and every write in [TasksDao]
   /// passes a value, so the epoch is never what a row actually carries.
-  DateTimeColumn get updatedAt =>
-      dateTime().withDefault(Constant(DateTime.fromMillisecondsSinceEpoch(0)))();
+  DateTimeColumn get updatedAt => dateTime().withDefault(
+    Constant(DateTime.fromMillisecondsSinceEpoch(0)),
+  )();
 }
 
 class TaskSessions extends Table {
@@ -240,8 +241,7 @@ class NoteTags extends Table {
   /// showed up at the boundary: an opaque ARGB begins with `0xFF` and so
   /// exceeds 2^31, which SQLite stored without comment and Postgres `integer`
   /// refused outright.
-  TextColumn get colorKey =>
-      text().withDefault(const Constant('violet'))();
+  TextColumn get colorKey => text().withDefault(const Constant('violet'))();
 
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
