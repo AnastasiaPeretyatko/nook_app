@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:todo_app/theme/app_palette.dart';
+import 'package:todo_app/utils/task_audience.dart';
 import 'package:intl/intl.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
+import 'package:todo_app/utils/last_done.dart';
 import 'package:todo_app/utils/recurrence.dart';
 import 'package:todo_app/utils/surfaces.dart';
 import 'package:todo_app/utils/task_archive.dart';
@@ -75,7 +78,10 @@ class ArchivePage extends ConsumerWidget {
                 .length;
           }
 
-          final roots = allTasks.where((t) => t.parentId == null);
+          final me = ref.watch(myUidProvider);
+          final roots = allTasks.where(
+            (t) => t.parentId == null && isMyTask(t, me),
+          );
 
           final putAway = roots
               .where((t) => t.status == TaskStatus.archived)
@@ -114,7 +120,7 @@ class ArchivePage extends ConsumerWidget {
                   task: task,
                   subtitle: _repeatLabel(task),
                   struckThrough: false,
-                  onTap: () => task.repeatType != null
+                  onTap: () => task.repeatType != null || isValueTask(task)
                       ? showHabitActionsSheet(context, task: task)
                       : showTaskActionsSheet(
                           context,
@@ -202,6 +208,7 @@ Color _tileInk(BuildContext context, Task task) {
 /// What a put-away row repeats on, so a habit is told apart from a one-off task
 /// inside the same group.
 String _repeatLabel(Task task) {
+  if (isValueTask(task)) return 'Значение';
   final interval = (task.repeatInterval == null || task.repeatInterval! < 1)
       ? 1
       : task.repeatInterval!;
@@ -255,7 +262,7 @@ class _SectionTitle extends StatelessWidget {
           Text(
             '$count',
             style: theme.textTheme.labelMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.55),
+              color: AppPalette.of(theme).textTertiary,
               fontWeight: FontWeight.w700,
             ),
           ),

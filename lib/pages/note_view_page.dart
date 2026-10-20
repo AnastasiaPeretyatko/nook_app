@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:todo_app/widgets/app_dialogs.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -599,10 +600,8 @@ class _ActionBar extends ConsumerWidget {
               onTap: () => _copy(context),
             ),
             ToolButton(
-              icon: entry.isFavorite ? LucideIcons.star : LucideIcons.star,
-              tooltip: entry.isFavorite
-                  ? 'Убрать из избранного'
-                  : 'В избранное',
+              icon: entry.isFavorite ? LucideIcons.pin_off : LucideIcons.pin,
+              tooltip: entry.isFavorite ? 'Открепить' : 'Закрепить',
               active: entry.isFavorite,
               onTap: () => ref
                   .read(diaryDaoProvider)
@@ -649,22 +648,12 @@ class _ActionBar extends ConsumerWidget {
   /// Nothing else refers to them, so leaving them behind would be a leak nobody
   /// can find later.
   Future<void> _delete(BuildContext context, WidgetRef ref) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Удалить заметку?'),
-        content: const Text('Вместе с ней удалятся её изображения.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Отмена'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Удалить'),
-          ),
-        ],
-      ),
+    final confirmed = await showConfirmDialog(
+      context,
+      icon: DialogIcons.delete,
+      title: 'Удалить заметку?',
+      body: 'Вместе с ней удалятся её изображения.',
+      action: 'Удалить',
     );
     if (confirmed != true) return;
 

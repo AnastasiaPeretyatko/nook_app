@@ -4,11 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:todo_app/widgets/app_bottom_nav_bar.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/main.dart';
 import 'package:todo_app/settings/theme_provider.dart';
-import 'package:flutter_lucide/flutter_lucide.dart';
 
 /// Any moment at all: these tests never read a log's edit time. It exists
 /// because the sync needs one and the column is therefore not nullable.
@@ -49,7 +49,7 @@ Task _task({
 }
 
 final _tasks = <Task>[
-  // Habits (repeat != null) -> HabitsGrid
+  // Habits (repeat != null) -> HabitsToday
   _task(id: 1, title: 'Зарядка', repeatType: RepeatType.daily),
   _task(
     id: 2,
@@ -213,13 +213,13 @@ void main() {
       );
 
       // Now visit every tab.
-      for (final label in const ['Привычки', 'Дневник', 'Settings']) {
-        final icon = {
-          'Привычки': LucideIcons.repeat,
-          'Дневник': LucideIcons.book_open,
-          'Settings': LucideIcons.settings,
-        }[label]!;
-        await tester.tap(find.byIcon(icon).last);
+      for (final label in const ['Привычки', 'Задачи', 'Дневник']) {
+        await tester.tap(
+          find.descendant(
+            of: find.byType(AppBottomNavBar),
+            matching: find.text(label),
+          ),
+        );
         await tester.pump(const Duration(milliseconds: 400));
         await tester.pump(const Duration(milliseconds: 400));
       }

@@ -107,31 +107,28 @@ void main() {
     });
 
     test('a daily habit is on every day of the window', () {
-      final payload = _payload(
-        tasks: [_task(repeatType: RepeatType.daily)],
-      );
+      final payload = _payload(tasks: [_task(repeatType: RepeatType.daily)]);
 
-      expect(
-        payload.days.map((day) => day.tasks.length),
-        everyElement(1),
-      );
+      expect(payload.days.map((day) => day.tasks.length), everyElement(1));
     });
 
     test('a weekly habit only lands on the weekdays of its rule', () {
       // Thursday (bit 3) and Saturday (bit 5) — today, and two days on.
       final payload = _payload(
         tasks: [
-          _task(
-            repeatType: RepeatType.weekly,
-            repeatDaysMask: 1 << 3 | 1 << 5,
-          ),
+          _task(repeatType: RepeatType.weekly, repeatDaysMask: 1 << 3 | 1 << 5),
         ],
       );
 
-      expect(
-        payload.days.map((day) => day.tasks.length),
-        [1, 0, 1, 0, 0, 0, 0],
-      );
+      expect(payload.days.map((day) => day.tasks.length), [
+        1,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+      ]);
     });
 
     test('an archived task is not shown', () {
@@ -150,7 +147,10 @@ void main() {
 
     test('a subtask is reported through its parent, never on its own', () {
       final payload = _payload(
-        tasks: [_task(), _task(id: 2, title: 'Заварить', parentId: 1)],
+        tasks: [
+          _task(),
+          _task(id: 2, title: 'Заварить', parentId: 1),
+        ],
       );
 
       expect(_day(payload).tasks.map((task) => task.id), [1]);
@@ -361,15 +361,15 @@ void main() {
       }
     });
 
-    test('the dark card is a surface above the background, not the background', () {
-      final scheme = buildAppTheme(
-        const Color(0xFF8B7CF6),
-        Brightness.dark,
-      ).colorScheme;
+    test(
+      'the dark card is a surface above the background, not the background',
+      () {
+        final theme = buildAppTheme(const Color(0xFF8B7CF6), Brightness.dark);
 
-      expect(_dark.card, scheme.surfaceContainerLow.toARGB32());
-      expect(_dark.card, isNot(scheme.surface.toARGB32()));
-    });
+        expect(_dark.card, theme.colorScheme.surface.toARGB32());
+        expect(_dark.card, isNot(theme.scaffoldBackgroundColor.toARGB32()));
+      },
+    );
 
     test('the light card is the app surface itself', () {
       final scheme = buildAppTheme(

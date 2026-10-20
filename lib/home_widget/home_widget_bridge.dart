@@ -53,9 +53,7 @@ class HomeWidgetBridge {
   /// [callback] must be a top-level or static function marked
   /// `@pragma('vm:entry-point')`: what is stored is a handle to it, and the
   /// isolate that later looks the handle up is not this one.
-  Future<void> registerTapHandler(
-    Future<void> Function(Uri?) callback,
-  ) async {
+  Future<void> registerTapHandler(Future<void> Function(Uri?) callback) async {
     if (!_supported) return;
     try {
       await HomeWidget.registerInteractivityCallback(callback);

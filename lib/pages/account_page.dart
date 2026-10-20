@@ -1,15 +1,27 @@
+import 'package:todo_app/widgets/app_dialogs.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:todo_app/auth/auth_errors.dart';
 import 'package:todo_app/auth/auth_repository.dart';
 import 'package:todo_app/auth/providers.dart';
 import 'package:todo_app/auth/supabase_init.dart';
 import 'package:todo_app/auth/user_profile.dart';
+import 'package:todo_app/database/providers.dart';
+import 'package:todo_app/sync/first_sync.dart';
+import 'package:todo_app/sync/providers.dart';
+import 'package:todo_app/sync/sync_controller.dart';
+import 'package:todo_app/sync/sync_service.dart';
 import 'package:todo_app/utils/surfaces.dart';
 import 'package:todo_app/utils/task_colors.dart';
+import 'package:todo_app/settings/about_settings.dart';
+import 'package:todo_app/settings/sync_settings.dart';
+import 'package:todo_app/sync/sync_status.dart';
+import 'package:todo_app/theme/app_palette.dart';
+import 'package:todo_app/utils/task_palette.dart';
+import 'package:todo_app/widgets/list_card.dart';
+import 'package:todo_app/widgets/page_header.dart';
 import 'package:todo_app/widgets/user_avatar.dart';
 
 /// The account: signing in, signing up, and signing out.
@@ -29,6 +41,9 @@ class AccountPage extends ConsumerStatefulWidget {
 }
 
 enum _Mode { signIn, signUp }
+
+/// What "выйти" was asked to do with what is on the phone.
+enum _SignOutChoice { keep, wipe }
 
 class _AccountPageState extends ConsumerState<AccountPage> {
   final _formKey = GlobalKey<FormState>();
@@ -107,40 +122,131 @@ class _AccountPageState extends ConsumerState<AccountPage> {
     }
   }
 
+  /// Signing out, with or without leaving the data behind.
+  ///
+  /// Two answers rather than one, and the default is still the old behaviour:
+  /// this app works without an account, so somebody who signed in to look
+  /// around and signed out again must not lose what they wrote. Clearing is
+  /// offered, never assumed.
+  ///
+  /// The other half of the protection is not here at all — it is on the way
+  /// **in**, in [askAboutExistingData]: a device whose data belongs to another
+  /// account cannot be left as it is when somebody else signs in. That is the
+  /// moment the leak would happen, so that is where the choice is forced.
   Future<void> _signOut() async {
     final repo = ref.read(authRepositoryProvider);
     if (repo == null) return;
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Выйти из аккаунта?'),
-        content: const Text('Заметки и задачи останутся на этом устройстве'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Отмена'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Выйти'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+    final choice = await _askHowToLeave();
+    if (choice == null) return;
 
     setState(() {
       _isBusy = true;
       _error = null;
     });
     try {
+      if (choice == _SignOutChoice.wipe && !await _clearDevice()) return;
       await repo.signOut();
     } catch (error) {
       if (mounted) setState(() => _error = authErrorMessage(error));
     } finally {
       if (mounted) setState(() => _isBusy = false);
     }
+  }
+
+  /// Two rows rather than two buttons: "выйти" and "выйти и стереть" are not a
+  /// yes and a stronger yes, they are different actions, and each needs its
+  /// sentence under it.
+  Future<_SignOutChoice?> _askHowToLeave() => showActionsSheet<_SignOutChoice>(
+    context,
+    title: 'Выйти из аккаунта?',
+    actions: const [
+      SheetAction(
+        icon: LucideIcons.log_out,
+        label: 'Просто выйти',
+        description: 'Заметки и задачи останутся на этом устройстве',
+        value: _SignOutChoice.keep,
+      ),
+      SheetAction(
+        icon: LucideIcons.trash_2,
+        label: 'Выйти и стереть',
+        description: 'Отправить последние изменения и удалить всё с телефона',
+        value: _SignOutChoice.wipe,
+        destructive: true,
+      ),
+    ],
+  );
+
+  /// Sends what is waiting, then removes it. Returns whether to go on and sign
+  /// out.
+  ///
+  /// **Sync first, and wipe only if it worked.** The device is about to stop
+  /// being a copy of anything, so a run that failed means the last edits exist
+  /// here and nowhere else — deleting them then is not "clearing the device",
+  /// it is losing data. The user is told which of the two happened and decides.
+  ///
+  /// A device where syncing was never on has no server copy at all, and no
+  /// amount of syncing now would make one: the switch is off, so
+  /// [SyncController.syncNow] returns `skipped` without attempting anything.
+  /// That case gets the plain "this cannot be undone" confirmation instead of a
+  /// false reassurance.
+  Future<bool> _clearDevice() async {
+    if (ref.read(syncActiveProvider)) {
+      final outcome = await ref.read(syncControllerProvider).syncNow();
+      if (outcome != SyncOutcome.done) {
+        if (!mounted) return false;
+        if (!await _confirmWipeAfterFailure(outcome)) return false;
+      }
+    } else {
+      if (!mounted) return false;
+      final notes = await ref.read(diaryDaoProvider).entryCount();
+      final tasks = await ref.read(tasksDaoProvider).taskCount();
+      if (notes == 0 && tasks == 0) return true;
+      if (!mounted) return false;
+      if (!await confirmWipe(context, notes: notes, tasks: tasks)) return false;
+    }
+
+    if (!mounted) return false;
+    await forgetAccountData(ref);
+    return true;
+  }
+
+  /// The last send did not land. Says so plainly and asks again.
+  Future<bool> _confirmWipeAfterFailure(SyncOutcome outcome) async {
+    return showConfirmDialog(
+      context,
+      icon: DialogIcons.warning,
+      title: 'Последние изменения не отправлены',
+      body: outcome == SyncOutcome.offline
+          ? 'Нет связи с сервером, поэтому часть данных есть только на этом '
+                'телефоне.\n\nЕсли стереть сейчас, они пропадут совсем.'
+          : 'Сервер не принял последние изменения, поэтому часть данных есть '
+                'только на этом телефоне.\n\nЕсли стереть сейчас, они '
+                'пропадут совсем.',
+      action: 'Всё равно стереть',
+      cancel: 'Не стирать',
+    );
+  }
+
+  /// Turns syncing on, asking about the data already here the first time this
+  /// account is involved.
+  ///
+  /// The question comes **before** the setting is stored: a user who backs out
+  /// of the dialog has not decided anything, and leaving it on would start a sync
+  /// they never agreed to.
+  Future<void> _enableSync() async {
+    final choice = await askAboutExistingData(context, ref);
+    if (choice == null) return;
+    await applyFirstSyncChoice(ref, choice);
+    await ref.read(syncEnabledProvider.notifier).setEnabled(true);
+  }
+
+  /// The same question, reached from the card that appears when the account has
+  /// changed under a switch that was already on.
+  Future<void> _decideAgain() async {
+    final choice = await askAboutExistingData(context, ref);
+    if (choice == null) return;
+    await applyFirstSyncChoice(ref, choice);
   }
 
   @override
@@ -153,47 +259,47 @@ class _AccountPageState extends ConsumerState<AccountPage> {
         ? 'Аккаунт'
         : (_isSignUp ? 'Регистрация' : 'Вход');
 
-    // A pushed route with an AppBar, like ArchivePage and AppearancePage: the
-    // back arrow is the only way out. Not a FormHeader — that one is the
-    // cancel/save strip of a form that *creates* something, and it put the
-    // commit action in the top-right corner, far from the fields it commits.
+    // A pushed route with its own header, like the group screen: a round back
+    // button, the title in the middle. Deliberately **not** a gate in front of
+    // the app, so the way back is always there.
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      backgroundColor: pageSurface(theme),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          padding: const EdgeInsets.only(bottom: 32),
           children: [
+            BackHeader(title: title),
             if (!ready)
-              const _Callout(
-                icon: LucideIcons.cloud_off,
-                tone: Color(0xFFF59E0B),
-                title: 'Сервер недоступен',
-                subtitle:
-                    'Не удалось связаться с Supabase. Всё остальное '
-                    'работает как обычно',
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 16, 16, 0),
+                child: _Callout(
+                  icon: LucideIcons.cloud_off,
+                  tone: Color(0xFFF59E0B),
+                  title: 'Сервер недоступен',
+                  subtitle:
+                      'Не удалось связаться с Supabase. Всё остальное '
+                      'работает как обычно',
+                ),
               )
-            else if (user != null)
-              _AccountCard(user: user, onSignOut: _isBusy ? null : _signOut)
-            else
-              _buildForm(theme),
-            if (_error != null) ...[
-              const SizedBox(height: 16),
-              _Callout(
-                icon: LucideIcons.triangle_alert,
-                tone: const Color(0xFFE05252),
-                title: _error!,
+            else if (user != null) ...[
+              _Profile(user: user),
+              _SyncCard(onEnable: _enableSync, onDecide: _decideAgain),
+              const _SyncToggles(),
+              _SignOutBlock(onSignOut: _isBusy ? null : _signOut),
+            ] else
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                child: _buildForm(theme),
               ),
-            ],
-            const SizedBox(height: 24),
-            Center(
-              child: Text(
-                'Синхронизация заметок появится позже',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                child: _Callout(
+                  icon: LucideIcons.triangle_alert,
+                  tone: const Color(0xFFE05252),
+                  title: _error!,
                 ),
               ),
-            ),
           ],
         ),
       ),
@@ -357,89 +463,360 @@ class _AccountPageState extends ConsumerState<AccountPage> {
   }
 }
 
-/// The signed-in half: who you are, and the way out.
-class _AccountCard extends StatelessWidget {
-  const _AccountCard({required this.user, required this.onSignOut});
+/// Who you are: the picture, the name, the address.
+class _Profile extends StatelessWidget {
+  const _Profile({required this.user});
 
   final User user;
-  final VoidCallback? onSignOut;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final created = DateTime.tryParse(user.createdAt)?.toLocal();
+    final palette = AppPalette.of(theme);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+      child: Column(
+        children: [
+          UserAvatar(user: user, surface: pageSurface(theme), size: 80),
+          const SizedBox(height: 10),
+          // The name when the provider gave one, the address when it did not —
+          // a sign-up with an email carries no name at all.
+          Text(
+            user.displayName ?? user.email ?? 'Вы вошли',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+              color: palette.textPrimary,
+            ),
+          ),
+          // Only worth a second line when the first one is not already it.
+          if (user.displayName != null && user.email != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              user.email!,
+              style: TextStyle(fontSize: 14, color: palette.textSecondary),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Where syncing stands, and the button for the next step: turn it on, answer
+/// the question, or sync now.
+class _SyncCard extends ConsumerWidget {
+  const _SyncCard({required this.onEnable, required this.onDecide});
+
+  final VoidCallback onEnable;
+  final VoidCallback onDecide;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final palette = AppPalette.of(theme);
+    final user = ref.watch(currentUserProvider);
+    final enabled = ref.watch(syncEnabledProvider);
+    final needsDecision = ref.watch(syncNeedsDecisionProvider);
+    final status = ref.watch(syncStatusProvider);
+    final claim = ref.watch(syncClaimProvider);
+    final info = syncCardInfo(
+      enabled: enabled,
+      needsDecision: needsDecision,
+      // A claim naming somebody else means the data here was written under
+      // another account: a warning, not a question.
+      changingHands: claim != null && claim != user?.id,
+      auto: ref.watch(syncAutoProvider),
+      status: status,
+      now: DateTime.now(),
+    );
+
+    // The tone as a tile: a light fill and a stronger glyph, from the palette
+    // families so both themes read.
+    final surface = raisedSurface(theme);
+    final (Color fill, Color ink, IconData icon) = switch (info.tone) {
+      SyncCardTone.ok => _tile(
+        theme,
+        surface,
+        'green',
+        LucideIcons.cloud_check,
+      ),
+      SyncCardTone.attention => _tile(
+        theme,
+        surface,
+        'blue',
+        LucideIcons.circle_question_mark,
+      ),
+      SyncCardTone.error => (
+        palette.dangerSoft,
+        palette.danger,
+        LucideIcons.cloud_alert,
+      ),
+      SyncCardTone.neutral => (
+        palette.chip,
+        palette.textSecondary,
+        enabled ? LucideIcons.cloud : LucideIcons.cloud_off,
+      ),
+    };
+
+    final running = status.phase == SyncPhase.running;
+    final String label;
+    final VoidCallback? action;
+    if (!enabled) {
+      label = 'Включить синхронизацию';
+      action = onEnable;
+    } else if (needsDecision) {
+      label = 'Ответить';
+      action = onDecide;
+    } else {
+      label = 'Синхронизировать сейчас';
+      action = running
+          ? null
+          : () => ref.read(syncControllerProvider).syncNow();
+    }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      decoration: BoxDecoration(
-        color: insetSurface(theme),
-        borderRadius: BorderRadius.circular(16),
-      ),
+      margin: const EdgeInsets.fromLTRB(16, 22, 16, 0),
+      padding: const EdgeInsets.all(16),
+      decoration: _cardDecoration(theme),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              UserAvatar(user: user, surface: insetSurface(theme), size: 52),
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: fill,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, size: 20, color: ink),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // The name when the provider gave one, the address when it
-                    // did not — a sign-up with an email carries no name at all.
                     Text(
-                      user.displayName ?? user.email ?? 'Вы вошли',
-                      style: theme.textTheme.bodyLarge?.copyWith(
+                      info.title,
+                      style: TextStyle(
+                        fontSize: 15,
                         fontWeight: FontWeight.w600,
-                        color: theme.colorScheme.onSurface,
+                        color: palette.textPrimary,
                       ),
                     ),
-                    // Only worth a second line when the first one is not
-                    // already the address.
-                    if (user.displayName != null && user.email != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        user.email!,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
+                    const SizedBox(height: 2),
+                    // Selectable: when the server refuses, the point of its
+                    // words is to be sent to somebody.
+                    SelectableText(
+                      info.subtitle,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: palette.textSecondary,
                       ),
-                    ],
-                    if (created != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        'С ${DateFormat('d MMMM y', 'ru_RU').format(created)}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
+                    ),
                   ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          TextButton(
-            onPressed: onSignOut,
-            style: TextButton.styleFrom(
-              padding: EdgeInsets.zero,
-              minimumSize: const Size(0, 32),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              foregroundColor: inkOn(
-                insetSurface(theme),
-                const Color(0xFFE05252),
-                minContrast: 3,
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 44,
+            child: Material(
+              color: palette.surface,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+                side: BorderSide(color: palette.borderStrong),
+              ),
+              child: InkWell(
+                customBorder: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                onTap: action,
+                child: Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (running)
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      else
+                        Icon(
+                          enabled && !needsDecision
+                              ? LucideIcons.refresh_cw
+                              : LucideIcons.cloud,
+                          size: 16,
+                          color: action == null
+                              ? palette.textTertiary
+                              : palette.textPrimary,
+                        ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                            color: action == null
+                                ? palette.textTertiary
+                                : palette.textPrimary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
-            child: const Text('Выйти'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// A palette family's light tone and glyph tone for the status tile.
+  static (Color, Color, IconData) _tile(
+    ThemeData theme,
+    Color surface,
+    String family,
+    IconData icon,
+  ) {
+    final accent = taskColorForKey(family);
+    final fill = taskBadgeSurface(theme, accent, surface);
+    return (fill, taskBadgeInk(theme, accent, fill), icon);
+  }
+}
+
+/// The three switches of how syncing behaves. Shown once syncing is on: before
+/// that there is nothing to configure.
+class _SyncToggles extends ConsumerWidget {
+  const _SyncToggles();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!ref.watch(syncEnabledProvider)) return const SizedBox.shrink();
+    final auto = ref.watch(syncAutoProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SectionCaption(title: 'Синхронизация'),
+        RowsCard(
+          dividerIndent: 16,
+          children: [
+            ToggleRow(
+              label: 'Автоматически',
+              sub: 'Сохранять изменения в облако сразу',
+              value: auto,
+              onChanged: (v) async {
+                await ref.read(syncAutoProvider.notifier).setValue(v);
+                // Switched on, the changes made meanwhile should not wait for
+                // the next timer.
+                if (v) await ref.read(syncControllerProvider).syncNow();
+              },
+            ),
+            ToggleRow(
+              label: 'Только по Wi-Fi',
+              sub: 'Не тратить мобильный интернет',
+              value: ref.watch(syncWifiOnlyProvider),
+              // It only holds back the automatic runs, so with those off there
+              // is nothing for it to hold back.
+              onChanged: auto
+                  ? (v) => ref.read(syncWifiOnlyProvider.notifier).setValue(v)
+                  : null,
+            ),
+            ToggleRow(
+              label: 'Синхронизировать Дневник',
+              sub: 'Заметки тоже будут на всех устройствах',
+              value: ref.watch(syncDiaryProvider),
+              onChanged: (v) => ref.read(syncDiarySetterProvider)(v),
+            ),
+            // Only for someone who tracks a cycle: for everybody else there is
+            // nothing to send and the row would be noise. Off by default — it is
+            // health data, and it is the user's call when it leaves the phone.
+            if (ref.watch(aboutSettingsProvider).cycleOn)
+              ToggleRow(
+                label: 'Синхронизировать цикл',
+                sub:
+                    'Отметки цикла будут на всех устройствах. Видны только вам',
+                value: ref.watch(syncCycleProvider),
+                onChanged: (v) => ref.read(syncCycleSetterProvider)(v),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// "Выйти из аккаунта" and what it does to the data.
+class _SignOutBlock extends StatelessWidget {
+  const _SignOutBlock({required this.onSignOut});
+
+  final VoidCallback? onSignOut;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(Theme.of(context));
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            height: 52,
+            child: Material(
+              color: palette.surface,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: palette.border),
+              ),
+              child: InkWell(
+                customBorder: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                onTap: onSignOut,
+                child: Center(
+                  child: Text(
+                    'Выйти из аккаунта',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: onSignOut == null
+                          ? palette.textTertiary
+                          : palette.textPrimary,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Данные на телефоне останутся. Новые изменения перестанут '
+            'сохраняться в облако.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: palette.textSecondary),
           ),
         ],
       ),
     );
   }
 }
+
+BoxDecoration _cardDecoration(ThemeData theme) => BoxDecoration(
+  color: raisedSurface(theme),
+  borderRadius: BorderRadius.circular(20),
+  border: Border.all(color: AppPalette.of(theme).border),
+);
 
 /// The shape `_PermissionWarning` on the settings screen uses: an inset block
 /// with a coloured icon and two lines. Repeated rather than shared because that

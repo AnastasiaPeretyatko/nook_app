@@ -1,3 +1,4 @@
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:todo_app/auth/providers.dart';
 import 'package:todo_app/auth/supabase_init.dart';
@@ -16,8 +17,57 @@ final syncServiceProvider = Provider<SyncService>((ref) {
   return SyncService(
     dao: ref.watch(diaryDaoProvider),
     tasksDao: ref.watch(tasksDaoProvider),
+    cycleDao: ref.watch(cycleDaoProvider),
     client: ref.watch(supabaseClientProvider),
+    // Read when a run starts, not here: the switch can move without the engine
+    // being rebuilt.
+    syncDiary: () => ref.read(syncDiaryProvider),
+    syncCycle: () => ref.read(syncCycleProvider),
   );
+});
+
+/// Whether the phone is on Wi-Fi (or a cable) right now.
+///
+/// A function in a provider so a test can say what the network is. When the
+/// platform cannot answer — no plugin, which is every widget test — it says yes:
+/// a setting about saving mobile data must never be the reason nothing syncs on
+/// a phone it cannot see.
+final onWifiProvider = Provider<Future<bool> Function()>((ref) {
+  return () async {
+    try {
+      final kinds = await Connectivity().checkConnectivity();
+      return kinds.contains(ConnectivityResult.wifi) ||
+          kinds.contains(ConnectivityResult.ethernet);
+    } catch (_) {
+      return true;
+    }
+  };
+});
+
+/// Switches the diary's part of syncing, and makes sure nothing is lost on the
+/// way back on.
+///
+/// The server clock's watermark is one position for every table. While the
+/// diary is off, tasks keep moving it forward, so notes changed on another
+/// device in the meantime would sit behind it and never be asked for. Putting it
+/// back to the start costs one full re-read once, and every row that comes back
+/// is merged by its own timestamp, so nothing already here is overwritten.
+final syncDiarySetterProvider = Provider<Future<void> Function(bool)>((ref) {
+  return (enabled) async {
+    await ref.read(syncDiaryProvider.notifier).setValue(enabled);
+    if (enabled) await ref.read(syncWatermarkProvider.notifier).set(null);
+  };
+});
+
+/// Switches the cycle's part of syncing — the twin of [syncDiarySetterProvider],
+/// and for the same reason: the watermark is one position for every table, so
+/// days changed on another device while this was off sit behind it. Switched
+/// on, it goes back to the start once.
+final syncCycleSetterProvider = Provider<Future<void> Function(bool)>((ref) {
+  return (enabled) async {
+    await ref.read(syncCycleProvider.notifier).setValue(enabled);
+    if (enabled) await ref.read(syncWatermarkProvider.notifier).set(null);
+  };
 });
 
 /// Whether syncing should actually be happening right now.
@@ -81,13 +131,29 @@ class SyncStatusNotifier extends Notifier<SyncStatus> {
 
   /// A failed run leaves `lastSuccessAt` alone: it is still true, and replacing
   /// it with nothing would say the sync has never worked.
-  void reportFailure({required bool offline}) => state = state.copyWith(
-    phase: offline ? SyncPhase.offline : SyncPhase.failed,
-  );
+  void reportFailure({required bool offline, String? detail}) =>
+      state = SyncStatus(
+        phase: offline ? SyncPhase.offline : SyncPhase.failed,
+        lastSuccessAt: state.lastSuccessAt,
+        // Rebuilt rather than `copyWith`, which cannot put a null back: a run
+        // that failed without a message must not inherit the last one's.
+        lastError: detail,
+      );
 
   /// Back to resting without claiming anything happened — what a run that was
   /// never attempted leaves behind.
   void reportIdle() => state = state.copyWith(phase: SyncPhase.idle);
+
+  /// Forgets that a sync ever worked here.
+  ///
+  /// For the device being cleared of an account. "Синхронизировано 5 минут
+  /// назад" is true of data that is no longer on the phone, which makes it a
+  /// sentence about nothing — and the next person to sign in would read it as
+  /// being about theirs.
+  Future<void> forget() async {
+    state = const SyncStatus();
+    await ref.read(sharedPreferencesProvider).remove(_prefsKey);
+  }
 }
 
 /// How far through the server's clock this device has read.

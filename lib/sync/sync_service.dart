@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:todo_app/auth/user_profile.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/sync/merge.dart';
 import 'package:todo_app/sync/payload.dart';
@@ -62,18 +63,33 @@ class SyncService {
   SyncService({
     required this.dao,
     required this.tasksDao,
+    required this.cycleDao,
     required SupabaseClient? client,
+    bool Function()? syncDiary,
+    bool Function()? syncCycle,
   })
     // ignore: prefer_initializing_formals
-    : _client = client;
+    : _client = client,
+       _syncDiary = syncDiary ?? (() => true),
+       _syncCycle = syncCycle ?? (() => false);
 
   final DiaryDao dao;
   final TasksDao tasksDao;
+  final CycleDao cycleDao;
 
   /// Null when Supabase never came up — which is every widget test, and any
   /// launch where the keys were wrong or the platform refused. [sync] then does
   /// nothing at all, which is the correct amount.
   final SupabaseClient? _client;
+
+  /// Whether the notes take part in this run — asked each time, so the setting
+  /// can change between runs. Off, the diary is neither sent nor read, and what
+  /// was written meanwhile stays marked as unsent.
+  final bool Function() _syncDiary;
+
+  /// Whether the cycle's days take part — asked each time, like [_syncDiary].
+  /// Off by default: it is health data, and the user opts in.
+  final bool Function() _syncCycle;
 
   /// Set while a run is in flight, so a second trigger does not start one over
   /// the top of it — the same guard the habit timer uses for its ticker.
@@ -93,6 +109,13 @@ class SyncService {
   /// storage. Null means "everything" — a first sync.
   DateTime? watermark;
 
+  /// What went wrong last, as the server or the platform put it.
+  ///
+  /// Handed up to the status the same way [watermark] is handed down: the
+  /// service owns no storage and no screen, it only knows the answer. Null once
+  /// anything succeeds.
+  String? lastError;
+
   /// Runs one push-and-pull. Never throws.
   Future<SyncOutcome> sync() async {
     final client = _client;
@@ -109,10 +132,16 @@ class SyncService {
 
     _running = true;
     try {
+      // Groups first, ahead of the push: a task waiting to go up into a group
+      // this account has since left would be refused, and a refusal fails the
+      // whole run — every run after it too. Learning about the departure first
+      // takes that task off the device instead.
+      await _syncGroups(client);
       await _push(client);
       await _pull(client);
       _backoff = Duration.zero;
       _retryAfter = null;
+      lastError = null;
       return SyncOutcome.done;
     } catch (error, stack) {
       _noteFailure(error, stack);
@@ -123,6 +152,7 @@ class SyncService {
   }
 
   void _noteFailure(Object error, StackTrace stack) {
+    lastError = error.toString();
     _backoff = _backoff == Duration.zero
         ? _firstBackoff
         : Duration(
@@ -143,12 +173,76 @@ class SyncService {
       error is AuthRetryableFetchException;
 
   // ---------------------------------------------------------------------------
+  // Groups
+  // ---------------------------------------------------------------------------
+
+  /// Mirrors the groups this account is in, their members and their names.
+  ///
+  /// Read whole every run rather than "changed since": the lists are a handful
+  /// of rows, and only a whole list can say that a group is **gone** — left,
+  /// removed from, or deleted all look the same from here, as a group the
+  /// server no longer shows.
+  ///
+  /// Publishes this account's own name first, but only once it is in a group:
+  /// nobody else can read it before then.
+  Future<void> _syncGroups(SupabaseClient client) async {
+    final user = client.auth.currentUser!;
+
+    final groups =
+        (await client
+                .from('groups')
+                .select('id, name, owner_id')
+                .isFilter('deleted_at', null))
+            .cast<Map<String, dynamic>>();
+
+    final List<Map<String, dynamic>> members;
+    final Map<String, Map<String, dynamic>> profiles;
+    if (groups.isEmpty) {
+      members = const [];
+      profiles = const {};
+    } else {
+      await client.from('profiles').upsert({
+        'display_name': user.displayName ?? user.email?.split('@').first,
+        'avatar_url': user.avatarUrl,
+      }, onConflict: 'user_id');
+
+      final inGroups = {for (final group in groups) group['id']};
+      members = [
+        for (final row
+            in (await client
+                    .from('group_members')
+                    .select('group_id, user_id')
+                    .isFilter('deleted_at', null))
+                .cast<Map<String, dynamic>>())
+          if (inGroups.contains(row['group_id'])) row,
+      ];
+      profiles = {
+        for (final row
+            in (await client
+                    .from('profiles')
+                    .select('user_id, display_name, avatar_url'))
+                .cast<Map<String, dynamic>>())
+          row['user_id'] as String: row,
+      };
+    }
+
+    await tasksDao.replaceGroups(
+      [for (final row in groups) groupFromRow(row)],
+      [
+        for (final row in members)
+          memberFromRow(row, profile: profiles[row['user_id']]),
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // Up
   // ---------------------------------------------------------------------------
 
   Future<void> _push(SupabaseClient client) async {
+    final diary = _syncDiary();
     // Catalogues first: a note's links point at them, and Postgres checks.
-    final moods = await dao.pendingMoods();
+    final moods = diary ? await dao.pendingMoods() : const <NoteMood>[];
     if (moods.isNotEmpty) {
       await client.from('note_moods').upsert([
         for (final mood in moods) moodToRow(mood),
@@ -156,7 +250,7 @@ class SyncService {
       await dao.clearMoodDirty([for (final mood in moods) ?mood.uid]);
     }
 
-    final tags = await dao.pendingTags();
+    final tags = diary ? await dao.pendingTags() : const <NoteTag>[];
     if (tags.isNotEmpty) {
       await client.from('note_tags').upsert([
         for (final tag in tags) tagToRow(tag),
@@ -164,7 +258,7 @@ class SyncService {
       await dao.clearTagDirty([for (final tag in tags) ?tag.uid]);
     }
 
-    final entries = await dao.pendingEntries();
+    final entries = diary ? await dao.pendingEntries() : const <DiaryEntry>[];
     if (entries.isNotEmpty) {
       await client.from('diary_entries').upsert([
         for (final entry in entries) entryToRow(entry),
@@ -187,6 +281,7 @@ class SyncService {
     // notes: a mark points at a task and Postgres checks.
     await _pushTasks(client);
     await _pushLogs(client);
+    if (_syncCycle()) await _pushCycle(client);
 
     // Deletions last: everything above may have been about a row this is
     // about to remove, and the server should hear the story in order.
@@ -194,7 +289,11 @@ class SyncService {
     // One leg for both halves of the app. A tombstone carries the name of the
     // table it belongs to, and that name is the server's as well as the
     // device's, so `tasks` and `diary_entries` need no separate handling here.
-    final graves = await dao.pendingTombstones();
+    final graves = [
+      for (final grave in await dao.pendingTombstones())
+        // A deleted note is part of the diary's story: it waits with the rest.
+        if (diary || grave.sourceTable != 'diary_entries') grave,
+    ];
     if (graves.isNotEmpty) {
       final now = DateTime.now().toUtc().toIso8601String();
       for (final grave in graves) {
@@ -224,15 +323,34 @@ class SyncService {
     if (batch.isEmpty) return;
 
     final uidsById = await tasksDao.taskUidsById();
+    final me = client.auth.currentUser!.id;
     final sent = <String, DateTime>{};
 
     for (final generation in _generations(batch)) {
       final rows = <Map<String, dynamic>>[];
       for (final task in generation) {
         final uid = task.uid;
-        // Nothing to address the row by. Cannot happen after v14, which mints
-        // one for every task on the device, and skipping beats inventing.
-        if (uid == null) continue;
+        // A group task this account may not edit. The screens never offer the
+        // edit, so this is a slip somewhere — and the server refusing it would
+        // fail every run from now on. Not sent, and the mark cleared with the
+        // rest, so the server's copy wins the next time it changes.
+        if (uid != null && !await tasksDao.canEditTask(task, me)) {
+          debugPrint(
+            'Sync: group task ${task.id} is not ours to edit, not sent',
+          );
+          sent[uid] = task.updatedAt;
+          continue;
+        }
+        // Nothing to address the row by, so skipping beats inventing — but not
+        // in silence. This should be impossible: v14 mints a uid for every task
+        // on the device and v15 re-checks unconditionally. If it happens
+        // anyway, the task is being dropped from every sync forever with
+        // nothing on screen to say so, which is precisely the shape of bug that
+        // takes a week to find.
+        if (uid == null) {
+          debugPrint('Sync: task ${task.id} has no uid, not sent');
+          continue;
+        }
         rows.add(taskToRow(task, parentUid: uidsById[task.parentId]));
         sent[uid] = task.updatedAt;
       }
@@ -301,8 +419,26 @@ class SyncService {
     }
     if (rows.isEmpty) return;
 
-    await client.from('task_logs').upsert(rows, onConflict: 'task_id,date');
+    // `user_id` is not sent; the server fills it from the session before the
+    // conflict is resolved.
+    await client
+        .from('task_logs')
+        .upsert(rows, onConflict: 'task_id,user_id,date');
     await tasksDao.clearLogDirty(sent);
+  }
+
+  /// Sends the cycle days this device changed, as one upsert resolved on
+  /// `(user_id, date)` — the pair is the row, so two phones that marked the same
+  /// day converge on their own.
+  Future<void> _pushCycle(SupabaseClient client) async {
+    final batch = await cycleDao.pending();
+    if (batch.isEmpty) return;
+
+    final me = client.auth.currentUser!.id;
+    await client.from('cycle_days').upsert([
+      for (final day in batch) cycleDayToRow(day, userId: me),
+    ], onConflict: 'user_id,date');
+    await cycleDao.clearDirty(batch);
   }
 
   Future<void> _pushLinks(SupabaseClient client, DiaryEntry entry) async {
@@ -335,11 +471,20 @@ class SyncService {
     // and tasks before their day marks, so a mark can find the task it belongs
     // to by uid.
     var furthest = watermark;
-    furthest = _later(furthest, await _pullMoods(client));
-    furthest = _later(furthest, await _pullTags(client));
-    furthest = _later(furthest, await _pullEntries(client));
+    // The watermark is one position for every table, so skipping the diary here
+    // would move it past notes never read. Switching the diary back on puts it
+    // back to the start — see `setSyncDiary`.
+    if (_syncDiary()) {
+      furthest = _later(furthest, await _pullMoods(client));
+      furthest = _later(furthest, await _pullTags(client));
+      furthest = _later(furthest, await _pullEntries(client));
+    }
     furthest = _later(furthest, await _pullTasks(client));
     furthest = _later(furthest, await _pullLogs(client));
+    // Same reasoning as the diary: with this off the watermark must not be
+    // moved by a table that was not read — `syncCycleSetterProvider` puts it
+    // back to the start when the switch comes on.
+    if (_syncCycle()) furthest = _later(furthest, await _pullCycle(client));
 
     // Moved only after everything above has landed. A watermark advanced
     // early, over a pull that then failed halfway, silently skips whatever the
@@ -496,6 +641,7 @@ class SyncService {
   /// merely late, the mark comes down again the next time the server hears about
   /// it.
   Future<DateTime?> _pullLogs(SupabaseClient client) async {
+    final me = client.auth.currentUser!.id;
     DateTime? furthest;
     for (final row in await _changedSince(client, 'task_logs')) {
       furthest = _later(furthest, serverUpdatedAt(row));
@@ -506,6 +652,20 @@ class SyncService {
       if (task == null) continue;
 
       final incoming = logFromRow(row);
+
+      // Another member's mark on a group task. Theirs alone to change, so the
+      // server's copy is simply taken — no merge, and never into `task_logs`,
+      // which holds this account's one answer per day.
+      final author = markAuthorOf(row);
+      if (author != null && author != me) {
+        await tasksDao.applyGroupMark(
+          taskId: task.id,
+          userUid: author,
+          date: incoming.date.value,
+          completed: incoming.completed.value,
+        );
+        continue;
+      }
       final day = incoming.date.value;
       final local = await tasksDao.getLogForDate(task.id, day);
 
@@ -535,6 +695,43 @@ class SyncService {
         case PullAction.insert:
         case PullAction.overwrite:
           await tasksDao.applyRemoteLog(task.id, incoming);
+      }
+    }
+    return furthest;
+  }
+
+  /// Takes the cycle days the other devices marked. Nothing is ever deleted, so
+  /// there is no deletion to hear about — a day taken back arrives as an empty
+  /// day.
+  Future<DateTime?> _pullCycle(SupabaseClient client) async {
+    DateTime? furthest;
+    for (final row in await _changedSince(client, 'cycle_days')) {
+      furthest = _later(furthest, serverUpdatedAt(row));
+      final incoming = cycleDayFromRow(row);
+      final day = incoming.date.value;
+      final local = await cycleDao.getDay(day);
+
+      // The identity is the same string on both sides, as for a task log: a tie
+      // can only matter while this copy is unsent, and the push that follows
+      // settles it.
+      final identity = _calendarDay(day);
+      final action = pullAction(
+        remoteDeleted: false,
+        localUpdatedAt: local?.updatedAt,
+        localDirty: local?.dirty ?? false,
+        remoteUpdatedAt: clientUpdatedAt(row) ?? DateTime.now(),
+        localUid: identity,
+        remoteUid: identity,
+      );
+
+      switch (action) {
+        case PullAction.skip:
+        case PullAction.keepLocal:
+        case PullAction.delete:
+          continue;
+        case PullAction.insert:
+        case PullAction.overwrite:
+          await cycleDao.applyRemote(incoming);
       }
     }
     return furthest;

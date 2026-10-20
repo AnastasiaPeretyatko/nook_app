@@ -3,9 +3,12 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
+import 'package:todo_app/settings/calendar_settings.dart';
+import 'package:todo_app/settings/theme_provider.dart';
 import 'package:todo_app/utils/task_colors.dart';
 import 'package:todo_app/widgets/home/task_calendar.dart';
 
@@ -43,8 +46,26 @@ Task _task({
   updatedAt: _day,
 );
 
-Widget _calendar(List<Task> tasks) => ProviderScope(
-  overrides: [rootTasksProvider.overrideWith((ref) => Stream.value(tasks))],
+/// A repeating task — one dot on every day of the month, and the thing the
+/// "habits in the calendar" switch takes away.
+Task _habit({required int id, required String title}) => Task(
+  dirty: false,
+  id: id,
+  title: title,
+  status: TaskStatus.active,
+  trackingMode: TrackingMode.checkbox,
+  repeatType: RepeatType.daily,
+  colorValue: 0xFFFFC1CC, // == _taskColor
+  startDate: _day,
+  createdAt: _day,
+  updatedAt: _day,
+);
+
+Widget _calendar(List<Task> tasks, SharedPreferences prefs) => ProviderScope(
+  overrides: [
+    sharedPreferencesProvider.overrideWithValue(prefs),
+    rootTasksProvider.overrideWith((ref) => Stream.value(tasks)),
+  ],
   child: MaterialApp(
     locale: const Locale('ru', 'RU'),
     localizationsDelegates: const [
@@ -60,7 +81,6 @@ Widget _calendar(List<Task> tasks) => ProviderScope(
         calendarFormat: CalendarFormat.month,
         onDaySelected: (_, _) {},
         onPageChanged: (_) {},
-        onTodayPressed: () {},
       ),
     ),
   ),
@@ -82,9 +102,31 @@ int _moreDots(WidgetTester tester) =>
     _dotDecorations(tester).where((d) => d.color != _dotColor(tester)).length;
 
 void main() {
+  late SharedPreferences prefs;
+
   setUpAll(() async {
     await initializeDateFormatting('ru_RU', null);
+    SharedPreferences.setMockInitialValues({});
+    prefs = await SharedPreferences.getInstance();
   });
+
+  // The store outlives a single test — a switch left off would follow the next
+  // one into its own `ProviderScope`.
+  setUp(() async {
+    await prefs.clear();
+  });
+
+  /// Turns the "habits in the calendar" switch off through its own notifier, so
+  /// the test goes the way the settings screen does rather than writing the key.
+  Future<void> hideHabits(WidgetTester tester) async {
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(TaskCalendar)),
+    );
+    await container
+        .read(showHabitsInCalendarProvider.notifier)
+        .setEnabled(false);
+    await tester.pumpAndSettle();
+  }
 
   testWidgets('counts tasks without a time as well', (tester) async {
     await tester.pumpWidget(
@@ -93,7 +135,7 @@ void main() {
         _task(id: 2, title: 'Тоже со временем', scheduledTimeMinutes: 18 * 60),
         _task(id: 3, title: 'Без времени'),
         _task(id: 4, title: 'Тоже без времени'),
-      ]),
+      ], prefs),
     );
     await tester.pumpAndSettle();
 
@@ -103,7 +145,7 @@ void main() {
   });
 
   testWidgets('a day with no tasks gets no dots', (tester) async {
-    await tester.pumpWidget(_calendar(const []));
+    await tester.pumpWidget(_calendar(const [], prefs));
     await tester.pumpAndSettle();
 
     expect(_colouredDots(tester), 0);
@@ -114,7 +156,7 @@ void main() {
       _calendar([
         _task(id: 1, title: 'Активная'),
         _task(id: 2, title: 'В архиве', status: TaskStatus.archived),
-      ]),
+      ], prefs),
     );
     await tester.pumpAndSettle();
 
@@ -125,7 +167,7 @@ void main() {
     await tester.pumpWidget(
       _calendar([
         for (var i = 1; i <= 7; i++) _task(id: i, title: 'Задача $i'),
-      ]),
+      ], prefs),
     );
     await tester.pumpAndSettle();
 
@@ -139,11 +181,60 @@ void main() {
     await tester.pumpWidget(
       _calendar([
         for (var i = 1; i <= 4; i++) _task(id: i, title: 'Задача $i'),
-      ]),
+      ], prefs),
     );
     await tester.pumpAndSettle();
 
     expect(_colouredDots(tester), 4);
+    expect(_moreDots(tester), 0);
+  });
+
+  testWidgets('habits are dots too while the switch is on', (tester) async {
+    await tester.pumpWidget(
+      _calendar([
+        _task(id: 1, title: 'Задача'),
+        _habit(id: 2, title: 'Привычка'),
+      ], prefs),
+    );
+    await tester.pumpAndSettle();
+
+    // Both, on the day they share — plus the habit's own dot on every other day
+    // of the month, which is exactly what the switch exists for.
+    expect(_colouredDots(tester), greaterThan(2));
+  });
+
+  testWidgets('with habits off only the dated task keeps its dot', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _calendar([
+        _task(id: 1, title: 'Задача', scheduledTimeMinutes: 10 * 60),
+        _task(id: 2, title: 'Задача без времени'),
+        _habit(id: 3, title: 'Привычка'),
+      ], prefs),
+    );
+    await tester.pumpAndSettle();
+    await hideHabits(tester);
+
+    // The two one-off tasks on their own day, and nothing anywhere else: a daily
+    // habit would otherwise put a dot on every cell in the month.
+    expect(_colouredDots(tester), 2);
+    expect(_moreDots(tester), 0);
+  });
+
+  testWidgets('a calendar of habits alone goes empty when they are off', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _calendar([
+        _habit(id: 1, title: 'Привычка'),
+        _habit(id: 2, title: 'Ещё одна'),
+      ], prefs),
+    );
+    await tester.pumpAndSettle();
+    await hideHabits(tester);
+
+    expect(_colouredDots(tester), 0);
     expect(_moreDots(tester), 0);
   });
 }

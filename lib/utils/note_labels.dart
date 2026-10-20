@@ -49,6 +49,21 @@ const defaultNoteMoods = <NoteMoodPreset>[
   NoteMoodPreset('f28b60d4-3a15-4c97-9e56-18c7b2f4a06e', '❤️', 'Любовь'),
 ];
 
+/// The uids of [defaultNoteMoods], as a set to test membership against.
+///
+/// What tells a mood the app shipped from one the user invented, and the only
+/// way to tell: the two sit in the same table and differ in nothing else.
+///
+/// It exists because a seeded mood **is not synced**. It is a constant of the
+/// app — it lives in the list above, it arrives with the install, and nothing
+/// in the app can rename or delete it — so the server holds one shared row for
+/// each, owned by nobody, and a device that sent its own copy would be claiming
+/// a constant as its data. `supabase/004_shared_moods.sql` is the other half of
+/// this; the two lists must stay identical.
+final defaultNoteMoodUids = <String>{
+  for (final mood in defaultNoteMoods) mood.uid,
+};
+
 /// The emoji offered when a mood is being invented — "Другое" in the picker.
 ///
 /// A fixed set rather than a keyboard: a mood is drawn as one glyph next to one
@@ -107,7 +122,7 @@ const suggestedNoteTags = <String>[
 ];
 
 /// The family a tag created from a suggestion or from the "Новый тег" field
-/// starts on: the next one of [taskPalette] after those already in use, so two
+/// starts on: the next one of [pickableTaskPalette] after those already in use, so two
 /// tags made one after the other do not come out the same colour.
 ///
 /// Keys in, key out. A tag stores which family it belongs to rather than what
@@ -119,10 +134,10 @@ const suggestedNoteTags = <String>[
 /// the honest outcome.
 String nextNoteTagColorKey(Iterable<String> used) {
   final taken = used.toSet();
-  for (final swatch in taskPalette) {
+  for (final swatch in pickableTaskPalette) {
     if (!taken.contains(swatch.key)) return swatch.key;
   }
-  return taskPalette[taken.length % taskPalette.length].key;
+  return pickableTaskPalette[taken.length % pickableTaskPalette.length].key;
 }
 
 /// The pair of tones a tag's chip is painted with: the fill, and the ink to put

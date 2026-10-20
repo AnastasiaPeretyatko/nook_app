@@ -5,14 +5,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/utils/recurrence.dart';
 import 'package:todo_app/utils/surfaces.dart';
+import 'package:todo_app/utils/task_audience.dart';
 import 'package:todo_app/utils/task_colors.dart';
+import 'package:todo_app/widgets/app_dialogs.dart';
 import 'package:todo_app/widgets/color_picker_row.dart';
-import 'package:todo_app/widgets/form_header.dart';
+import 'package:todo_app/utils/task_palette.dart';
 import 'package:todo_app/widgets/icon_picker_sheet.dart';
+import 'package:todo_app/widgets/time_picker_sheet.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 import '../utils/task_icons.dart';
 
@@ -42,16 +46,32 @@ class _SubtaskDraft {
 }
 
 class CreateTaskPage extends ConsumerStatefulWidget {
-  const CreateTaskPage({super.key, this.mode = TaskFormMode.create, this.task})
-    : assert(
-        mode == TaskFormMode.create || task != null,
-        'edit/clone modes require a source task',
-      );
+  const CreateTaskPage({
+    super.key,
+    this.mode = TaskFormMode.create,
+    this.task,
+    this.initialDate,
+    this.initialGroupUid,
+  }) : assert(
+         mode == TaskFormMode.create || task != null,
+         'edit/clone modes require a source task',
+       );
 
   final TaskFormMode mode;
 
   /// Source task for [TaskFormMode.edit] and [TaskFormMode.clone].
   final Task? task;
+
+  /// Day a new task starts on, for [TaskFormMode.create]: the day the screen the
+  /// form was opened from is showing. Null means today.
+  ///
+  /// Only the start date is seeded from it — the time of day still comes from the
+  /// clock. Ignored by the other two modes, which take the date from [task].
+  final DateTime? initialDate;
+
+  /// Group a new task is made in, for [TaskFormMode.create]: the group screen's
+  /// "+" opens the form already pointed at it. The user can still switch it.
+  final String? initialGroupUid;
 
   @override
   ConsumerState<CreateTaskPage> createState() => _CreateTaskPageState();
@@ -80,9 +100,8 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
   /// empty while the monthly picker is on screen.
   Set<int> _repeatMonthDays = {};
 
-  /// Target for the counter and value tracking modes, both of which live in the
-  /// same `targetValue` column. Zero means "no target": such a task shows a
-  /// plain checkbox instead of a counter, so it stays null in the database.
+  /// Target for the counter tracking mode, in the `targetValue` column. A counter
+  /// always carries one; the other modes ignore it and save null.
   double _targetValue = 0;
 
   /// Target for the timer tracking mode, in minutes. Zero means "no target" and
@@ -110,21 +129,29 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
   bool _repeatEnabled = false;
   bool _isSaving = false;
 
-  late final FixedExtentScrollController _timeWheelController;
+  /// The group the task is shared in, null for a personal one — and with it,
+  /// the member it is handed to, null for everyone. A group task is a one-off
+  /// with no subtasks and no "Значение" mode: the form hides those controls
+  /// and [_save] drops whatever they held.
+  String? _groupUid;
+  String? _assigneeUid;
 
-  static const _cardRadius = BorderRadius.all(Radius.circular(18));
+  /// The groups to offer and their members — read once, like the subtasks:
+  /// the form is seeded, not live.
+  List<TaskGroup> _groups = const [];
+  List<GroupMember> _allMembers = const [];
+
+  static const _cardRadius = BorderRadius.all(Radius.circular(20));
+
+  /// A new task's start time is the current time rounded to this many minutes.
   static const _timeStep = 15;
   static const _maxInterval = 99;
 
-  /// Counters are whole repetitions, so they step by one; free-form values step
-  /// by a half to make targets like 2.5 reachable.
-  static const _counterStep = 1.0;
+  /// Counters are whole repetitions: never below one.
   static const _minCounterTarget = 1.0;
-  static const _valueStep = 0.5;
   static const _maxTargetValue = 100000.0;
 
-  /// Timer targets step in five-minute chunks and stop at a full day.
-  static const _timerStep = 5;
+  /// Timer targets stop at a full day.
   static const _maxTargetMinutes = 24 * 60;
 
   @override
@@ -139,6 +166,8 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
     final source = widget.task;
     if (source != null) {
       _titleController.text = source.title;
+      _groupUid = source.groupUid;
+      _assigneeUid = source.assigneeUid;
       _descController.text = source.description ?? '';
       _trackingMode = source.trackingMode;
       _repeatEnabled = source.repeatType != null;
@@ -176,18 +205,29 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
       }
       _dateEnabled = source.startDate != null;
       _selectedDate = source.startDate ?? DateTime.now();
+      if (_trackingMode == TrackingMode.value) _clampDateToToday();
     } else {
       _startMinutes = roundedNow;
+      _selectedDate = widget.initialDate ?? DateTime.now();
+      _groupUid = widget.initialGroupUid;
     }
-
-    _timeWheelController = FixedExtentScrollController(
-      initialItem: _startMinutes ~/ _timeStep,
-    );
 
     if (source != null) {
       _loadingSubtasks = true;
       unawaited(_loadSubtasks(source));
     }
+    unawaited(_loadGroups());
+  }
+
+  Future<void> _loadGroups() async {
+    final dao = ref.read(tasksDaoProvider);
+    final groups = await dao.getGroups();
+    final members = await dao.getGroupMembers();
+    if (!mounted) return;
+    setState(() {
+      _groups = groups;
+      _allMembers = members;
+    });
   }
 
   /// Seeds the subtask rows from the task being edited or duplicated. A duplicate
@@ -252,22 +292,31 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
     for (final subtask in _subtasks) {
       subtask.dispose();
     }
-    _timeWheelController.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
+    // A "Значение" task is nothing but a name and the day the watching began: no
+    // time to be reminded at, no rule to repeat on, no target to reach. The form
+    // hides those controls, but they keep their state when the user flips the
+    // mode back and forth, so they are dropped here rather than trusted.
+    final isValue = _trackingMode == TrackingMode.value;
+    final isGroup = _groupUid != null;
+    final timeEnabled = _timeEnabled && !isValue;
+
     final startMin = _startMinutes;
     final endMin =
-        (_timeEnabled && _durationMinutes != null && _durationMinutes! > 0)
+        (timeEnabled && _durationMinutes != null && _durationMinutes! > 0)
         ? startMin + _durationMinutes!
         : null;
 
     final title = _titleController.text.trim();
     final description = _descController.text.trim();
-    final repeatType = _repeatEnabled ? _repeatType : null;
+    final repeatType = _repeatEnabled && !isValue && !isGroup
+        ? _repeatType
+        : null;
     // Daily means literally every day, so it carries no interval. For the other
     // types an interval of 1 is the default and stays null in the database.
     final repeatInterval =
@@ -288,10 +337,11 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
     final targetValue = switch (_trackingMode) {
       // A counter is defined by how many times, so it always carries one.
       TrackingMode.counter => _counterTargetOf(_targetValue),
-      TrackingMode.value => _targetValue > 0 ? _targetValue : null,
-      TrackingMode.checkbox || TrackingMode.timer => null,
+      TrackingMode.checkbox || TrackingMode.timer || TrackingMode.value => null,
     };
-    final startDate = _dateEnabled
+    // A "Значение" task always has its start date: it is the one thing it says
+    // about when, and "days since" has nothing to count from without it.
+    final startDate = _dateEnabled || isValue
         ? DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day)
         : null;
 
@@ -315,9 +365,11 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
           targetValue: Value(targetValue),
           iconKey: Value(_selectedIconKey),
           colorValue: Value(_selectedColor?.toARGB32()),
-          scheduledTimeMinutes: Value(_timeEnabled ? startMin : null),
+          scheduledTimeMinutes: Value(timeEnabled ? startMin : null),
           endTimeMinutes: Value(endMin),
           startDate: Value(startDate),
+          // The group itself is fixed at creation; who it is for is not.
+          assigneeUid: Value(isGroup ? _assigneeUid : null),
           updatedAt: Value(DateTime.now()),
         ),
       );
@@ -350,11 +402,16 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
         colorValue: _selectedColor != null
             ? Value(_selectedColor!.toARGB32())
             : const Value.absent(),
-        scheduledTimeMinutes: _timeEnabled
+        scheduledTimeMinutes: timeEnabled
             ? Value(startMin)
             : const Value.absent(),
         endTimeMinutes: endMin != null ? Value(endMin) : const Value.absent(),
         startDate: startDate != null ? Value(startDate) : const Value.absent(),
+        groupUid: isGroup ? Value(_groupUid) : const Value.absent(),
+        assigneeUid: isGroup ? Value(_assigneeUid) : const Value.absent(),
+        authorUid: isGroup
+            ? Value(ref.read(myUidProvider))
+            : const Value.absent(),
       );
 
       final newId = await dao.insertTask(companion);
@@ -376,7 +433,13 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
   ) async {
     final keptIds = <int>{};
 
-    for (final draft in _subtasks) {
+    // The form hides subtasks for a "Значение" task, so nothing it holds is
+    // saved: a task switched to that mode sheds the ones it had.
+    final drafts = _trackingMode == TrackingMode.value || _groupUid != null
+        ? const <_SubtaskDraft>[]
+        : _subtasks;
+
+    for (final draft in drafts) {
       final title = draft.controller.text.trim();
       final id = draft.id;
 
@@ -406,253 +469,404 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: pageSurface(Theme.of(context)),
-      body: SafeArea(
-        child: Column(
-          children: [
-            FormHeader(
-              title: _screenTitle,
-              onCancel: () => Navigator.of(context).pop(),
-              onSave: _save,
-              isBusy: _isSaving || _loadingSubtasks,
-            ),
-            Expanded(
-              child: Form(
-                key: _formKey,
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                  children: [
-                    _AppearanceCard(
-                      selectedIconKey: _selectedIconKey,
-                      selectedColor: _selectedColor,
-                      onPickIcon: () async {
-                        final key = await IconPickerSheet.show(
-                          context,
-                          selected: _selectedIconKey,
-                        );
-                        if (key != null) {
-                          setState(() => _selectedIconKey = key);
-                        }
-                      },
-                      onColorChanged: (c) => setState(() => _selectedColor = c),
-                      titleField: _Field(
-                        controller: _titleController,
-                        label: 'Название',
-                        hint: 'Что нужно сделать?',
-                        autofocus: true,
-                        validator: (v) => (v == null || v.trim().isEmpty)
-                            ? 'Обязательное поле'
-                            : null,
-                      ),
+    final isValue = _trackingMode == TrackingMode.value;
+    final isGroup = _groupUid != null;
+    final groups = _groups;
+    final members = [
+      for (final m in _allMembers)
+        if (m.groupUid == _groupUid) m,
+    ];
+    final me = ref.watch(myUidProvider);
+    // Fixed once the task exists — the server keeps the group it was made in.
+    final canPickGroup = widget.mode != TaskFormMode.edit;
+    final theme = Theme.of(context);
+    final palette = AppPalette.of(theme);
+    final sheet = raisedSurface(theme);
+    final ink = _selectedColor ?? ColorPickerRow.colors.first;
+    final fill = taskBadgeSurface(theme, ink, sheet);
+    final strong = taskBadgeInk(theme, ink, fill);
+    const gap = SizedBox(height: 10);
+
+    return _Tones(
+      ink: ink,
+      fill: fill,
+      strong: strong,
+      child: Material(
+        color: sheet,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: SizedBox(
+            height: MediaQuery.of(context).size.height * 0.9,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 10, bottom: 4),
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: palette.outline,
+                      borderRadius: BorderRadius.circular(2),
                     ),
-                    const SizedBox(height: 12),
-                    // A card of its own: the title is what the task *is*, the
-                    // description is the detail behind it, and a divider inside
-                    // one card read as if the two belonged together.
-                    _Card(
-                      child: Column(
-                        children: [
-                          // One block: the label heads it, then the subtasks,
-                          // then the description text itself — no divider
-                          // between them, or they read as two sections. The
-                          // button closes the block, below the content it adds
-                          // to, so the reading order is what the task holds
-                          // before how to add more of it.
-                          const _CardLabel('Описание'),
-                          for (var i = 0; i < _subtasks.length; i++)
-                            _SubtaskRow(
-                              key: ObjectKey(_subtasks[i]),
-                              draft: _subtasks[i],
-                              onToggle: () => setState(() {
-                                _subtasks[i].done = !_subtasks[i].done;
-                              }),
-                              onRemove: () => _removeSubtask(i),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: _RoundButton(
+                            tooltip: 'Закрыть',
+                            onTap: () => Navigator.of(context).pop(),
+                            child: Icon(
+                              LucideIcons.x,
+                              size: 18,
+                              color: palette.textPrimary,
                             ),
-                          _Field(
+                          ),
+                        ),
+                      ),
+                      Text(
+                        _screenTitle,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.17,
+                          color: palette.textPrimary,
+                        ),
+                      ),
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: _isSaving || _loadingSubtasks
+                              ? const SizedBox(
+                                  width: 44,
+                                  height: 44,
+                                  child: Center(
+                                    child: SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              : _RoundButton(
+                                  tooltip: 'Сохранить',
+                                  fill: fill,
+                                  borderColor: ink,
+                                  borderWidth: 1.5,
+                                  onTap: _save,
+                                  child: Icon(
+                                    LucideIcons.check,
+                                    size: 18,
+                                    color: strong,
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Form(
+                    key: _formKey,
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                      children: [
+                        _TitleCard(
+                          iconKey: _selectedIconKey,
+                          onPickIcon: () async {
+                            final key = await IconPickerSheet.show(
+                              context,
+                              selected: _selectedIconKey,
+                            );
+                            if (key != null) {
+                              setState(() => _selectedIconKey = key);
+                            }
+                          },
+                          titleField: _Field(
+                            controller: _titleController,
+                            hint: 'Название',
+                            style: theme.textTheme.titleLarge!.copyWith(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                              color: strong,
+                            ),
+                            autofocus: true,
+                            validator: (v) => (v == null || v.trim().isEmpty)
+                                ? 'Обязательное поле'
+                                : null,
+                          ),
+                          descField: _Field(
                             controller: _descController,
-                            hint: 'Дополнительные детали',
+                            hint: 'Описание',
+                            style: theme.textTheme.bodySmall!.copyWith(
+                              fontSize: 13,
+                              color: palette.textSecondary,
+                            ),
+                            minLines: 1,
                             maxLines: 3,
                           ),
-                          _AddSubtaskButton(onTap: _addSubtask),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _SectionLabel('Дата и время'),
-                    const SizedBox(height: 8),
-                    _Card(
-                      child: Column(
-                        children: [
-                          _ToggleRow(
-                            icon: LucideIcons.clock,
-                            label: 'Указать время',
-                            value: _timeEnabled,
-                            onChanged: (v) => setState(() => _timeEnabled = v),
-                          ),
-                          if (_timeEnabled) ...[
-                            const _Divider(),
-                            const SizedBox(height: 8),
-                            _TimeWheel(
-                              controller: _timeWheelController,
-                              startMinutes: _startMinutes,
-                              durationMinutes: _durationMinutes,
-                              step: _timeStep,
-                              onChanged: (m) =>
-                                  setState(() => _startMinutes = m),
+                        ),
+                        gap,
+                        // Shown as soon as the user belongs to a group at all.
+                        if (groups.isNotEmpty || isGroup) ...[
+                          _Section(
+                            icon: LucideIcons.users,
+                            title: 'Кому',
+                            trailing: _Pill(
+                              label: isGroup
+                                  ? groups
+                                            .where((g) => g.uid == _groupUid)
+                                            .firstOrNull
+                                            ?.name ??
+                                        'Группа'
+                                  : 'Личная задача',
+                              onTap: canPickGroup
+                                  ? () => _pickGroup(groups)
+                                  : null,
                             ),
-                          ],
-                          const _Divider(),
-                          _ToggleRow(
+                            children: [
+                              if (isGroup)
+                                _AssigneeTiles(
+                                  members: members,
+                                  me: me,
+                                  selected: _assigneeUid,
+                                  onPick: (uid) =>
+                                      setState(() => _assigneeUid = uid),
+                                ),
+                            ],
+                          ),
+                          gap,
+                        ],
+                        if (isValue)
+                          _Section(
                             icon: LucideIcons.calendar,
-                            label: 'Указать дату',
-                            value: _dateEnabled,
-                            onChanged: (v) => setState(() => _dateEnabled = v),
-                          ),
-                          if (_dateEnabled) ...[
-                            const _Divider(),
-                            _DateRow(date: _selectedDate, onTap: _pickDate),
-                          ],
-                        ],
-                      ),
-                    ),
-                    if (_timeEnabled) ...[
-                      const SizedBox(height: 12),
-                      _SectionHeader(
-                        title: 'Как долго?',
-                        actionLabel: 'Настроить',
-                        onAction: _showCustomDuration,
-                      ),
-                      const SizedBox(height: 8),
-                      _Card(
-                        child: _DurationSelector(
-                          value: _durationMinutes,
-                          onChanged: (v) =>
-                              setState(() => _durationMinutes = v),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 12),
-                    _SectionLabel('Режим отслеживания'),
-                    const SizedBox(height: 8),
-                    _Card(
-                      child: _ModeSelector(
-                        value: _trackingMode,
-                        onChanged: _changeTrackingMode,
-                      ),
-                    ),
-                    if (_trackingMode == TrackingMode.timer) ...[
-                      const SizedBox(height: 12),
-                      _Card(
-                        child: _StepperRow(
-                          label: 'Целевая длительность',
-                          valueText: _targetDurationLabel,
-                          onMinus: _targetDurationMinutes > 0
-                              ? () => _changeTargetDuration(-_timerStep)
-                              : null,
-                          onPlus: _targetDurationMinutes < _maxTargetMinutes
-                              ? () => _changeTargetDuration(_timerStep)
-                              : null,
-                          onValueTap: _enterTargetDuration,
-                        ),
-                      ),
-                    ],
-                    if (_trackingMode == TrackingMode.counter) ...[
-                      const SizedBox(height: 12),
-                      _Card(
-                        child: _StepperRow(
-                          label: 'Целевое количество',
-                          valueText: _targetValueLabel,
-                          // A counter stops at one: "no target" is what the
-                          // checkbox mode is for.
-                          onMinus: _targetValue > _minCounterTarget
-                              ? () => _changeTarget(-_counterStep)
-                              : null,
-                          onPlus: _targetValue < _maxTargetValue
-                              ? () => _changeTarget(_counterStep)
-                              : null,
-                          onValueTap: () => _enterTarget(allowDecimal: false),
-                        ),
-                      ),
-                    ],
-                    if (_trackingMode == TrackingMode.value) ...[
-                      const SizedBox(height: 12),
-                      _Card(
-                        child: _StepperRow(
-                          label: 'Целевое значение',
-                          valueText: _targetValueLabel,
-                          onMinus: _targetValue > 0
-                              ? () => _changeTarget(-_valueStep)
-                              : null,
-                          onPlus: _targetValue < _maxTargetValue
-                              ? () => _changeTarget(_valueStep)
-                              : null,
-                          onValueTap: () => _enterTarget(allowDecimal: true),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 12),
-                    _Card(
-                      child: Column(
-                        children: [
-                          _ToggleRow(
-                            icon: LucideIcons.repeat,
-                            label: 'Повторение',
-                            value: _repeatEnabled,
-                            onChanged: (v) =>
-                                setState(() => _repeatEnabled = v),
-                          ),
-                          if (_repeatEnabled) ...[
-                            const _Divider(),
-                            _RepeatTypeSelector(
-                              value: _repeatType,
-                              onChanged: _onRepeatTypeChanged,
+                            title: 'Отслеживать с',
+                            trailing: _Pill(
+                              label: DateFormat(
+                                'd MMMM yyyy',
+                                'ru_RU',
+                              ).format(_selectedDate),
+                              onTap: _pickDate,
                             ),
-                            // Daily needs no interval at all — "every day" is
-                            // the whole rule. The rest get one control each.
-                            if (_repeatType == RepeatType.weekly) ...[
-                              const _Divider(),
-                              _WeekdayPicker(
-                                selected: _repeatWeekdays,
-                                onToggle: (d) => _toggleDay(_repeatWeekdays, d),
+                          )
+                        else
+                          _Section(
+                            icon: LucideIcons.clock,
+                            title: 'Когда',
+                            trailing: _dateEnabled
+                                ? _Pill(
+                                    label: _whenLabel(_selectedDate),
+                                    onTap: _pickDate,
+                                  )
+                                : null,
+                            children: [
+                              Column(
+                                children: [
+                                  _SwitchRow(
+                                    label: 'Указать дату',
+                                    value: _dateEnabled,
+                                    // No date, no time: a time is a time on
+                                    // some day.
+                                    onChanged: (v) => setState(() {
+                                      _dateEnabled = v;
+                                      if (!v) _timeEnabled = false;
+                                    }),
+                                  ),
+                                  _SwitchRow(
+                                    label: 'Указать время',
+                                    value: _timeEnabled,
+                                    // A task saved before this rule may carry a
+                                    // time without a date — it can still be
+                                    // switched off.
+                                    onChanged: _dateEnabled || _timeEnabled
+                                        ? (v) =>
+                                              setState(() => _timeEnabled = v)
+                                        : null,
+                                  ),
+                                ],
                               ),
+                              if (_timeEnabled) ...[
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _TimeBlock(
+                                        label: 'С',
+                                        value: _fmtClockTime(_startMinutes),
+                                        onTap: _pickTime,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: _TimeBlock(
+                                        label:
+                                            _durationMinutes != null &&
+                                                _durationMinutes! > 0
+                                            ? 'До · ${_formatDurationLabel(_durationMinutes!)}'
+                                            : 'До',
+                                        value:
+                                            _durationMinutes != null &&
+                                                _durationMinutes! > 0
+                                            ? _endLabel
+                                            : '—',
+                                        onTap: _pickEnd,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                _DurationSelector(
+                                  value: _durationMinutes,
+                                  onChanged: (v) =>
+                                      setState(() => _durationMinutes = v),
+                                ),
+                              ],
                             ],
-                            if (_repeatType == RepeatType.monthly) ...[
-                              const _Divider(),
-                              _MonthDayPicker(
-                                selected: _repeatMonthDays,
-                                onToggle: (d) =>
-                                    _toggleDay(_repeatMonthDays, d),
-                              ),
-                            ],
-                            if (_repeatType != RepeatType.daily) ...[
-                              const _Divider(),
-                              _StepperRow(
-                                label: 'Повторять каждые',
-                                valueText:
-                                    '$_repeatInterval $_intervalUnitLabel',
-                                onMinus: _repeatInterval > 1
-                                    ? () => setState(() => _repeatInterval--)
-                                    : null,
-                                onPlus: _repeatInterval < _maxInterval
-                                    ? () => setState(() => _repeatInterval++)
-                                    : null,
-                              ),
-                            ],
-                            const _Divider(),
-                            _RepeatSummary(text: _repeatSummary),
+                          ),
+                        gap,
+                        _Section(
+                          icon: LucideIcons.chart_column,
+                          title: 'Отслеживать',
+                          trailing: switch (_trackingMode) {
+                            TrackingMode.counter => _Pill(
+                              label: 'Цель: $_targetValueLabel',
+                              onTap: () => _enterTarget(allowDecimal: false),
+                            ),
+                            TrackingMode.timer => _Pill(
+                              label: 'Цель: $_targetDurationLabel',
+                              onTap: _enterTargetDuration,
+                            ),
+                            TrackingMode.checkbox || TrackingMode.value => null,
+                          },
+                          children: [
+                            _ModeSelector(
+                              value: _trackingMode,
+                              onChanged: _changeTrackingMode,
+                              allowValue: !isGroup,
+                            ),
                           ],
+                        ),
+                        // A "Значение" task is not scheduled on any day, so there is
+                        // nothing for a repeat rule to describe.
+                        // A group task is one-off: groups hold no habits.
+                        if (!isValue && !isGroup) ...[
+                          gap,
+                          _Section(
+                            icon: LucideIcons.repeat,
+                            title: 'Повторять',
+                            trailing: _FormSwitch(
+                              value: _repeatEnabled,
+                              onChanged: (v) =>
+                                  setState(() => _repeatEnabled = v),
+                            ),
+                            children: [
+                              if (_repeatEnabled) ...[
+                                _RepeatTypeSelector(
+                                  value: _repeatType,
+                                  onChanged: _onRepeatTypeChanged,
+                                ),
+                                if (_repeatType == RepeatType.weekly)
+                                  _WeekdayPicker(
+                                    selected: _repeatWeekdays,
+                                    onToggle: (d) =>
+                                        _toggleDay(_repeatWeekdays, d),
+                                  ),
+                                if (_repeatType == RepeatType.monthly)
+                                  _MonthDayPicker(
+                                    selected: _repeatMonthDays,
+                                    onToggle: (d) =>
+                                        _toggleDay(_repeatMonthDays, d),
+                                  ),
+                                if (_repeatType != RepeatType.daily)
+                                  _StepperRow(
+                                    label: 'Повторять каждые',
+                                    valueText:
+                                        '$_repeatInterval $_intervalUnitLabel',
+                                    onMinus: _repeatInterval > 1
+                                        ? () =>
+                                              setState(() => _repeatInterval--)
+                                        : null,
+                                    onPlus: _repeatInterval < _maxInterval
+                                        ? () =>
+                                              setState(() => _repeatInterval++)
+                                        : null,
+                                  ),
+                                _RepeatSummary(text: _repeatSummary),
+                              ],
+                            ],
+                          ),
+                          gap,
+                          _Section(
+                            icon: LucideIcons.list,
+                            title: 'Подзадачи',
+                            children: [
+                              Column(
+                                children: [
+                                  for (var i = 0; i < _subtasks.length; i++)
+                                    _SubtaskRow(
+                                      key: ObjectKey(_subtasks[i]),
+                                      draft: _subtasks[i],
+                                      onToggle: () => setState(() {
+                                        _subtasks[i].done = !_subtasks[i].done;
+                                      }),
+                                      onRemove: () => _removeSubtask(i),
+                                      onSubmitted: _addSubtask,
+                                    ),
+                                  _AddSubtaskButton(onTap: _addSubtask),
+                                ],
+                              ),
+                            ],
+                          ),
                         ],
-                      ),
+                        gap,
+                        ColorPickerRow(
+                          selected: _selectedColor,
+                          onChanged: (c) => setState(() => _selectedColor = c),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
+  }
+
+  /// The end time, marked "+1" when it falls on the next day.
+  String get _endLabel {
+    final end = _startMinutes + (_durationMinutes ?? 0);
+    return '${_fmtClockTime(end)}${end >= 24 * 60 ? ' +1' : ''}';
+  }
+
+  Future<void> _pickGroup(List<TaskGroup> groups) async {
+    final picked = await showOptionsSheet<String?>(
+      context,
+      title: 'Группа',
+      options: [
+        (null, 'Личная задача'),
+        for (final g in groups) (g.uid, g.name),
+      ],
+      selected: _groupUid,
+    );
+    if (picked == null) return;
+    setState(() {
+      if (picked.$1 != _groupUid) _assigneeUid = null;
+      _groupUid = picked.$1;
+      if (_groupUid != null && _trackingMode == TrackingMode.value) {
+        _trackingMode = TrackingMode.checkbox;
+      }
+    });
   }
 
   Future<void> _pickDate() async {
@@ -660,22 +874,38 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
       context: context,
       initialDate: _selectedDate,
       firstDate: DateTime(2020),
-      lastDate: DateTime(2030, 12, 31),
+      // Watching cannot start tomorrow: "days since" would count backwards.
+      lastDate: _trackingMode == TrackingMode.value
+          ? _todayOnly()
+          : DateTime(2030, 12, 31),
       locale: const Locale('ru', 'RU'),
     );
     if (picked != null) setState(() => _selectedDate = picked);
   }
 
-  Future<void> _showCustomDuration() async {
-    final result = await showModalBottomSheet<int>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _CustomDurationSheet(initialMinutes: _durationMinutes),
+  /// Opens the time sheet. The result is exact to the minute, so a time off the
+  /// quarter-hour grid (15:31) is kept as typed.
+  Future<void> _pickTime() async {
+    final picked = await showTimePickerSheet(
+      context,
+      initialMinutes: _startMinutes,
     );
-    if (result != null) {
-      setState(() => _durationMinutes = result <= 0 ? null : result);
-    }
+    if (picked != null) setState(() => _startMinutes = picked);
+  }
+
+  /// Opens the same sheet for the end time. The form stores a duration, not an
+  /// end, so the pick is turned back into one — an end before the start is
+  /// the next morning. The same minute as the start means "no duration".
+  Future<void> _pickEnd() async {
+    final hasDuration = _durationMinutes != null && _durationMinutes! > 0;
+    final picked = await showTimePickerSheet(
+      context,
+      initialMinutes:
+          (_startMinutes + (hasDuration ? _durationMinutes! : 30)) % (24 * 60),
+    );
+    if (picked == null) return;
+    final diff = (picked - _startMinutes) % (24 * 60);
+    setState(() => _durationMinutes = diff == 0 ? null : diff);
   }
 
   void _onRepeatTypeChanged(RepeatType type) => setState(() {
@@ -700,35 +930,34 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
     }
   });
 
-  void _changeTarget(double delta) => setState(() {
-    _targetValue = (_targetValue + delta).clamp(
-      _trackingMode == TrackingMode.counter ? _minCounterTarget : 0,
-      _maxTargetValue,
-    );
-  });
-
   /// Switching the mode carries the target over, so it has to be brought into
-  /// the new mode's shape: a counter counts whole times and at least once, while
-  /// "Значение" is free to be fractional or absent.
+  /// the new mode's shape: a counter counts whole times and at least once. A
+  /// "Значение" task takes no target and cannot start in the future.
   void _changeTrackingMode(TrackingMode mode) => setState(() {
     _trackingMode = mode;
     if (mode == TrackingMode.counter) {
       _targetValue = _counterTargetOf(_targetValue);
     }
+    if (mode == TrackingMode.value) _clampDateToToday();
   });
+
+  static DateTime _todayOnly() {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  /// A new task opened from a future day on the calendar carries that day; a
+  /// "Значение" task cannot start in the future, so it is pulled back to today.
+  void _clampDateToToday() {
+    final today = _todayOnly();
+    if (_selectedDate.isAfter(today)) _selectedDate = today;
+  }
 
   /// [value] as a counter target: whole, and never below one.
   static double _counterTargetOf(double value) {
     final rounded = value.round().toDouble();
     return rounded < _minCounterTarget ? _minCounterTarget : rounded;
   }
-
-  void _changeTargetDuration(int delta) => setState(() {
-    _targetDurationMinutes = (_targetDurationMinutes + delta).clamp(
-      0,
-      _maxTargetMinutes,
-    );
-  });
 
   /// Reuses the hours-and-minutes sheet, so long targets take two taps instead
   /// of climbing there five minutes at a time.
@@ -767,8 +996,7 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
     if (result != null) setState(() => _targetValue = result);
   }
 
-  /// What the target stepper shows: "без цели" at zero, "10 раз" for counters
-  /// and a bare number for free-form values.
+  /// What the counter's stepper shows: "10 раз", or "без цели" at zero.
   String get _targetValueLabel {
     if (_targetValue <= 0) return 'без цели';
     final number = _formatNumber(_targetValue);
@@ -845,6 +1073,7 @@ String _plural(int n, String one, String few, String many) {
 }
 
 const _weekdayShortNames = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
+const _weekdayLabels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
 /// Selected weekdays as "пн, ср, пт", always in calendar order.
 String _weekdayNames(Set<int> weekdays) {
@@ -854,55 +1083,249 @@ String _weekdayNames(Set<int> weekdays) {
 
 // ── Sub-widgets ───────────────────────────────────────────────────────────────
 
-class _Card extends StatelessWidget {
-  const _Card({required this.child});
-  final Widget child;
+/// The three tones of the task's colour the whole form is painted in
+/// (DESIGN.md §2.4): [ink] for outlines, [fill] for large areas, [strong] for
+/// glyphs and text written on [fill]. Picking another colour repaints the form.
+class _Tones extends InheritedWidget {
+  const _Tones({
+    required this.ink,
+    required this.fill,
+    required this.strong,
+    required super.child,
+  });
+
+  final Color ink;
+  final Color fill;
+  final Color strong;
+
+  static _Tones of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_Tones>()!;
+
+  @override
+  bool updateShouldNotify(_Tones old) =>
+      ink != old.ink || fill != old.fill || strong != old.strong;
+}
+
+/// A white plate on the muted card: a time block, a mode tile, a pill. In the
+/// dark theme the card is nearly the sheet's own tone, so the plate is a step
+/// lighter instead.
+Color _plate(ThemeData theme) => theme.brightness == Brightness.light
+    ? AppPalette.of(theme).surface
+    : AppPalette.of(theme).chip;
+
+/// The grey of an off day disc and of the repeat switch's track. The palette's
+/// own track is the dark card's colour, so there it would vanish.
+Color _track(ThemeData theme) => theme.brightness == Brightness.light
+    ? AppPalette.of(theme).segmentTrack
+    : AppPalette.of(theme).chip;
+
+/// Caption of a section and of the small labels on its plates.
+TextStyle _captionStyle(ThemeData theme, {double size = 13}) =>
+    theme.textTheme.labelMedium!.copyWith(
+      fontSize: size,
+      fontWeight: FontWeight.w600,
+      color: AppPalette.of(theme).textSecondary,
+      letterSpacing: size * 0.08,
+    );
+
+/// A card of the sheet: a small icon and an upper-case caption, a control at the
+/// right of the caption, then [children] 12px apart.
+class _Section extends StatelessWidget {
+  const _Section({
+    required this.icon,
+    required this.title,
+    this.trailing,
+    this.children = const [],
+  });
+
+  final IconData icon;
+  final String title;
+  final Widget? trailing;
+  final List<Widget> children;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final palette = AppPalette.of(theme);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: raisedSurface(theme),
+        color: palette.surfaceMuted,
         borderRadius: _CreateTaskPageState._cardRadius,
-        boxShadow: [
-          BoxShadow(
-            color: surfaceShadow(theme),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        border: theme.brightness == Brightness.dark
+            ? Border.all(color: palette.border)
+            : null,
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        child: child,
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 32),
+              child: Row(
+                children: [
+                  Icon(icon, size: 16, color: palette.textSecondary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      title.toUpperCase(),
+                      style: _captionStyle(theme),
+                    ),
+                  ),
+                  if (trailing != null)
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 200),
+                      child: trailing,
+                    ),
+                ],
+              ),
+            ),
+            for (final child in children) ...[
+              const SizedBox(height: 12),
+              child,
+            ],
+          ],
+        ),
       ),
     );
   }
 }
 
-/// A field label on its own, for a block whose heading has to sit above other
-/// controls rather than float inside the input.
-class _CardLabel extends StatelessWidget {
-  const _CardLabel(this.text);
+/// The small rounded button at the right of a section's caption.
+class _Pill extends StatelessWidget {
+  const _Pill({required this.label, this.onTap});
 
-  final String text;
+  final String label;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(top: 10, bottom: 2),
-      // Aligned explicitly: a bare [Text] takes only the width of its glyphs,
-      // so it would sit wherever the surrounding column happens to align its
-      // children — centred, in a plain [Column].
-      child: Align(
-        alignment: AlignmentDirectional.centerStart,
-        child: Text(
-          text,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
+    return Material(
+      color: _plate(theme),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          // `widthFactor` keeps the pill as wide as its text; `alignment` on the
+          // container would stretch it to the card's limit.
+          child: Center(
+            widthFactor: 1,
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: AppPalette.of(theme).textPrimary,
+              ),
+            ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A 44px round button of the sheet's header — close, save.
+class _RoundButton extends StatelessWidget {
+  const _RoundButton({
+    required this.tooltip,
+    required this.onTap,
+    required this.child,
+    this.fill,
+    this.borderColor,
+    this.borderWidth = 1,
+  });
+
+  final String tooltip;
+  final VoidCallback onTap;
+  final Widget child;
+  final Color? fill;
+  final Color? borderColor;
+  final double borderWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(Theme.of(context));
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: fill ?? palette.surface,
+        shape: CircleBorder(
+          side: BorderSide(
+            color: borderColor ?? palette.borderStrong,
+            width: borderWidth,
+          ),
+        ),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox(width: 44, height: 44, child: Center(child: child)),
+        ),
+      ),
+    );
+  }
+}
+
+/// The task's title and description, on a box of the task's own colour.
+class _TitleCard extends StatelessWidget {
+  const _TitleCard({
+    required this.iconKey,
+    required this.onPickIcon,
+    required this.titleField,
+    required this.descField,
+  });
+
+  final String? iconKey;
+  final VoidCallback onPickIcon;
+  final Widget titleField;
+  final Widget descField;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tones = _Tones.of(context);
+    final previewIcon = taskIconFor(iconKey) ?? LucideIcons.star;
+    final light = theme.brightness == Brightness.light;
+    return DecoratedBox(
+      key: const ValueKey('titleCard'),
+      decoration: BoxDecoration(
+        color: tones.fill,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: tones.ink, width: 1.5),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            Tooltip(
+              message: 'Выбрать иконку',
+              child: GestureDetector(
+                onTap: onPickIcon,
+                child: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: light ? 0.7 : 0.1),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(previewIcon, size: 22, color: tones.strong),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [titleField, const SizedBox(height: 2), descField],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -913,17 +1336,17 @@ class _Field extends StatelessWidget {
   const _Field({
     required this.controller,
     required this.hint,
-    this.label,
+    required this.style,
+    this.minLines,
     this.maxLines = 1,
     this.autofocus = false,
     this.validator,
   });
 
   final TextEditingController controller;
-
-  /// Floating label. Null for a field whose heading is drawn above it instead.
-  final String? label;
   final String hint;
+  final TextStyle style;
+  final int? minLines;
   final int maxLines;
   final bool autofocus;
   final FormFieldValidator<String>? validator;
@@ -934,28 +1357,287 @@ class _Field extends StatelessWidget {
     return TextFormField(
       controller: controller,
       autofocus: autofocus,
+      minLines: minLines,
       maxLines: maxLines,
       validator: validator,
-      style: theme.textTheme.bodyLarge,
+      textCapitalization: TextCapitalization.sentences,
+      style: style,
       decoration: InputDecoration(
-        labelText: label,
         hintText: hint,
         border: InputBorder.none,
-        labelStyle: theme.textTheme.bodySmall?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
-        ),
-        hintStyle: theme.textTheme.bodyLarge?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.55),
-        ),
-        contentPadding: const EdgeInsets.symmetric(vertical: 12),
+        isDense: true,
+        hintStyle: style.copyWith(color: AppPalette.of(theme).textTertiary),
+        contentPadding: const EdgeInsets.symmetric(vertical: 2),
       ),
     );
   }
 }
 
-/// The "add a subtask" plate. Closes the description card: the subtasks it
-/// creates read as part of that block rather than as a separate section, and it
-/// sits below them so the block reads content first, action last.
+/// "Who is it for": the group's members and "everyone", one tile each.
+class _AssigneeTiles extends StatelessWidget {
+  const _AssigneeTiles({
+    required this.members,
+    required this.me,
+    required this.selected,
+    required this.onPick,
+  });
+
+  final List<GroupMember> members;
+  final String? me;
+
+  /// The member the task is handed to; null is "for everyone".
+  final String? selected;
+  final ValueChanged<String?> onPick;
+
+  static const _columns = 4;
+  static const _gap = 6.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final options = <(String?, String, String)>[
+      // Me first, then the others, then everyone.
+      if (me != null) (me, 'Мне', 'Я'),
+      for (final m in members)
+        if (m.userUid != me)
+          (m.userUid, memberName(m), _initialOf(memberName(m))),
+      (null, 'Всем', '${members.length}'),
+    ];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = (constraints.maxWidth - _gap * (_columns - 1)) / _columns;
+        return Wrap(
+          spacing: _gap,
+          runSpacing: _gap,
+          children: [
+            for (final (uid, label, initial) in options)
+              SizedBox(
+                width: width,
+                child: _AssigneeTile(
+                  label: label,
+                  initial: initial,
+                  selected: uid == selected,
+                  onTap: () => onPick(uid),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+String _initialOf(String name) =>
+    name.trim().isEmpty ? '?' : String.fromCharCode(name.trim().runes.first);
+
+class _AssigneeTile extends StatelessWidget {
+  const _AssigneeTile({
+    required this.label,
+    required this.initial,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final String initial;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final palette = AppPalette.of(theme);
+    final tones = _Tones.of(context);
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        height: 72,
+        decoration: BoxDecoration(
+          color: _plate(theme),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? tones.ink : Colors.transparent,
+            width: 1.5,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: neutralChip(theme),
+                shape: BoxShape.circle,
+              ),
+              child: Text(
+                initial.toUpperCase(),
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: palette.textPrimary,
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: palette.textPrimary,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A switch painted in the task's colour.
+class _FormSwitch extends StatelessWidget {
+  const _FormSwitch({required this.value, required this.onChanged});
+
+  final bool value;
+
+  /// Null greys the switch out.
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(Theme.of(context));
+    final strong = _Tones.of(context).strong;
+    return Opacity(
+      opacity: onChanged == null ? 0.4 : 1,
+      child: Switch(
+        value: value,
+        onChanged: onChanged,
+        thumbColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? onBrandFill(strong)
+              : Colors.white,
+        ),
+        trackColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? strong
+              : palette.switchOff,
+        ),
+        trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
+      ),
+    );
+  }
+}
+
+/// A label with a [_FormSwitch] at its end.
+class _SwitchRow extends StatelessWidget {
+  const _SwitchRow({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      height: 44,
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                fontSize: 15,
+                color: AppPalette.of(theme).textPrimary,
+              ),
+            ),
+          ),
+          _FormSwitch(value: value, onChanged: onChanged),
+        ],
+      ),
+    );
+  }
+}
+
+/// "С 22:00" / "До · 30 мин 22:30": a caption over a big time, tap to change.
+class _TimeBlock extends StatelessWidget {
+  const _TimeBlock({
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: _plate(theme),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          height: 64,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          alignment: Alignment.centerLeft,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label.toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _captionStyle(theme, size: 11),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: AppPalette.of(theme).textPrimary,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Today, 16 Oct" / "Tue, 20 Oct" — the year only when it is not this one.
+String _whenLabel(DateTime date) {
+  final now = DateTime.now();
+  final isToday =
+      date.year == now.year && date.month == now.month && date.day == now.day;
+  final day = DateFormat(
+    date.year == now.year ? 'd MMM' : 'd MMM yyyy',
+    'ru_RU',
+  ).format(date);
+  if (isToday) return 'Сегодня, $day';
+  final weekday = DateFormat('E', 'ru_RU').format(date);
+  return '${weekday[0].toUpperCase()}${weekday.substring(1)}, $day';
+}
+
+/// The "add a subtask" link that closes the subtasks card.
 class _AddSubtaskButton extends StatelessWidget {
   const _AddSubtaskButton({required this.onTap});
 
@@ -964,37 +1646,26 @@ class _AddSubtaskButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            color: insetSurface(theme),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                LucideIcons.plus,
-                size: 16,
-                color: theme.colorScheme.primary,
+    final strong = _Tones.of(context).strong;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: SizedBox(
+        height: 44,
+        width: double.infinity,
+        child: Row(
+          children: [
+            Icon(LucideIcons.plus, size: 18, color: strong),
+            const SizedBox(width: 12),
+            Text(
+              'Добавить подзадачу',
+              style: theme.textTheme.bodyLarge?.copyWith(
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+                color: strong,
               ),
-              const SizedBox(width: 4),
-              Text(
-                'Добавить подзадачу',
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -1009,63 +1680,65 @@ class _SubtaskRow extends StatelessWidget {
     required this.draft,
     required this.onToggle,
     required this.onRemove,
+    required this.onSubmitted,
   });
 
   final _SubtaskDraft draft;
   final VoidCallback onToggle;
   final VoidCallback onRemove;
 
+  /// Enter on this row's keyboard — adds the next subtask below it.
+  final VoidCallback onSubmitted;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final primary = theme.colorScheme.primary;
+    final palette = AppPalette.of(theme);
+    final strong = _Tones.of(context).strong;
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 44),
       child: Row(
         children: [
           GestureDetector(
             onTap: onToggle,
             behavior: HitTestBehavior.opaque,
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+              padding: const EdgeInsets.symmetric(vertical: 13),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 150),
-                width: 20,
-                height: 20,
+                width: 18,
+                height: 18,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: draft.done ? primary : Colors.transparent,
+                  color: draft.done ? strong : Colors.transparent,
                   borderRadius: BorderRadius.circular(6),
                   border: Border.all(
-                    color: draft.done
-                        ? primary
-                        : theme.colorScheme.onSurfaceVariant.withValues(
-                            alpha: 0.55,
-                          ),
-                    width: 1.6,
+                    color: draft.done ? strong : palette.iconMuted,
+                    width: 1.5,
                   ),
                 ),
                 child: draft.done
                     ? Icon(
                         LucideIcons.check,
-                        size: 14,
-                        color: onBrandFill(theme.colorScheme.primary),
+                        size: 13,
+                        color: onBrandFill(strong),
                       )
                     : null,
               ),
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
           Expanded(
             child: TextField(
               controller: draft.controller,
               autofocus: draft.isNew,
               textCapitalization: TextCapitalization.sentences,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: draft.done
-                    ? theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.75)
-                    : theme.colorScheme.onSurface,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => onSubmitted(),
+              style: theme.textTheme.bodyLarge?.copyWith(
+                fontSize: 15,
+                color: draft.done ? palette.textTertiary : palette.textPrimary,
                 decoration: draft.done ? TextDecoration.lineThrough : null,
               ),
               decoration: InputDecoration(
@@ -1073,10 +1746,9 @@ class _SubtaskRow extends StatelessWidget {
                 hintText: 'Подзадача',
                 border: InputBorder.none,
                 contentPadding: EdgeInsets.zero,
-                hintStyle: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant.withValues(
-                    alpha: 0.55,
-                  ),
+                hintStyle: theme.textTheme.bodyLarge?.copyWith(
+                  fontSize: 15,
+                  color: palette.textTertiary,
                 ),
               ),
             ),
@@ -1084,122 +1756,9 @@ class _SubtaskRow extends StatelessWidget {
           IconButton(
             onPressed: onRemove,
             icon: const Icon(LucideIcons.x, size: 16),
-            color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.75),
+            color: palette.textTertiary,
             visualDensity: VisualDensity.compact,
             tooltip: 'Убрать подзадачу',
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Divider extends StatelessWidget {
-  const _Divider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Divider(
-      height: 1,
-      thickness: 0.5,
-      color: Theme.of(context).colorScheme.outlineVariant,
-    );
-  }
-}
-
-class _ToggleRow extends StatelessWidget {
-  const _ToggleRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.onChanged,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: theme.colorScheme.onSurfaceVariant),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              label,
-              style: theme.textTheme.bodyLarge?.copyWith(
-                color: theme.colorScheme.onSurface,
-              ),
-            ),
-          ),
-          // Colours come from `switchTheme` in `buildAppTheme`, so this row and
-          // the switch in the settings screen look the same.
-          Switch(value: value, onChanged: onChanged),
-        ],
-      ),
-    );
-  }
-}
-
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4),
-      child: Text(
-        text,
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-          letterSpacing: 0.4,
-        ),
-      ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.title,
-    required this.actionLabel,
-    required this.onAction,
-  });
-
-  final String title;
-  final String actionLabel;
-  final VoidCallback onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(left: 4),
-      child: Row(
-        children: [
-          Text(
-            title,
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              letterSpacing: 0.4,
-            ),
-          ),
-          const Spacer(),
-          GestureDetector(
-            onTap: onAction,
-            child: Text(
-              actionLabel,
-              style: theme.textTheme.labelMedium?.copyWith(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
           ),
         ],
       ),
@@ -1225,7 +1784,6 @@ class _DurationSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final presets = [..._presets];
     // Show a custom value as its own selected chip if not among presets.
     if (value != null && value! > 0 && !presets.contains(value)) {
@@ -1233,44 +1791,49 @@ class _DurationSelector extends StatelessWidget {
       presets.sort();
     }
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            _chip(context, theme, null, 'Без длительности'),
-            for (final m in presets) ...[
-              const SizedBox(width: 8),
-              _chip(context, theme, m, _formatDurationLabel(m)),
-            ],
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _chip(context, null, 'Без длительности'),
+          for (final m in presets) ...[
+            const SizedBox(width: 8),
+            _chip(context, m, _formatDurationLabel(m)),
           ],
-        ),
+        ],
       ),
     );
   }
 
-  Widget _chip(
-    BuildContext context,
-    ThemeData theme,
-    int? minutes,
-    String label,
-  ) {
+  /// A 36px chip: dark when selected, a plate with an outline otherwise.
+  Widget _chip(BuildContext context, int? minutes, String label) {
+    final theme = Theme.of(context);
+    final palette = AppPalette.of(theme);
     final selected = value == minutes;
-    return ChoiceChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: (_) => onChanged(minutes),
-      selectedColor: theme.colorScheme.primary,
-      labelStyle: theme.textTheme.labelMedium?.copyWith(
-        color: selected
-            ? onBrandFill(theme.colorScheme.primary)
-            : theme.colorScheme.onSurfaceVariant,
-        fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+    return Material(
+      color: selected ? palette.textPrimary : _plate(theme),
+      shape: StadiumBorder(
+        side: BorderSide(
+          color: selected ? palette.textPrimary : palette.borderStrong,
+        ),
       ),
-      backgroundColor: insetSurface(theme),
-      side: BorderSide.none,
-      showCheckmark: false,
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: () => onChanged(minutes),
+        child: Container(
+          height: 36,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: selected ? palette.background : palette.textPrimary,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1572,9 +2135,17 @@ class _Stepper extends StatelessWidget {
 }
 
 class _ModeSelector extends StatelessWidget {
-  const _ModeSelector({required this.value, required this.onChanged});
+  const _ModeSelector({
+    required this.value,
+    required this.onChanged,
+    this.allowValue = true,
+  });
   final TrackingMode value;
   final ValueChanged<TrackingMode> onChanged;
+
+  /// False for a group task: "Значение" is on no day, and a group holds only
+  /// one-off tasks.
+  final bool allowValue;
 
   static const _modes = [
     (TrackingMode.checkbox, LucideIcons.circle_check, 'Чекбокс'),
@@ -1583,151 +2154,175 @@ class _ModeSelector extends StatelessWidget {
     (TrackingMode.value, LucideIcons.sliders_horizontal, 'Значение'),
   ];
 
-  /// Modes the form will not let the user pick.
-  ///
-  /// [TrackingMode.value] is parked: nothing in the app reads a free-form value
-  /// yet, so saving a task with it produces something that behaves like a plain
-  /// checkbox while quietly remembering a number. It stays on screen, greyed
-  /// out, rather than being taken away — and a task that already uses it still
-  /// shows it as its mode, so opening such a task to edit cannot silently
-  /// rewrite what it tracks. Emptying this set is all it takes to bring the mode
-  /// back; nothing in the database or the enum changes meanwhile.
-  static const _blocked = {TrackingMode.value};
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: _modes.map((entry) {
-          final (mode, icon, label) = entry;
-          final selected = value == mode;
-          final blocked = !selected && _blocked.contains(mode);
-
-          final Color background;
-          final Color iconColor;
-          final Color labelColor;
-          if (selected) {
-            // A selected tile is painted with the accent — a brand fill, so its
-            // icon and label take the brand ink instead of the scheme's
-            // luminance-flipped onPrimary. Every accent-filled control on this
-            // form does the same.
-            background = theme.colorScheme.primary;
-            iconColor = onBrandFill(background);
-            labelColor = onBrandFill(background);
-          } else if (blocked) {
-            background = disabledInsetSurface(theme);
-            iconColor = theme.colorScheme.onSurfaceVariant.withValues(
-              alpha: 0.55,
-            );
-            labelColor = theme.colorScheme.onSurfaceVariant.withValues(
-              alpha: 0.55,
-            );
-          } else {
-            background = insetSurface(theme);
-            iconColor = theme.colorScheme.onSurfaceVariant;
-            labelColor = theme.colorScheme.onSurfaceVariant;
-          }
-
-          return Expanded(
+    final palette = AppPalette.of(theme);
+    final tones = _Tones.of(context);
+    final shown = _modes.where(
+      (entry) => allowValue || entry.$1 != TrackingMode.value,
+    );
+    return Row(
+      children: [
+        for (final (index, (mode, icon, label)) in shown.indexed) ...[
+          if (index > 0) const SizedBox(width: 6),
+          Expanded(
             child: GestureDetector(
-              onTap: blocked ? null : () => onChanged(mode),
+              onTap: () => onChanged(mode),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 150),
-                margin: const EdgeInsets.symmetric(horizontal: 3),
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                height: 68,
                 decoration: BoxDecoration(
-                  color: background,
-                  borderRadius: BorderRadius.circular(12),
+                  // The selected tile takes the task's colour — light tone,
+                  // outline and ink — and the others stay plain plates.
+                  color: value == mode ? tones.fill : _plate(theme),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: value == mode ? tones.ink : Colors.transparent,
+                    width: 1.5,
+                  ),
                 ),
                 child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(icon, size: 22, color: iconColor),
-                    const SizedBox(height: 4),
+                    Icon(
+                      icon,
+                      size: 20,
+                      color: value == mode
+                          ? tones.strong
+                          : palette.textSecondary,
+                    ),
+                    const SizedBox(height: 6),
                     Text(
                       label,
                       style: theme.textTheme.labelSmall?.copyWith(
-                        color: labelColor,
-                        fontWeight: selected
-                            ? FontWeight.w600
-                            : FontWeight.normal,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: value == mode
+                            ? tones.strong
+                            : palette.textSecondary,
                       ),
                     ),
                   ],
                 ),
               ),
             ),
-          );
-        }).toList(),
-      ),
+          ),
+        ],
+      ],
     );
   }
 }
 
-/// Two-by-two grid of repeat types. There is no "no repeat" cell — repetition
-/// is switched off by the toggle above the grid, not by a selection here.
+/// The four repeat types as a grey segmented switch. There is no "no repeat"
+/// segment — repetition is switched off by the switch in the card's caption.
 class _RepeatTypeSelector extends StatelessWidget {
   const _RepeatTypeSelector({required this.value, required this.onChanged});
   final RepeatType value;
   final ValueChanged<RepeatType> onChanged;
 
   static const _types = [
-    (RepeatType.daily, LucideIcons.calendar_check, 'Ежедневно'),
-    (RepeatType.weekly, LucideIcons.calendar_range, 'Еженедельно'),
-    (RepeatType.monthly, LucideIcons.calendar_days, 'Ежемесячно'),
-    (RepeatType.custom, LucideIcons.sliders_horizontal, 'Другое'),
+    (RepeatType.daily, 'День'),
+    (RepeatType.weekly, 'Неделя'),
+    (RepeatType.monthly, 'Месяц'),
+    (RepeatType.custom, 'N дней'),
   ];
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
+    final palette = AppPalette.of(theme);
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: _track(theme),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
         children: [
-          Row(children: [_cell(theme, _types[0]), _cell(theme, _types[1])]),
-          const SizedBox(height: 6),
-          Row(children: [_cell(theme, _types[2]), _cell(theme, _types[3])]),
+          for (final (type, label) in _types)
+            Expanded(
+              child: GestureDetector(
+                onTap: () => onChanged(type),
+                behavior: HitTestBehavior.opaque,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  height: 34,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: value == type
+                        ? (theme.brightness == Brightness.light
+                              ? palette.surface
+                              : palette.segmentSelected)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: value == type
+                        ? [
+                            BoxShadow(
+                              color: surfaceShadow(theme, light: 0.1),
+                              blurRadius: 3,
+                              offset: const Offset(0, 1),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Text(
+                    label,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: value == type
+                          ? palette.textPrimary
+                          : palette.textSecondary,
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
+}
 
-  Widget _cell(ThemeData theme, (RepeatType, IconData, String) entry) {
-    final (type, icon, label) = entry;
-    final selected = value == type;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => onChanged(type),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          margin: const EdgeInsets.symmetric(horizontal: 3),
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: selected ? theme.colorScheme.primary : insetSurface(theme),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            children: [
-              Icon(
-                icon,
-                size: 22,
-                color: selected
-                    ? onBrandFill(theme.colorScheme.primary)
-                    : theme.colorScheme.onSurfaceVariant,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: selected
-                      ? onBrandFill(theme.colorScheme.primary)
-                      : theme.colorScheme.onSurfaceVariant,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-                ),
-              ),
-            ],
+/// A round day button of the weekday and month pickers: the task's strong tone
+/// when on, a grey disc when off.
+class _DayDot extends StatelessWidget {
+  const _DayDot({
+    required this.label,
+    required this.size,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final double size;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final palette = AppPalette.of(theme);
+    final strong = _Tones.of(context).strong;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        width: size,
+        height: size,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? strong : _track(theme),
+          shape: BoxShape.circle,
+        ),
+        child: Text(
+          label,
+          style: theme.textTheme.labelMedium?.copyWith(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: selected ? onBrandFill(strong) : palette.textPrimary,
           ),
         ),
       ),
@@ -1744,48 +2339,17 @@ class _WeekdayPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          for (var weekday = 1; weekday <= 7; weekday++)
-            _circle(theme, weekday, selected.contains(weekday)),
-        ],
-      ),
-    );
-  }
-
-  Widget _circle(ThemeData theme, int weekday, bool isSelected) {
-    // Weekends read a touch dimmer when off, matching the calendar elsewhere.
-    final isWeekend = weekday >= 6;
-    return GestureDetector(
-      onTap: () => onToggle(weekday),
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        width: 38,
-        height: 38,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: isSelected ? theme.colorScheme.primary : insetSurface(theme),
-          shape: BoxShape.circle,
-        ),
-        child: Text(
-          _weekdayShortNames[weekday - 1],
-          style: theme.textTheme.labelMedium?.copyWith(
-            color: isSelected
-                ? onBrandFill(theme.colorScheme.primary)
-                : (isWeekend
-                      ? theme.colorScheme.onSurfaceVariant.withValues(
-                          alpha: 0.55,
-                        )
-                      : theme.colorScheme.onSurfaceVariant),
-            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        for (var weekday = 1; weekday <= 7; weekday++)
+          _DayDot(
+            label: _weekdayLabels[weekday - 1],
+            size: 40,
+            selected: selected.contains(weekday),
+            onTap: () => onToggle(weekday),
           ),
-        ),
-      ),
+      ],
     );
   }
 }
@@ -1804,55 +2368,32 @@ class _MonthDayPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final rows = (_lastDay / _columns).ceil();
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Column(
-        children: [
-          for (var row = 0; row < rows; row++) ...[
-            if (row > 0) const SizedBox(height: 6),
-            Row(
-              children: [
-                for (var col = 0; col < _columns; col++)
-                  Expanded(child: _slot(theme, row * _columns + col + 1)),
-              ],
-            ),
-          ],
+    return Column(
+      children: [
+        for (var row = 0; row < rows; row++) ...[
+          if (row > 0) const SizedBox(height: 6),
+          Row(
+            children: [
+              for (var col = 0; col < _columns; col++)
+                Expanded(child: _slot(row * _columns + col + 1)),
+            ],
+          ),
         ],
-      ),
+      ],
     );
   }
 
   /// A day cell, or empty space for the slots past the 31st in the last row.
-  Widget _slot(ThemeData theme, int day) {
-    if (day > _lastDay) return const SizedBox(height: 34);
-
-    final isSelected = selected.contains(day);
-    return GestureDetector(
-      onTap: () => onToggle(day),
-      behavior: HitTestBehavior.opaque,
-      child: Center(
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          width: 34,
-          height: 34,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: isSelected ? theme.colorScheme.primary : insetSurface(theme),
-            shape: BoxShape.circle,
-          ),
-          child: Text(
-            '$day',
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: isSelected
-                  ? onBrandFill(theme.colorScheme.primary)
-                  : theme.colorScheme.onSurfaceVariant,
-              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-            ),
-          ),
-        ),
+  Widget _slot(int day) {
+    if (day > _lastDay) return const SizedBox(height: 36);
+    return Center(
+      child: _DayDot(
+        label: '$day',
+        size: 36,
+        selected: selected.contains(day),
+        onTap: () => onToggle(day),
       ),
     );
   }
@@ -1861,76 +2402,66 @@ class _MonthDayPicker extends StatelessWidget {
 /// A labelled row with a [−] value [+] control, e.g.
 /// "Повторять каждые  [−] 2 недели [+]". [valueText] always carries the unit, so
 /// the number never has to be interpreted on its own. Passing null for [onMinus]
-/// or [onPlus] greys out that button; [onValueTap] makes the number itself
-/// tappable for entering a large amount directly.
+/// or [onPlus] greys out that button.
 class _StepperRow extends StatelessWidget {
   const _StepperRow({
     required this.label,
     required this.valueText,
     required this.onMinus,
     required this.onPlus,
-    this.onValueTap,
   });
 
   final String label;
   final String valueText;
   final VoidCallback? onMinus;
   final VoidCallback? onPlus;
-  final VoidCallback? onValueTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+    final palette = AppPalette.of(theme);
+    final button = IconButton.styleFrom(
+      fixedSize: const Size(40, 40),
+      backgroundColor: _plate(theme),
+      disabledBackgroundColor: _plate(theme),
+      foregroundColor: palette.textPrimary,
+      disabledForegroundColor: palette.iconMuted,
+    );
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              fontSize: 15,
+              color: palette.textPrimary,
             ),
           ),
-          Container(
-            decoration: BoxDecoration(
-              color: insetSurface(theme),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: Row(
-              children: [
-                IconButton(
-                  onPressed: onMinus,
-                  icon: const Icon(LucideIcons.minus, size: 18),
-                  visualDensity: VisualDensity.compact,
-                ),
-                GestureDetector(
-                  onTap: onValueTap,
-                  behavior: HitTestBehavior.opaque,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(minWidth: 92),
-                    child: Text(
-                      valueText,
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: theme.colorScheme.onSurface,
-                      ),
-                    ),
-                  ),
-                ),
-                IconButton(
-                  onPressed: onPlus,
-                  icon: const Icon(LucideIcons.plus, size: 18),
-                  visualDensity: VisualDensity.compact,
-                ),
-              ],
+        ),
+        IconButton(
+          onPressed: onMinus,
+          style: button,
+          icon: const Icon(LucideIcons.minus, size: 18),
+        ),
+        ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 76),
+          child: Text(
+            valueText,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: palette.textPrimary,
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
-        ],
-      ),
+        ),
+        IconButton(
+          onPressed: onPlus,
+          style: button,
+          icon: const Icon(LucideIcons.plus, size: 18),
+        ),
+      ],
     );
   }
 }
@@ -1942,279 +2473,51 @@ class _RepeatSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        children: [
-          Icon(
-            LucideIcons.calendar_sync,
-            size: 16,
-            color: theme.colorScheme.primary,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.w600,
-              ),
+    return Row(
+      children: [
+        Icon(
+          LucideIcons.calendar_sync,
+          size: 16,
+          color: _Tones.of(context).strong,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: AppPalette.of(theme).textSecondary,
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
 
-String _fmtWheelTime(int minutes) {
+String _fmtClockTime(int minutes) {
   final normalized = minutes % (24 * 60);
   final h = (normalized ~/ 60).toString().padLeft(2, '0');
   final m = (normalized % 60).toString().padLeft(2, '0');
   return '$h:$m';
 }
 
-class _TimeWheel extends StatelessWidget {
-  const _TimeWheel({
-    required this.controller,
-    required this.startMinutes,
-    required this.durationMinutes,
-    required this.step,
-    required this.onChanged,
-  });
-
-  final FixedExtentScrollController controller;
-  final int startMinutes;
-  final int? durationMinutes;
-  final int step;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final itemCount = (24 * 60) ~/ step;
-
-    return SizedBox(
-      height: 200,
-      child: Stack(
-        children: [
-          ListWheelScrollView.useDelegate(
-            controller: controller,
-            itemExtent: 46,
-            perspective: 0.002,
-            diameterRatio: 1.7,
-            physics: const FixedExtentScrollPhysics(),
-            onSelectedItemChanged: (i) => onChanged(i * step),
-            childDelegate: ListWheelChildBuilderDelegate(
-              childCount: itemCount,
-              builder: (context, index) {
-                final start = index * step;
-                final selected = start == startMinutes;
-                return _TimeWheelItem(
-                  start: start,
-                  selected: selected,
-                  durationMinutes: durationMinutes,
-                );
-              },
-            ),
-          ),
-          IgnorePointer(
-            child: Center(
-              child: Container(
-                height: 46,
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TimeWheelItem extends StatelessWidget {
-  const _TimeWheelItem({
-    required this.start,
-    required this.selected,
-    required this.durationMinutes,
-  });
-
-  final int start;
-  final bool selected;
-  final int? durationMinutes;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    if (!selected) {
-      return Center(
-        child: Text(
-          _fmtWheelTime(start),
-          style: theme.textTheme.titleMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.55),
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-      );
-    }
-
-    final hasDuration = durationMinutes != null && durationMinutes! > 0;
-    final end = hasDuration ? start + durationMinutes! : null;
-
-    final spans = <InlineSpan>[TextSpan(text: _fmtWheelTime(start))];
-    if (end != null) {
-      spans.add(const TextSpan(text: ' – '));
-      spans.add(TextSpan(text: _fmtWheelTime(end)));
-      if (end >= 24 * 60) {
-        spans.add(
-          WidgetSpan(
-            alignment: PlaceholderAlignment.top,
-            child: Padding(
-              padding: const EdgeInsets.only(left: 1),
-              child: Text(
-                '+1',
-                style: TextStyle(
-                  color: onBrandFill(theme.colorScheme.primary),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-        );
-      }
-    }
-
-    return Center(
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.primary,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Text.rich(
-          TextSpan(children: spans),
-          style: theme.textTheme.titleMedium?.copyWith(
-            color: onBrandFill(theme.colorScheme.primary),
-            fontWeight: FontWeight.w700,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DateRow extends StatelessWidget {
-  const _DateRow({required this.date, required this.onTap});
-
-  final DateTime date;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final label = DateFormat('d MMMM yyyy', 'ru_RU').format(date);
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              LucideIcons.calendar,
-              size: 16,
-              color: theme.colorScheme.primary,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: theme.textTheme.bodyLarge?.copyWith(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AppearanceCard extends StatelessWidget {
-  const _AppearanceCard({
-    required this.selectedIconKey,
-    required this.selectedColor,
-    required this.onPickIcon,
-    required this.onColorChanged,
-    required this.titleField,
-  });
-
-  /// The task's title input, sat beside the icon square. The two belong on one
-  /// line: the square is what the task looks like, the field is what it is.
-  final Widget titleField;
-
-  final String? selectedIconKey;
-  final Color? selectedColor;
-  final VoidCallback onPickIcon;
-  final ValueChanged<Color> onColorChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final previewColor = selectedColor ?? ColorPickerRow.colors.first;
-    final previewIcon = taskIconFor(selectedIconKey) ?? LucideIcons.star;
-
-    return _Card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              GestureDetector(
-                onTap: onPickIcon,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: previewColor.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: previewColor.withValues(alpha: 0.4),
-                      width: 1.5,
-                    ),
-                  ),
-                  child: Icon(previewIcon, size: 28, color: previewColor),
-                ),
-              ),
-              const SizedBox(width: 16),
-              // The square itself is the way into the icon picker now, so
-              // there is no "choose an icon" line to make room for.
-              Expanded(child: titleField),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Divider(
-            height: 1,
-            thickness: 0.5,
-            color: theme.colorScheme.outlineVariant,
-          ),
-          ColorPickerRow(selected: selectedColor, onChanged: onColorChanged),
-        ],
-      ),
-    );
-  }
-}
+/// Opens [CreateTaskPage] as a bottom sheet.
+Future<void> showCreateTaskSheet(
+  BuildContext context, {
+  TaskFormMode mode = TaskFormMode.create,
+  Task? task,
+  DateTime? initialDate,
+  String? initialGroupUid,
+}) => showModalBottomSheet<void>(
+  context: context,
+  isScrollControlled: true,
+  backgroundColor: Colors.transparent,
+  builder: (_) => CreateTaskPage(
+    mode: mode,
+    task: task,
+    initialDate: initialDate,
+    initialGroupUid: initialGroupUid,
+  ),
+);

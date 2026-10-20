@@ -271,10 +271,23 @@ void main() {
       expect(pending.map((e) => e.id), [kept]);
     });
 
-    test('the seeded moods are pending until they are sent', () async {
-      // They arrive with the migration and have never been near a server, so
-      // "dirty" is the truth about them.
-      expect(await dao.pendingMoods(), hasLength(8));
+    test('the seeded moods are never pending', () async {
+      // They are a constant of the app, not somebody's data: they live in
+      // `defaultNoteMoods`, they arrive with the install, and the server keeps
+      // one shared row for each, owned by nobody. A device that offered its own
+      // copy would be claiming a constant — and, since those uuids are the same
+      // on every install, would collide with whichever account synced first.
+      // That collision took the whole push down: moods go up before everything
+      // else, so an account that could not send them sent nothing at all.
+      expect(await dao.pendingMoods(), isEmpty);
+    });
+
+    test('a mood the user invented is pending', () async {
+      await dao.insertMood(name: 'Вдохновение', emoji: '✨');
+
+      final pending = await dao.pendingMoods();
+
+      expect(pending.map((m) => m.name), ['Вдохновение']);
     });
   });
 }

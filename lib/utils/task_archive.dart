@@ -21,13 +21,15 @@ import 'package:todo_app/utils/recurrence.dart';
 /// * ticked for a day still ahead, it waits in the tab until that day passes.
 ///
 /// Habits never archive: a repeating task has no last occurrence to be done
-/// with.
+/// with. Neither does a "Значение" task, which is ticked again and again by
+/// design — only the user's own "Архив" puts one away.
 bool isTaskArchived(
   Task task, {
   required bool completed,
   required DateTime today,
 }) {
   if (!completed || task.repeatType != null) return false;
+  if (task.trackingMode == TrackingMode.value) return false;
   final day = DateTime(today.year, today.month, today.day);
   return taskAnchorDate(task).isBefore(day);
 }

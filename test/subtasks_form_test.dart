@@ -30,17 +30,11 @@ Finder _addButton() => find.text('Добавить подзадачу');
 
 /// The title input, matched on its hint so it stays findable once typed into.
 Finder _titleField() => find.byWidgetPredicate(
-  (w) => w is TextField && w.decoration?.hintText == 'Что нужно сделать?',
+  (w) => w is TextField && w.decoration?.hintText == 'Название',
 );
 
-/// The white plates the form is built from — a [DecoratedBox] carrying a shadow.
-Finder _cards() => find.byWidgetPredicate(
-  (w) => w is DecoratedBox && (w.decoration as BoxDecoration).boxShadow != null,
-);
-
-/// The card [of] sits in.
-Rect _cardAround(WidgetTester tester, Finder of) =>
-    tester.getRect(find.ancestor(of: of, matching: _cards()).first);
+/// The coloured box holding the title and the description.
+Finder _titleCard() => find.byKey(const ValueKey('titleCard'));
 
 /// Subtask inputs, matched on the widget's own hint rather than on rendered text
 /// so a row stays findable after it has been typed into. Plain [TextField]s —
@@ -83,7 +77,7 @@ Future<void> _typeSubtask(WidgetTester tester, int index, String text) async {
 }
 
 Future<void> _saveForm(WidgetTester tester, String label) async {
-  await tester.tap(find.text(label));
+  await tester.tap(find.byTooltip(label));
   await _settle(tester);
   await _flushDatabase(tester);
 }
@@ -154,7 +148,7 @@ void main() {
       expect(_subtaskFields(), findsNothing);
     });
 
-    testWidgets('the label heads the block and the button closes it', (
+    testWidgets('the description heads the block and the button closes it', (
       tester,
     ) async {
       await _openForm(tester);
@@ -162,21 +156,13 @@ void main() {
       await _settle(tester);
       await _typeSubtask(tester, 0, 'Подшаг');
 
-      final label = tester.getRect(find.text('Описание'));
+      final description = tester.getRect(find.text('Описание'));
       final row = tester.getRect(_subtaskFields().first);
-      final description = tester.getRect(find.text('Дополнительные детали'));
       final button = tester.getRect(_addButton());
 
-      expect(label.bottom, lessThanOrEqualTo(row.top));
-      expect(row.bottom, lessThanOrEqualTo(description.top));
-      expect(description.bottom, lessThanOrEqualTo(button.top));
-    });
-
-    testWidgets('the label appears once, not twice', (tester) async {
-      await _openForm(tester);
-
-      // It used to float inside the description field as well.
-      expect(find.text('Описание'), findsOneWidget);
+      // Title card: title → description. Subtasks card below: rows → button.
+      expect(description.bottom, lessThanOrEqualTo(row.top));
+      expect(row.bottom, lessThanOrEqualTo(button.top));
     });
 
     testWidgets('the button spans the block', (tester) async {
@@ -192,117 +178,32 @@ void main() {
       final field = tester.getRect(_subtaskFields().first);
       expect(buttonBox.width, greaterThan(field.width));
     });
-
-    testWidgets('no divider separates the rows from the description', (
-      tester,
-    ) async {
-      await _openForm(tester);
-      await tester.tap(_addButton());
-      await _settle(tester);
-      await _typeSubtask(tester, 0, 'Подшаг');
-
-      final row = tester.getRect(_subtaskFields().first);
-      final description = tester.getRect(find.text('Дополнительные детали'));
-      // Positions come off the render objects: the dividers are identical
-      // widgets, so a finder cannot tell them apart.
-      final dividerTops = find.byType(Divider).evaluate().map((e) {
-        final box = e.renderObject! as RenderBox;
-        return box.localToGlobal(Offset.zero).dy;
-      }).toList();
-
-      expect(dividerTops, isNotEmpty, reason: 'the card keeps its own rules');
-      expect(
-        dividerTops.where((y) => y > row.bottom && y < description.top),
-        isEmpty,
-      );
-    });
   });
 
   group('description block', () {
-    testWidgets('the label is flush with the left edge, not centred', (
+    testWidgets('the title and the description are in the same card', (
       tester,
     ) async {
       await _openForm(tester);
 
-      final label = tester.getRect(find.text('Описание'));
-      final card = _cardAround(tester, find.text('Описание'));
-
-      // Left-aligned inside its card: the padding is the only thing between it
-      // and the edge, and it stops well short of the middle.
-      expect(label.left - card.left, lessThan(24));
-      expect(label.right, lessThan(card.center.dx));
-    });
-
-    testWidgets('the label lines up with the description input', (
-      tester,
-    ) async {
-      await _openForm(tester);
-
-      final label = tester.getRect(find.text('Описание'));
-      final hint = tester.getRect(find.text('Дополнительные детали'));
-
-      expect(label.left, moreOrLessEquals(hint.left, epsilon: 1));
-    });
-
-    testWidgets('the title and the description are separate cards', (
-      tester,
-    ) async {
-      await _openForm(tester);
-
-      final titleCard = _cardAround(tester, _titleField());
-      final descriptionCard = _cardAround(tester, find.text('Описание'));
-
-      expect(titleCard, isNot(descriptionCard));
-      // A real gap between the plates, not a divider inside one.
-      expect(descriptionCard.top, greaterThan(titleCard.bottom));
-    });
-
-    testWidgets('nothing but a gap separates the two cards', (tester) async {
-      await _openForm(tester);
-
-      final titleCard = _cardAround(tester, _titleField());
-      final descriptionCard = _cardAround(tester, find.text('Описание'));
-
-      // Positions come off the render objects: the dividers are identical
-      // widgets, so a finder cannot tell them apart.
-      final dividerTops = find.byType(Divider).evaluate().map((e) {
-        final box = e.renderObject! as RenderBox;
-        return box.localToGlobal(Offset.zero).dy;
-      }).toList();
-
-      // Between the **cards**, not between the title field and the label. Those
-      // two have a divider between them and always did — the one inside the
-      // title card, under the field, that separates it from `ColorPickerRow`.
-      // Measuring from the field caught that one and read it as the seam being
-      // wrong, which is why this test failed from the day it was written.
       expect(
-        dividerTops.where(
-          (y) => y > titleCard.bottom && y < descriptionCard.top,
-        ),
-        isEmpty,
-        reason: 'a rule was drawn in the gap that should just be empty',
+        find.descendant(of: _titleCard(), matching: _titleField()),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: _titleCard(), matching: find.text('Описание')),
+        findsOneWidget,
       );
     });
 
-    testWidgets('the description block is not cut into sections', (
+    testWidgets('the description is a hint, not a label above the field', (
       tester,
     ) async {
       await _openForm(tester);
 
-      final card = _cardAround(tester, find.text('Описание'));
-      final dividerTops = find.byType(Divider).evaluate().map((e) {
-        final box = e.renderObject! as RenderBox;
-        return box.localToGlobal(Offset.zero).dy;
-      }).toList();
-
-      // The other half of the same design decision, and the one worth pinning:
-      // label, then subtasks, then the description text, then the button — one
-      // block. A divider anywhere inside makes it read as two sections.
-      expect(
-        dividerTops.where((y) => y >= card.top && y <= card.bottom),
-        isEmpty,
-        reason: 'the description card was split by a rule',
-      );
+      // It used to be a caption over the field, with a hint of its own.
+      expect(find.text('Описание'), findsOneWidget);
+      expect(find.text('Дополнительные детали'), findsNothing);
     });
   });
 

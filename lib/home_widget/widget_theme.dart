@@ -17,15 +17,16 @@ typedef WidgetTheme = ({WidgetPalette light, WidgetPalette dark, String mode});
 /// handful of colour arithmetic, and it is what lets the launcher follow the
 /// system theme on its own while the app is not running — see
 /// [TodayWidgetPayload].
-WidgetTheme widgetThemeFor({required Color accent, required ThemeMode mode}) => (
-  light: WidgetPalette.fromScheme(
-    buildAppTheme(accent, Brightness.light).colorScheme,
-  ),
-  dark: WidgetPalette.fromScheme(
-    buildAppTheme(accent, Brightness.dark).colorScheme,
-  ),
-  mode: mode.name,
-);
+WidgetTheme widgetThemeFor({required Color accent, required ThemeMode mode}) =>
+    (
+      light: WidgetPalette.fromScheme(
+        buildAppTheme(accent, Brightness.light).colorScheme,
+      ),
+      dark: WidgetPalette.fromScheme(
+        buildAppTheme(accent, Brightness.dark).colorScheme,
+      ),
+      mode: mode.name,
+    );
 
 /// The same, for an isolate that has no providers.
 ///
@@ -34,9 +35,8 @@ WidgetTheme widgetThemeFor({required Color accent, required ThemeMode mode}) => 
 /// itself, out of the store the notifiers write to, through the keys they now
 /// expose.
 WidgetTheme widgetThemeFromPrefs(SharedPreferences prefs) {
-  final stored = prefs.getInt(AppColorNotifier.prefsKey);
   return widgetThemeFor(
-    accent: stored != null ? Color(stored) : appColorPalette.first,
+    accent: accentFromPrefs(prefs.getInt(AppColorNotifier.prefsKey)),
     mode: ThemeModeNotifier.decode(prefs.getString(ThemeModeNotifier.prefsKey)),
   );
 }

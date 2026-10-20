@@ -11,7 +11,13 @@ DateTime taskAnchorDate(Task task) {
 ///
 /// [taskAnchorDate] is the first occurrence; a task never appears before it. When
 /// [Task.repeatType] is null the task is a one-off and only shows on that day.
+///
+/// A [TrackingMode.value] task is on no day at all: its start date says when the
+/// watching began, not when something is due, and it has no time to remind of.
+/// Answering here keeps it off the timeline, the calendar dots, the reminders and
+/// the home-screen widget in one stroke — they all ask this function.
 bool isTaskScheduledOn(Task task, DateTime day) {
+  if (task.trackingMode == TrackingMode.value) return false;
   // A task cannot occur before its start date.
   if (_dateOnly(day).isBefore(_dateOnly(taskAnchorDate(task)))) return false;
   return matchesRepeatRule(task, day);

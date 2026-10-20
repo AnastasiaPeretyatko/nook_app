@@ -10,9 +10,10 @@ import 'package:todo_app/auth/providers.dart';
 import 'package:todo_app/auth/supabase_init.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
+import 'package:todo_app/groups/groups_repository.dart';
 import 'package:todo_app/notifications/providers.dart';
 import 'package:todo_app/pages/settings_page.dart';
-import 'package:todo_app/pages/sync_page.dart';
+import 'package:todo_app/pages/account_page.dart';
 import 'package:todo_app/settings/sync_settings.dart';
 import 'package:todo_app/settings/theme_provider.dart';
 
@@ -52,6 +53,9 @@ void main() {
       overrides: [
         sharedPreferencesProvider.overrideWithValue(prefs),
         supabaseReadyProvider.overrideWithValue(ready),
+        // `ready` here is a claim, not a started Supabase: the settings screen's
+        // groups block would otherwise ask the real client.
+        groupsRepositoryProvider.overrideWithValue(null),
         currentUserProvider.overrideWithValue(user),
         // The real one reaches for a plugin that a widget test does not have.
         notificationPermissionProvider.overrideWith(_FakePermission.new),
@@ -63,12 +67,12 @@ void main() {
     );
   }
 
-  /// The switch lives on its own screen now, so that is what these pump —
+  /// Syncing lives on the account screen, so that is what these pump —
   /// [SettingsPage] only carries the row that leads to it.
   Future<void> pump(
     WidgetTester tester,
     ProviderContainer c, {
-    Widget home = const SyncPage(),
+    Widget home = const AccountPage(),
   }) async {
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -88,8 +92,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  Finder syncSwitch() =>
-      find.widgetWithText(SwitchListTile, 'Включить синхронизацию');
+  Finder enableButton() => find.text('Включить синхронизацию');
 
   group('the stored setting', () {
     test('is off until the user asks for it', () async {
@@ -126,16 +129,15 @@ void main() {
     });
   });
 
-  group('the switch on screen', () {
+  group('turning it on, on the account screen', () {
     testWidgets('is out of reach until there is an account', (tester) async {
       final c = await container(user: null);
       addTearDown(c.dispose);
       await pump(tester, c);
 
-      final tile = tester.widget<SwitchListTile>(syncSwitch());
-      expect(tile.onChanged, isNull);
-      expect(tile.value, isFalse);
-      expect(find.text('Войдите в аккаунт, чтобы включить'), findsOneWidget);
+      // The sign-in form, not a sync card.
+      expect(find.text('Вход'), findsOneWidget);
+      expect(enableButton(), findsNothing);
     });
 
     testWidgets('says so when the server never came up', (tester) async {
@@ -143,8 +145,19 @@ void main() {
       addTearDown(c.dispose);
       await pump(tester, c);
 
-      expect(tester.widget<SwitchListTile>(syncSwitch()).onChanged, isNull);
       expect(find.text('Сервер недоступен'), findsOneWidget);
+      expect(enableButton(), findsNothing);
+    });
+
+    testWidgets('is off, and says so, until asked for', (tester) async {
+      final c = await container(user: someone);
+      addTearDown(c.dispose);
+      await pump(tester, c);
+
+      expect(find.text('Синхронизация выключена'), findsOneWidget);
+      expect(enableButton(), findsOneWidget);
+      // Nothing to configure while it is off.
+      expect(find.text('Автоматически'), findsNothing);
     });
 
     testWidgets('can be turned on once signed in', (tester) async {
@@ -152,13 +165,13 @@ void main() {
       addTearDown(c.dispose);
       await pump(tester, c);
 
-      expect(tester.widget<SwitchListTile>(syncSwitch()).value, isFalse);
-
-      await tester.tap(syncSwitch());
+      await tester.tap(enableButton());
       await tester.pumpAndSettle();
 
-      expect(tester.widget<SwitchListTile>(syncSwitch()).value, isTrue);
       expect(prefs.getBool('sync_enabled'), isTrue);
+      expect(enableButton(), findsNothing);
+      expect(find.text('Синхронизировать сейчас'), findsOneWidget);
+      expect(find.text('Автоматически'), findsOneWidget);
     });
 
     testWidgets('reads as off while signed out, even when stored on', (
@@ -170,7 +183,7 @@ void main() {
       addTearDown(c.dispose);
       await pump(tester, c);
 
-      expect(tester.widget<SwitchListTile>(syncSwitch()).value, isFalse);
+      expect(find.text('Синхронизировать сейчас'), findsNothing);
       expect(c.read(syncEnabledProvider), isTrue);
     });
 
@@ -183,23 +196,21 @@ void main() {
       addTearDown(c.dispose);
       await pump(tester, c);
 
-      await tester.tap(syncSwitch());
+      await tester.tap(enableButton());
       await tester.pumpAndSettle();
 
       expect(find.text('На устройстве 1 заметка'), findsOneWidget);
       await tester.tap(find.text('Не загружать'));
       await tester.pumpAndSettle();
 
-      expect(tester.widget<SwitchListTile>(syncSwitch()).value, isTrue);
+      expect(c.read(syncEnabledProvider), isTrue);
       expect(await db.diaryDao.unsentEntryCount(), 0);
       expect(prefs.getString('sync_claimed_for'), 'a-user-id');
     });
 
-    testWidgets('backing out of the question leaves the switch off', (
-      tester,
-    ) async {
-      // Dismissing is not an answer, and a switch left on would start a sync
-      // the user never agreed to.
+    testWidgets('backing out of the question leaves it off', (tester) async {
+      // Dismissing is not an answer, and a sync left on would start a run the
+      // user never agreed to.
       await db.diaryDao.insertEntry(
         DiaryEntriesCompanion.insert(title: const Value('Личное')),
       );
@@ -207,12 +218,12 @@ void main() {
       addTearDown(c.dispose);
       await pump(tester, c);
 
-      await tester.tap(syncSwitch());
+      await tester.tap(enableButton());
       await tester.pumpAndSettle();
       Navigator.of(tester.element(find.text('Не загружать'))).pop();
       await tester.pumpAndSettle();
 
-      expect(tester.widget<SwitchListTile>(syncSwitch()).value, isFalse);
+      expect(enableButton(), findsOneWidget);
       expect(c.read(syncEnabledProvider), isFalse);
       expect(await db.diaryDao.unsentEntryCount(), 1);
     });
@@ -222,29 +233,30 @@ void main() {
       addTearDown(c.dispose);
       await pump(tester, c);
 
-      await tester.tap(syncSwitch());
+      await tester.tap(enableButton());
       await tester.pumpAndSettle();
 
       // Nothing to weigh: sending an empty diary is the same as not sending
       // one, so the question would be noise.
       expect(find.text('Не загружать'), findsNothing);
-      expect(tester.widget<SwitchListTile>(syncSwitch()).value, isTrue);
+      expect(c.read(syncEnabledProvider), isTrue);
     });
 
     testWidgets('the settings screen leads here rather than deciding', (
       tester,
     ) async {
-      // The row is a way in, not a control — and so is every other row there
-      // now that reminders have a screen of their own: the settings list holds
-      // no switch at all and only reports what each screen is doing.
+      // The profile card is a way in, not a control: the switch itself lives
+      // on the account screen.
       final c = await container(user: someone);
       addTearDown(c.dispose);
       await pump(tester, c, home: const SettingsPage());
 
-      expect(find.text('Синхронизация'), findsOneWidget);
-      expect(syncSwitch(), findsNothing);
-      expect(find.byType(SwitchListTile), findsNothing);
-      expect(find.text('Уведомления'), findsOneWidget);
+      expect(enableButton(), findsNothing);
+
+      await tester.tap(find.text('Вы вошли'));
+      await tester.pumpAndSettle();
+      expect(find.text('Аккаунт'), findsOneWidget);
+      expect(enableButton(), findsOneWidget);
     });
   });
 }

@@ -17,6 +17,10 @@ enum HabitDayState {
   /// Marked as done.
   done,
 
+  /// Marked as done, but later than the habit's time plus the grace set in the
+  /// settings. Still a done day: it counts everywhere [done] does.
+  late,
+
   /// Scheduled, already in the past, never marked — a genuine miss.
   missed,
 
@@ -28,23 +32,29 @@ enum HabitDayState {
 }
 
 /// Classifies [day] for [task]. [completedDays] holds the dates this habit was
-/// marked done on, and [today] is the current date with its time stripped.
+/// marked done on, [lateDays] the subset of them marked late, and [today] is the
+/// current date with its time stripped. With [todayStaysOpen] false an unmarked
+/// habit due today is [HabitDayState.missed] at once instead of [today].
 HabitDayState habitDayState(
   Task task,
   DateTime day, {
   required DateTime today,
   required Set<DateTime> completedDays,
+  Set<DateTime> lateDays = const {},
+  bool todayStaysOpen = true,
 }) {
   // A marked day always reads as done, even if the schedule changed afterwards
   // and no longer covers it — the history actually happened.
-  if (completedDays.contains(day)) return HabitDayState.done;
+  if (completedDays.contains(day)) {
+    return lateDays.contains(day) ? HabitDayState.late : HabitDayState.done;
+  }
 
   // The rule is checked before the start date, so a day that the rule would not
   // cover anyway stays "off" rather than being lumped in with pre-history.
   if (!matchesRepeatRule(task, day)) return HabitDayState.off;
   if (day.isAfter(today)) return HabitDayState.upcoming;
   if (day.isBefore(taskAnchorDate(task))) return HabitDayState.beforeStart;
-  if (day == today) return HabitDayState.today;
+  if (day == today && todayStaysOpen) return HabitDayState.today;
   return HabitDayState.missed;
 }
 

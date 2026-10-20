@@ -22,6 +22,7 @@ import 'dart:ui' show Color;
 
 import 'package:drift/drift.dart';
 import 'package:todo_app/database/app_database.dart';
+import 'package:todo_app/utils/cycle_marks.dart';
 import 'package:todo_app/utils/task_palette.dart';
 
 /// The device's own idea of when a row was last edited.
@@ -139,6 +140,9 @@ Map<String, dynamic> taskToRow(Task task, {String? parentUid}) => {
   'start_date': _calendarDay(task.startDate),
   'created_at': _instant(task.createdAt),
   _clientUpdatedAt: _instant(task.updatedAt),
+  // The server keeps `group_id` as it was created, whatever is sent here.
+  'group_id': task.groupUid,
+  'assignee_id': task.assigneeUid,
 };
 
 /// A task, as it came back. `parentId` is left absent: only the engine can turn
@@ -163,17 +167,47 @@ TasksCompanion taskFromRow(Map<String, dynamic> row) => TasksCompanion(
   startDate: Value(_day(row['start_date'])),
   createdAt: Value(_moment(row['created_at']) ?? DateTime.now()),
   updatedAt: Value(_moment(row[_clientUpdatedAt]) ?? DateTime.now()),
+  groupUid: Value(row['group_id'] as String?),
+  assigneeUid: Value(row['assignee_id'] as String?),
+  // `user_id` is the author. Kept only for a group task, where it decides who
+  // may edit; a personal task the server shows this device is its own.
+  authorUid: Value(row['group_id'] == null ? null : row['user_id'] as String?),
 );
+
+/// A group, as the server lists it.
+TaskGroupsCompanion groupFromRow(Map<String, dynamic> row) =>
+    TaskGroupsCompanion.insert(
+      uid: row['id'] as String,
+      name: _text(row['name']),
+      ownerUid: row['owner_id'] as String,
+    );
+
+/// A membership, with the member's published name and picture beside it —
+/// [profile] is their `profiles` row, or null when they never published one.
+GroupMembersCompanion memberFromRow(
+  Map<String, dynamic> row, {
+  Map<String, dynamic>? profile,
+}) => GroupMembersCompanion.insert(
+  groupUid: row['group_id'] as String,
+  userUid: row['user_id'] as String,
+  displayName: Value(profile?['display_name'] as String?),
+  avatarUrl: Value(profile?['avatar_url'] as String?),
+);
+
+/// Who made a day mark. Every account's marks of a group task come down, not
+/// only this one's.
+String? markAuthorOf(Map<String, dynamic> row) => row['user_id'] as String?;
 
 /// A day mark, as the server takes it.
 ///
-/// No `id`: the row's identity is the pair `(task, day)`, and on the server that
-/// pair is the primary key. [taskUid] is what the local `taskId` becomes.
+/// No `id` and no `user_id`: the server's key is `(task, user, day)` and fills
+/// the user from the session. [taskUid] is what the local `taskId` becomes.
 Map<String, dynamic> logToRow(TaskLog log, {required String taskUid}) => {
   'task_id': taskUid,
   'date': _calendarDay(log.date),
   'completed': log.completed,
   'value': log.value,
+  'completed_at': log.completedAt == null ? null : _instant(log.completedAt!),
   _clientUpdatedAt: _instant(log.updatedAt),
 };
 
@@ -183,8 +217,54 @@ TaskLogsCompanion logFromRow(Map<String, dynamic> row) => TaskLogsCompanion(
   date: Value(_day(row['date']) ?? DateTime.now()),
   completed: Value(row['completed'] as bool? ?? false),
   value: Value(_double(row['value'])),
+  completedAt: Value(_moment(row['completed_at'])?.toLocal()),
   updatedAt: Value(_moment(row[_clientUpdatedAt]) ?? DateTime.now()),
 );
+
+/// A cycle day, as the server takes it.
+///
+/// [userId] is sent, unlike the task marks' `user_id`: the day is the row's key
+/// together with the account, and the push resolves a conflict on that pair, so
+/// the pair has to be in the row. The server checks it against the session.
+Map<String, dynamic> cycleDayToRow(CycleDay day, {required String userId}) => {
+  'user_id': userId,
+  'date': _calendarDay(day.date),
+  'flow': day.flow,
+  'mood': day.mood,
+  'symptoms': [...parseSymptoms(day.symptoms)]..sort(),
+  'discharge': day.discharge,
+  'sex': day.sex,
+  'pill': day.pill,
+  'note': day.note,
+  _clientUpdatedAt: _instant(day.updatedAt),
+};
+
+/// A cycle day, as it came back. An out-of-range number reads as "not marked"
+/// rather than taking the sync down — the server has a check on it, but a newer
+/// version of the app may have added an option this one has no name for.
+CycleDaysCompanion cycleDayFromRow(Map<String, dynamic> row) {
+  int? inRange(Object? value, int count) {
+    final i = _int(value);
+    return i != null && i >= 0 && i < count ? i : null;
+  }
+
+  return CycleDaysCompanion(
+    date: Value(_day(row['date']) ?? DateTime.now()),
+    flow: Value(inRange(row['flow'], cycleFlows.length) ?? 0),
+    mood: Value(inRange(row['mood'], cycleMoods.length)),
+    symptoms: Value(
+      encodeSymptoms([
+        for (final s in (row['symptoms'] as List?) ?? const [])
+          ?inRange(s, cycleSymptoms.length),
+      ]),
+    ),
+    discharge: Value(inRange(row['discharge'], cycleDischarges.length)),
+    sex: Value(inRange(row['sex'], cycleSex.length)),
+    pill: Value(row['pill'] as bool? ?? false),
+    note: Value(row['note'] as String?),
+    updatedAt: Value(_moment(row[_clientUpdatedAt]) ?? DateTime.now()),
+  );
+}
 
 /// The uid of the task a day mark belongs to.
 String? taskUidOf(Map<String, dynamic> row) => row['task_id'] as String?;

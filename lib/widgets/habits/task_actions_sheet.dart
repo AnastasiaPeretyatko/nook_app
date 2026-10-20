@@ -1,5 +1,7 @@
+import 'package:todo_app/widgets/app_dialogs.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:todo_app/utils/task_audience.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/pages/create_task_page.dart';
@@ -76,6 +78,35 @@ class TaskActionsSheet extends ConsumerWidget {
 
     final description = task.description?.trim() ?? '';
 
+    // A group task: who may touch it, and how far it has got.
+    final me = ref.watch(myUidProvider);
+    final group = task.groupUid == null
+        ? null
+        : (ref.watch(groupsProvider).valueOrNull ?? const <TaskGroup>[])
+              .where((g) => g.uid == task.groupUid)
+              .firstOrNull;
+    final canEdit = canEditTaskAs(task, me, groupOwnerUid: group?.ownerUid);
+    final mine = isMyTask(task, me);
+    String? groupLine;
+    if (group != null) {
+      final members = [
+        for (final m in ref.watch(groupMembersProvider).valueOrNull ?? const [])
+          if (m.groupUid == group.uid) m,
+      ];
+      final doneBy = groupTaskDoneBy(
+        task,
+        date,
+        me: me,
+        doneByMe: completed,
+        marks: ref.watch(groupMarksProvider).valueOrNull ?? const [],
+      );
+      final assignee = task.assigneeUid;
+      groupLine = assignee == null
+          ? '${group.name} · для всех · ${doneBy.length} из ${members.length}'
+          : '${group.name} · для: ${memberName(members.where((m) => m.userUid == assignee).firstOrNull)}'
+                ' · ${doneBy.contains(assignee) ? 'выполнено' : 'ждёт'}';
+    }
+
     return SafeArea(
       top: false,
       child: Container(
@@ -133,6 +164,27 @@ class TaskActionsSheet extends ConsumerWidget {
                   ),
                 ],
               ),
+              if (groupLine != null) ...[
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Icon(
+                      LucideIcons.users,
+                      size: 14,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        groupLine,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               if (subtasks.isNotEmpty) ...[
                 const SizedBox(height: 16),
                 _SubtasksList(
@@ -157,33 +209,39 @@ class TaskActionsSheet extends ConsumerWidget {
               const SizedBox(height: 20),
               Row(
                 children: [
-                  _ActionButton(
-                    icon: LucideIcons.pencil,
-                    label: 'Изменить',
-                    color: accent,
-                    onTap: () => _openForm(context, TaskFormMode.edit),
-                  ),
+                  // Only the author and the group's owner edit a group task;
+                  // the server would refuse anyone else.
+                  if (canEdit)
+                    _ActionButton(
+                      icon: LucideIcons.pencil,
+                      label: 'Изменить',
+                      color: accent,
+                      onTap: () => _openForm(context, TaskFormMode.edit),
+                    ),
                   _ActionButton(
                     icon: LucideIcons.copy,
                     label: 'Копия',
                     color: accent,
                     onTap: () => _openForm(context, TaskFormMode.clone),
                   ),
-                  _ActionButton(
-                    icon: LucideIcons.trash_2,
-                    label: 'Удалить',
-                    color: danger,
-                    onTap: () => _confirmDelete(context, ref),
-                  ),
-                  _ActionButton(
-                    icon: completed
-                        ? LucideIcons.circle_check_big
-                        : LucideIcons.circle_check,
-                    label: completed ? 'Готово' : 'Выполнить',
-                    color: completed ? inkOn(sheet, _done) : accent,
-                    filled: !completed,
-                    onTap: () => _toggleDone(context, ref),
-                  ),
+                  if (canEdit)
+                    _ActionButton(
+                      icon: LucideIcons.trash_2,
+                      label: 'Удалить',
+                      color: danger,
+                      onTap: () => _confirmDelete(context, ref),
+                    ),
+                  // A task handed to someone else is theirs to tick.
+                  if (mine)
+                    _ActionButton(
+                      icon: completed
+                          ? LucideIcons.circle_check_big
+                          : LucideIcons.circle_check,
+                      label: completed ? 'Готово' : 'Выполнить',
+                      color: completed ? inkOn(sheet, _done) : accent,
+                      filled: !completed,
+                      onTap: () => _toggleDone(context, ref),
+                    ),
                 ],
               ),
             ],
@@ -194,13 +252,8 @@ class TaskActionsSheet extends ConsumerWidget {
   }
 
   void _openForm(BuildContext context, TaskFormMode mode) {
-    final navigator = Navigator.of(context);
-    navigator.pop();
-    navigator.push(
-      MaterialPageRoute<void>(
-        builder: (_) => CreateTaskPage(mode: mode, task: task),
-      ),
-    );
+    Navigator.of(context).pop();
+    showCreateTaskSheet(context, mode: mode, task: task);
   }
 
   Future<void> _toggleDone(BuildContext context, WidgetRef ref) async {
@@ -212,25 +265,12 @@ class TaskActionsSheet extends ConsumerWidget {
 
   Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
     final navigator = Navigator.of(context);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Удалить задачу?'),
-        content: Text(
-          'Задача «${task.title}» и её подзадачи будут удалены безвозвратно.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Отмена'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            style: TextButton.styleFrom(foregroundColor: _danger),
-            child: const Text('Удалить'),
-          ),
-        ],
-      ),
+    final confirmed = await showConfirmDialog(
+      context,
+      icon: DialogIcons.delete,
+      title: 'Удалить задачу?',
+      body: 'Задача «${task.title}» и её подзадачи будут удалены безвозвратно.',
+      action: 'Удалить',
     );
 
     if (confirmed == true) {

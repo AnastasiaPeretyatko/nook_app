@@ -3,158 +3,226 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
-import 'package:todo_app/utils/surfaces.dart';
-import 'package:todo_app/utils/task_archive.dart';
+import 'package:todo_app/theme/app_palette.dart';
+import 'package:todo_app/utils/habit_labels.dart';
+import 'package:todo_app/utils/last_done.dart';
+import 'package:todo_app/utils/overdue.dart';
+import 'package:todo_app/utils/task_audience.dart';
 import 'package:todo_app/utils/task_colors.dart';
 import 'package:todo_app/utils/task_palette.dart';
 import 'package:todo_app/widgets/color_picker_row.dart';
 import 'package:todo_app/widgets/habits/task_actions_sheet.dart';
-import 'package:todo_app/widgets/subtask_progress.dart';
+import 'package:todo_app/widgets/list_card.dart';
+import 'package:todo_app/widgets/page_header.dart';
+import 'package:todo_app/widgets/segmented_switch.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
-import '../../utils/task_icons.dart';
 
-/// List of regular (non-repeating) tasks for the "Задачи" tab.
+/// The "Задачи" tab (`Tasks.dc.html`): one-off tasks, "Активные" grouped by
+/// date — overdue, today, upcoming, undated — and "Выполненные", newest first.
 ///
-/// Tasks are grouped by their scheduled date: overdue, today, upcoming and
-/// undated (backlog). Repeating tasks live on the "Привычки" tab instead.
-class TasksList extends ConsumerWidget {
+/// A task ticked moves to "Выполненные" at once. It used to stay in the list,
+/// struck through, until its day passed; with the two tabs that is what the
+/// second one is for. Repeating tasks live on the "Привычки" tab instead.
+class TasksList extends ConsumerStatefulWidget {
   const TasksList({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Everything, not just roots: the tiles report how many subtasks are done.
+  ConsumerState<TasksList> createState() => _TasksListState();
+}
+
+class _TasksListState extends ConsumerState<TasksList> {
+  bool _showDone = false;
+
+  @override
+  Widget build(BuildContext context) {
+    // Everything, not just roots: the rows report how many subtasks are done.
     final tasksAsync = ref.watch(allTasksProvider);
     final logsAsync = ref.watch(allLogsProvider);
+    final me = ref.watch(myUidProvider);
 
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
-    return tasksAsync.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('Ошибка: $e')),
-      data: (allTasks) {
-        final subtasksByParent = <int, List<Task>>{};
-        for (final task in allTasks) {
-          final parentId = task.parentId;
-          if (parentId != null) {
-            subtasksByParent.putIfAbsent(parentId, () => []).add(task);
-          }
-        }
+    final allTasks = tasksAsync.valueOrNull ?? const <Task>[];
+    final logs = logsAsync.valueOrNull ?? const <TaskLog>[];
 
-        final logs = logsAsync.valueOrNull ?? const <TaskLog>[];
-        final logByKey = <String, TaskLog>{
-          for (final l in logs) _logKey(l.taskId, l.date): l,
-        };
+    final subtasksByParent = <int, List<Task>>{};
+    for (final task in allTasks) {
+      final parentId = task.parentId;
+      if (parentId != null) {
+        subtasksByParent.putIfAbsent(parentId, () => []).add(task);
+      }
+    }
+    final logByKey = <String, TaskLog>{
+      for (final l in logs) _logKey(l.taskId, l.date): l,
+    };
+    TaskLog? logOf(Task t) => logByKey[_logKey(t.id, _anchorDate(t))];
+    bool isCompleted(Task t) => logOf(t)?.completed ?? false;
 
-        bool isCompleted(Task t) =>
-            logByKey[_logKey(t.id, _anchorDate(t))]?.completed ?? false;
+    // Subtasks are reported by their parent's row, never listed on their own —
+    // even when they carry a date or a time of their own.
+    final regular = allTasks
+        .where((t) => t.parentId == null)
+        // Only mine: a task handed to someone else is on the timeline and the
+        // group's screen, and must not sit under "Просрочено".
+        .where((t) => isMyTask(t, me))
+        .where((t) => t.status == TaskStatus.active)
+        .where((t) => t.repeatType == null)
+        // A "Значение" task has no date to be due on; it lives on the habits
+        // tab next to the things it resembles.
+        .where((t) => !isValueTask(t))
+        .toList();
+    final active = regular.where((t) => !isCompleted(t)).toList();
+    final done = regular.where(isCompleted).toList();
 
-        // Subtasks are reported by their parent's tile, never listed on their
-        // own — even when they carry a date or a time of their own. A done task
-        // whose day has passed is gone from here too: it belongs to the archive
-        // now, and [isTaskArchived] is the rule both screens read.
-        final regular = allTasks
-            .where((t) => t.parentId == null)
-            .where((t) => t.status == TaskStatus.active)
-            .where((t) => t.repeatType == null)
-            .where(
-              (t) =>
-                  !isTaskArchived(t, completed: isCompleted(t), today: today),
+    // Subtask completion is stored per day against the parent's anchor date —
+    // the same date the task's sheet reads and writes — so the count here and
+    // the ticks in the sheet can never disagree.
+    (int, int)? subtaskCount(Task parent) {
+      final subtasks = subtasksByParent[parent.id];
+      if (subtasks == null || subtasks.isEmpty) return null;
+      final date = _anchorDate(parent);
+      final ticked = subtasks
+          .where((s) => logByKey[_logKey(s.id, date)]?.completed ?? false)
+          .length;
+      return (ticked, subtasks.length);
+    }
+
+    TaskRow row(Task task, String when, {bool late = false}) {
+      final completed = isCompleted(task);
+      return TaskRow(
+        task: task,
+        when: when,
+        late: late,
+        completed: completed,
+        subtasks: subtaskCount(task),
+        onToggle: () => ref
+            .read(tasksDaoProvider)
+            .toggleCompletion(task.id, _anchorDate(task)),
+        onTap: () =>
+            showTaskActionsSheet(context, task: task, completed: completed),
+      );
+    }
+
+    final Widget body;
+    if (!tasksAsync.hasValue) {
+      body = tasksAsync.hasError
+          ? Center(child: Text('Ошибка: ${tasksAsync.error}'))
+          : const Center(child: CircularProgressIndicator());
+    } else if (_showDone) {
+      body = done.isEmpty
+          ? const _EmptyState(
+              title: 'Пока ничего не выполнено',
+              hint: 'Отмеченные задачи появятся здесь',
             )
-            .toList();
-
-        if (regular.isEmpty) return const _EmptyState();
-
-        // Subtask completion is stored per day against the parent's anchor
-        // date — the same date the task's sheet reads and writes — so the
-        // count here and the ticks in the sheet can never disagree.
-        int subtasksDone(Task parent) {
-          final date = _anchorDate(parent);
-          return subtasksByParent[parent.id]!
-              .where((s) => logByKey[_logKey(s.id, date)]?.completed ?? false)
-              .length;
-        }
-
-        final overdue = <Task>[];
-        final todayTasks = <Task>[];
-        final upcoming = <Task>[];
-        final undated = <Task>[];
-
-        for (final task in regular) {
-          if (task.startDate == null) {
-            undated.add(task);
-            continue;
-          }
-          final date = _dateOnly(task.startDate!);
-          if (date.isBefore(today)) {
-            overdue.add(task);
-          } else if (date == today) {
-            todayTasks.add(task);
-          } else {
-            upcoming.add(task);
-          }
-        }
-
-        int byDoneThenTime(Task a, Task b) {
-          final doneA = isCompleted(a), doneB = isCompleted(b);
-          if (doneA != doneB) return doneA ? 1 : -1;
-          final ta = a.scheduledTimeMinutes ?? 1 << 30;
-          final tb = b.scheduledTimeMinutes ?? 1 << 30;
-          final c = ta.compareTo(tb);
-          return c != 0 ? c : a.title.compareTo(b.title);
-        }
-
-        int byDateThenTime(Task a, Task b) {
-          final c = a.startDate!.compareTo(b.startDate!);
-          return c != 0 ? c : byDoneThenTime(a, b);
-        }
-
-        overdue.sort(byDateThenTime);
-        todayTasks.sort(byDoneThenTime);
-        upcoming.sort(byDateThenTime);
-        undated.sort(byDoneThenTime);
-
-        final sections = <Widget>[];
-        void addSection(
-          String title,
-          List<Task> group, {
-          bool withDate = false,
-        }) {
-          if (group.isEmpty) return;
-          sections.add(_SectionTitle(title: title, count: group.length));
-          for (final task in group) {
-            final subtasks = subtasksByParent[task.id] ?? const <Task>[];
-            sections.add(
-              _TaskTile(
-                task: task,
-                completed: isCompleted(task),
-                showDate: withDate,
-                subtaskTotal: subtasks.length,
-                subtaskDone: subtasks.isEmpty ? 0 : subtasksDone(task),
-                onToggle: () => ref
-                    .read(tasksDaoProvider)
-                    .toggleCompletion(task.id, _anchorDate(task)),
-                onTap: () => showTaskActionsSheet(
-                  context,
-                  task: task,
-                  completed: isCompleted(task),
-                ),
+          : _list(context, [
+              SectionCaption(title: 'Выполнено', trailing: '${done.length}'),
+              RowsCard(
+                dividerIndent: 50,
+                children: [
+                  for (final task
+                      in done..sort(
+                        (a, b) => _doneAt(
+                          logOf(b),
+                          b,
+                        ).compareTo(_doneAt(logOf(a), a)),
+                      ))
+                    row(task, _doneLabel(task, logOf(task), today)),
+                ],
               ),
-            );
-          }
+            ]);
+    } else if (active.isEmpty) {
+      body = const _EmptyState(
+        title: 'Нет задач',
+        hint: 'Нажмите + чтобы добавить задачу',
+      );
+    } else {
+      final overdue = <Task>[];
+      final todayTasks = <Task>[];
+      final upcoming = <Task>[];
+      final undated = <Task>[];
+      for (final task in active) {
+        if (task.startDate == null) {
+          undated.add(task);
+        } else if (isTaskOverdue(task, completed: false, today: today)) {
+          // [isTaskOverdue] and not a comparison of its own: the badge on the
+          // nav bar counts with that same rule, and the number there has to be
+          // the length of this group.
+          overdue.add(task);
+        } else if (_dateOnly(task.startDate!) == today) {
+          todayTasks.add(task);
+        } else {
+          upcoming.add(task);
         }
+      }
+      overdue.sort(_byDateThenTime);
+      todayTasks.sort(_byTime);
+      upcoming.sort(_byDateThenTime);
+      undated.sort(_byTime);
 
-        addSection('Просроченные', overdue, withDate: true);
-        addSection('Сегодня', todayTasks);
-        addSection('Предстоящие', upcoming, withDate: true);
-        addSection('Без даты', undated);
+      final p = AppPalette.of(Theme.of(context));
+      List<Widget> group(
+        String title,
+        List<Task> tasks,
+        String Function(Task) when, {
+        bool late = false,
+      }) => [
+        if (tasks.isNotEmpty) ...[
+          SectionCaption(
+            title: title,
+            trailing: '${tasks.length}',
+            color: late ? p.danger : null,
+          ),
+          RowsCard(
+            dividerIndent: 50,
+            children: [
+              for (final task in tasks) row(task, when(task), late: late),
+            ],
+          ),
+        ],
+      ];
 
-        final bottomInset = MediaQuery.paddingOf(context).bottom;
-        return ListView(
-          padding: EdgeInsets.fromLTRB(20, 4, 20, bottomInset + 24),
-          children: sections,
-        );
-      },
+      body = _list(context, [
+        ...group(
+          'Просрочено',
+          overdue,
+          (t) => _overdueLabel(t, today),
+          late: true,
+        ),
+        ...group('Сегодня', todayTasks, _todayLabel),
+        ...group('Предстоящие', upcoming, _upcomingLabel),
+        ...group('Без даты', undated, _timeLabel),
+      ]);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        PageHeader(
+          caption:
+              '${active.length} '
+              '${pluralRu(active.length, 'активная', 'активные', 'активных')}',
+          title: 'Задачи',
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 4),
+          child: SegmentedSwitch(
+            labels: const ['Активные', 'Выполненные'],
+            selected: _showDone ? 1 : 0,
+            onChanged: (i) => setState(() => _showDone = i == 1),
+          ),
+        ),
+        Expanded(child: body),
+      ],
+    );
+  }
+
+  Widget _list(BuildContext context, List<Widget> children) {
+    // Clear of the floating "+" too, which the scaffold's inset does not count.
+    final bottomInset = MediaQuery.paddingOf(context).bottom + 88;
+    return ListView(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      children: children,
     );
   }
 }
@@ -169,244 +237,256 @@ DateTime _dateOnly(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
 /// The date a one-off task's completion is logged against.
 DateTime _anchorDate(Task task) => _dateOnly(task.startDate ?? task.createdAt);
 
-Color _taskColor(Task task) => task.colorValue != null
-    ? Color(task.colorValue!)
-    : ColorPickerRow.colors.first;
-
-IconData _taskIcon(Task task) =>
-    taskIconFor(task.iconKey) ?? LucideIcons.circle_check;
-
-String _fmtTime(int minutes) {
-  final normalized = minutes % (24 * 60);
-  final h = (normalized ~/ 60).toString().padLeft(2, '0');
-  final m = (normalized % 60).toString().padLeft(2, '0');
-  return '$h:$m';
+int _byTime(Task a, Task b) {
+  final ta = a.scheduledTimeMinutes ?? 1 << 30;
+  final tb = b.scheduledTimeMinutes ?? 1 << 30;
+  final c = ta.compareTo(tb);
+  return c != 0 ? c : a.title.compareTo(b.title);
 }
 
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({required this.title, required this.count});
-
-  final String title;
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(left: 4, top: 12, bottom: 8),
-      child: Row(
-        children: [
-          Text(
-            title,
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.4,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            '$count',
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.55),
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+int _byDateThenTime(Task a, Task b) {
+  final c = a.startDate!.compareTo(b.startDate!);
+  return c != 0 ? c : _byTime(a, b);
 }
 
-class _TaskTile extends StatelessWidget {
-  const _TaskTile({
+/// When a done task was done: the moment of the tick where one was recorded
+/// (v17 on), else the day it was for.
+DateTime _doneAt(TaskLog? log, Task task) =>
+    log?.completedAt ?? _anchorDate(task);
+
+/// "30 мин", "2 ч", "1 ч 30 мин" — a ranged task's length, or null.
+String? _durationLabel(Task task) {
+  final start = task.scheduledTimeMinutes, end = task.endTimeMinutes;
+  if (start == null || end == null || end <= start) return null;
+  final h = (end - start) ~/ 60, m = (end - start) % 60;
+  return [if (h > 0) '$h ч', if (m > 0) '$m мин'].join(' ');
+}
+
+/// "15:00 · 30 мин", "19:00", or nothing for a task with no time.
+String _timeLabel(Task task) => [
+  if (task.scheduledTimeMinutes != null) clockLabel(task.scheduledTimeMinutes!),
+  ?_durationLabel(task),
+].join(' · ');
+
+String _todayLabel(Task task) {
+  final time = _timeLabel(task);
+  return time.isEmpty ? 'В течение дня' : time;
+}
+
+/// "Пн, 19 окт" or "Ср, 21 окт, 10:00 · 2 ч".
+String _upcomingLabel(Task task) {
+  final day = task.startDate!;
+  final date =
+      '${weekdayShort[day.weekday - 1]}, '
+      '${DateFormat('d MMM', 'ru_RU').format(day)}';
+  final time = _timeLabel(task);
+  return time.isEmpty ? date : '$date, $time';
+}
+
+/// "Вчера, 18:00" or "14 окт".
+String _overdueLabel(Task task, DateTime today) {
+  final day = _dateOnly(task.startDate!);
+  final date = daysSince(day, today) == 1
+      ? 'Вчера'
+      : DateFormat('d MMM', 'ru_RU').format(day);
+  final time = task.scheduledTimeMinutes == null
+      ? null
+      : clockLabel(task.scheduledTimeMinutes!);
+  return time == null ? date : '$date, $time';
+}
+
+/// "Сегодня · выполнено в 14:32". The time only where it was recorded: ticks
+/// from before v17 have none.
+String _doneLabel(Task task, TaskLog? log, DateTime today) {
+  final day = _anchorDate(task);
+  final date = switch (daysSince(day, today)) {
+    0 when !day.isAfter(today) => 'Сегодня',
+    1 => 'Вчера',
+    _ => DateFormat('d MMM', 'ru_RU').format(day),
+  };
+  final at = log?.completedAt;
+  return at == null
+      ? date
+      : '$date · выполнено в ${clockLabel(at.hour * 60 + at.minute)}';
+}
+
+/// One one-off task: a ring to tick on the left, title over when it is due,
+/// the subtask count, and a dot in the task's colour on the right.
+class TaskRow extends StatelessWidget {
+  const TaskRow({
+    super.key,
     required this.task,
+    required this.when,
     required this.completed,
-    required this.showDate,
-    required this.subtaskTotal,
-    required this.subtaskDone,
+    required this.subtasks,
     required this.onToggle,
     required this.onTap,
+    this.late = false,
   });
 
   final Task task;
+
+  /// The line under the title; nothing is drawn for an empty one.
+  final String when;
   final bool completed;
-  final bool showDate;
-  final int subtaskTotal;
-  final int subtaskDone;
+
+  /// Done and total, or null for a task without subtasks.
+  final (int, int)? subtasks;
   final VoidCallback onToggle;
   final VoidCallback onTap;
 
+  /// Overdue: [when] is drawn in `danger`.
+  final bool late;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final row = rowSurface(theme);
-    final color = _taskColor(task);
-    // The icon sits in the family's light tone, with the accent on top of it.
-    final badge = taskBadgeSurface(theme, color, row);
-    final iconColor = inkOn(badge, color, minContrast: 3);
-    final subtitle = _subtitle();
+    final p = AppPalette.of(theme);
+    final color = task.colorValue != null
+        ? Color(task.colorValue!)
+        : ColorPickerRow.colors.first;
+    // Ink, not fill: a ring and a dot have to be seen on white, so a pale
+    // family is darkened until they are.
+    final ink = inkOn(p.surface, color, minContrast: 3);
+    final doneFill = taskBadgeInk(theme, color, p.surface);
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Material(
-        color: row,
-        borderRadius: BorderRadius.circular(16),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: badge,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(_taskIcon(task), size: 20, color: iconColor),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        task.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: completed
-                              ? theme.colorScheme.onSurfaceVariant.withValues(
-                                  alpha: 0.75,
-                                )
-                              : theme.colorScheme.onSurface,
-                          decoration: completed
-                              ? TextDecoration.lineThrough
-                              : null,
-                        ),
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(6, 6, 16, 6),
+        child: Row(
+          children: [
+            Tooltip(
+              message: completed
+                  ? 'Отметить «${task.title}» как невыполненную'
+                  : 'Отметить «${task.title}» как выполненную',
+              child: InkResponse(
+                onTap: onToggle,
+                radius: 22,
+                child: SizedBox.square(
+                  dimension: 44,
+                  child: Center(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      width: 22,
+                      height: 22,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: completed ? doneFill : Colors.transparent,
+                        border: completed
+                            ? null
+                            : Border.all(color: ink, width: 2),
                       ),
-                      if (subtitle != null) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          subtitle,
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                      if (subtaskTotal > 0) ...[
-                        const SizedBox(height: 6),
-                        SubtaskProgress(done: subtaskDone, total: subtaskTotal),
-                      ],
-                    ],
+                      child: completed
+                          ? Icon(
+                              LucideIcons.check,
+                              size: 13,
+                              color: onTaskColor(doneFill),
+                            )
+                          : null,
+                    ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                _Checkbox(
-                  color: iconColor,
-                  completed: completed,
-                  onToggle: onToggle,
-                ),
-              ],
+              ),
             ),
-          ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      task.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        color: completed ? p.textTertiary : p.textPrimary,
+                        decoration: completed
+                            ? TextDecoration.lineThrough
+                            : null,
+                        decorationColor: p.textTertiary,
+                      ),
+                    ),
+                    if (when.isNotEmpty || subtasks != null) ...[
+                      const SizedBox(height: 3),
+                      Wrap(
+                        spacing: 10,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          if (when.isNotEmpty)
+                            Text(
+                              when,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: late ? p.danger : p.textSecondary,
+                                fontWeight: late
+                                    ? FontWeight.w500
+                                    : FontWeight.w400,
+                              ),
+                            ),
+                          if (subtasks case (final ticked, final total))
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  LucideIcons.corner_down_right,
+                                  size: 12,
+                                  color: p.textSecondary,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '$ticked/$total',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: p.textSecondary,
+                                    fontFeatures: const [
+                                      FontFeature.tabularFigures(),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(color: ink, shape: BoxShape.circle),
+            ),
+          ],
         ),
-      ),
-    );
-  }
-
-  String? _subtitle() {
-    final parts = <String>[];
-    if (showDate && task.startDate != null) {
-      parts.add(DateFormat('d MMM', 'ru_RU').format(task.startDate!));
-    }
-    if (task.scheduledTimeMinutes != null) {
-      final start = _fmtTime(task.scheduledTimeMinutes!);
-      final end = task.endTimeMinutes;
-      parts.add(
-        end != null && end > task.scheduledTimeMinutes!
-            ? '$start – ${_fmtTime(end)}'
-            : start,
-      );
-    }
-    return parts.isEmpty ? null : parts.join(' · ');
-  }
-}
-
-class _Checkbox extends StatelessWidget {
-  const _Checkbox({
-    required this.color,
-    required this.completed,
-    required this.onToggle,
-  });
-
-  final Color color;
-  final bool completed;
-  final VoidCallback onToggle;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return GestureDetector(
-      onTap: onToggle,
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        width: 28,
-        height: 28,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: completed
-                ? color
-                : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
-            width: 2,
-          ),
-          color: completed ? color.withValues(alpha: 0.15) : null,
-        ),
-        child: completed
-            ? Icon(LucideIcons.check, size: 16, color: color)
-            : null,
       ),
     );
   }
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+  const _EmptyState({required this.title, required this.hint});
+
+  final String title;
+  final String hint;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final p = AppPalette.of(Theme.of(context));
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            LucideIcons.circle_check,
-            size: 48,
-            color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
-          ),
+          Icon(LucideIcons.circle_check, size: 48, color: p.iconMuted),
           const SizedBox(height: 12),
-          Text(
-            'Нет задач',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
+          Text(title, style: TextStyle(fontSize: 15, color: p.textSecondary)),
           const SizedBox(height: 4),
-          Text(
-            'Нажмите + чтобы добавить задачу',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
-            ),
-          ),
+          Text(hint, style: TextStyle(fontSize: 13, color: p.textTertiary)),
         ],
       ),
     );

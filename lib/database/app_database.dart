@@ -6,6 +6,7 @@ import 'tables.dart';
 import 'daos/tasks_dao.dart';
 import 'daos/events_dao.dart';
 import 'daos/diary_dao.dart';
+import 'daos/cycle_dao.dart';
 import '../utils/note_labels.dart';
 import '../utils/task_icons.dart';
 import '../utils/task_palette.dart';
@@ -15,6 +16,7 @@ export 'tables.dart';
 export 'daos/tasks_dao.dart';
 export 'daos/events_dao.dart';
 export 'daos/diary_dao.dart';
+export 'daos/cycle_dao.dart';
 
 part 'app_database.g.dart';
 
@@ -30,8 +32,12 @@ part 'app_database.g.dart';
     DiaryEntryMoods,
     DiaryEntryTags,
     SyncTombstones,
+    TaskGroups,
+    GroupMembers,
+    GroupMarks,
+    CycleDays,
   ],
-  daos: [TasksDao, EventsDao, DiaryDao],
+  daos: [TasksDao, EventsDao, DiaryDao, CycleDao],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
@@ -40,7 +46,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forExecutor(super.executor);
 
   @override
-  int get schemaVersion => 14;
+  int get schemaVersion => 19;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -233,6 +239,88 @@ class AppDatabase extends _$AppDatabase {
         // `SharedPreferences`, which a drift migration has no business
         // reaching. `SyncWatermarkNotifier` retires its key instead.
       }
+      if (from < 15) {
+        // The eight seeded moods stop being anybody's data.
+        //
+        // They carry uuids written out in `defaultNoteMoods`, identical on
+        // every install on earth, and the server used to keep one row per
+        // `(uuid)` for the whole database rather than one per user. The first
+        // account to sync claimed all eight; every account after it opened its
+        // push with an upsert of ids that were taken and was refused — and
+        // since moods go up before everything else, such an account synced
+        // nothing at all, ever. `supabase/004_shared_moods.sql` makes those
+        // rows shared and unowned; this clears the marks that would still send
+        // them.
+        //
+        // Not conditional on the rows being dirty: a device that installed at
+        // v11 seeded them as changed, and one that installed after this change
+        // seeds them settled. Both end up in the same place.
+        // Guarded on the columns actually being there, like every other branch
+        // in this method. A device arriving from before v11 has just had the
+        // diary tables created by that branch and the sync columns added by
+        // v12, so on a real upgrade path they always exist — but a database
+        // that was built by hand, in a test or by a half-run development
+        // migration, may hold `tasks` and nothing else, and a migration that
+        // throws is a database that cannot be opened at all.
+        Future<bool> syncable(TableInfo<Table, dynamic> table) async {
+          final columns = await _tableColumns(table.actualTableName);
+          return columns.contains('uid') && columns.contains('dirty');
+        }
+
+        if (await syncable(noteMoods)) {
+          await _clearSeedMoodDirty();
+        }
+
+        // A safety net, and deliberately unconditional.
+        //
+        // Both halves of the sync skip a row that has no uid — silently, and
+        // forever, since nothing ever goes back to mint one. A device that ran
+        // a development build which declared a schema version before its
+        // backfill existed carries exactly that: the column is there, the
+        // values are not, and the branch that would have filled them is behind
+        // a `from <` it has already passed. The query is
+        // `WHERE uid IS NULL`, so on a healthy device this costs four reads and
+        // writes nothing.
+        //
+        // The seeded moods claim their fixed uids first, for the reason the
+        // v12 branch spells out: the blanket backfill would otherwise hand a
+        // seeded row a random uuid and turn a constant into a mood of the
+        // user's own.
+        final present = <TableInfo<Table, dynamic>>[];
+        for (final table in <TableInfo<Table, dynamic>>[
+          tasks,
+          diaryEntries,
+          noteMoods,
+          noteTags,
+        ]) {
+          if (await syncable(table)) present.add(table);
+        }
+        if (present.contains(noteMoods)) await _adoptSeedMoodUids();
+        await _backfillUids(present);
+      }
+      if (from < 16) {
+        // Groups: shared one-off tasks. Three columns on a task and three
+        // mirrored tables; nothing already here changes meaning — a task with
+        // no group is exactly the personal task it was.
+        await addIfMissing(tasks.groupUid);
+        await addIfMissing(tasks.assigneeUid);
+        await addIfMissing(tasks.authorUid);
+        await m.createTable(taskGroups);
+        await m.createTable(groupMembers);
+        await m.createTable(groupMarks);
+      }
+      if (from < 17) {
+        // When a day was ticked. Rows already here keep null: their time was
+        // never recorded.
+        await addSyncColumns(taskLogs, [taskLogs.completedAt]);
+      }
+      if (from < 18) await _repaintTaskColors();
+      // The women's calendar: a new table, nothing already here changes. The
+      // index is created on its own — `createTable` does not make it.
+      if (from < 19) {
+        await m.createTable(cycleDays);
+        await createIndexIfMissing(cycleDaysDate);
+      }
     },
   );
 
@@ -338,25 +426,61 @@ class AppDatabase extends _$AppDatabase {
     }
   }
 
+  /// Takes the "changed here, not sent yet" mark off the eight seeded moods.
+  ///
+  /// By uid rather than by name, unlike [_adoptSeedMoodUids]: by the time this
+  /// runs every seeded mood has its fixed uid, and a mood the user invented and
+  /// happened to name "Радость" is a different row that must keep its mark.
+  Future<void> _clearSeedMoodDirty() async {
+    for (final mood in defaultNoteMoods) {
+      await customUpdate(
+        'UPDATE note_moods SET dirty = 0 WHERE uid = ?',
+        variables: [Variable<String>(mood.uid)],
+        updates: {noteMoods},
+      );
+    }
+  }
+
   /// Rewrites every tag's stored ARGB colour into the palette key naming it.
   ///
   /// One statement per family rather than one per row: there are seven of them
-  /// and any number of tags. The same shape as [_backfillIconKeys], which did
+  /// and any number of tags. The colours are the palette of that time,
+  /// [legacyTaskAccents] — not today's, which no v12 tag ever held. The same shape as [_backfillIconKeys], which did
   /// this for the icons at v10.
   ///
   /// A colour in no family keeps the column default — every tag the app ever
   /// made came from the palette, so this should find nothing, but a tag with an
   /// unrecognisable colour is better off violet than broken.
   Future<void> _adoptTagColorKeys() async {
-    for (final swatch in taskPalette) {
+    for (final MapEntry(:key, :value) in legacyTaskAccents.entries) {
       await customUpdate(
         'UPDATE note_tags SET color_key = ? WHERE color_value = ?',
-        variables: [
-          Variable<String>(swatch.key),
-          Variable<int>(swatch.accent.toARGB32()),
-        ],
+        variables: [Variable<String>(key), Variable<int>(value)],
         updates: {noteTags},
       );
+    }
+  }
+
+  /// Moves every task coloured from the old palette onto the "Иней" tone of the
+  /// same key — the warm keys onto the rose (PLAN.md, decision A).
+  ///
+  /// Neither `dirty` nor `updatedAt` is touched: the server holds a key, not a
+  /// colour, and for every key it still names the same family. Marking the rows
+  /// would send every coloured task up again for nothing. A colour in no family
+  /// (a task from before any palette) is left alone; `taskLightTone` mixes a
+  /// pair for it as it always has.
+  Future<void> _repaintTaskColors() async {
+    for (final legacy in [legacyTaskAccents, legacyTaskLightTones]) {
+      for (final MapEntry(:key, :value) in legacy.entries) {
+        await customUpdate(
+          'UPDATE tasks SET color_value = ? WHERE color_value = ?',
+          variables: [
+            Variable<int>(taskSwatchForKey(key)!.accent.toARGB32()),
+            Variable<int>(value),
+          ],
+          updates: {tasks},
+        );
+      }
     }
   }
 
@@ -411,6 +535,13 @@ class AppDatabase extends _$AppDatabase {
             name: mood.name,
             emoji: mood.emoji,
             uid: Value(mood.uid),
+            // Seeded already settled, unlike everything else this app writes.
+            // A seeded mood is never sent: the server keeps one shared row for
+            // each, owned by nobody, and these eight uuids are identical on
+            // every install — see [DiaryDao.pendingMoods] and
+            // `supabase/004_shared_moods.sql`. Leaving the default `true` here
+            // would mark a constant of the app as news.
+            dirty: const Value(false),
           ),
       ]);
     });

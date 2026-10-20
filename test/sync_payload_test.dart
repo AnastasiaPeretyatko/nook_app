@@ -240,7 +240,7 @@ void main() {
       String title = 'Зарядка',
       RepeatType? repeatType = RepeatType.weekly,
       TrackingMode trackingMode = TrackingMode.counter,
-      int? colorValue = 0xFF8B7CF6,
+      int? colorValue = 0xFF9C8DDB, // violet: the lavender family
       DateTime? startDate,
     }) => Task(
       id: 1,

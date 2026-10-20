@@ -26,54 +26,49 @@ enum SyncPhase {
 /// question people actually ask of a sync, which is not "what are you doing"
 /// but "when did you last manage".
 class SyncStatus {
-  const SyncStatus({this.phase = SyncPhase.idle, this.lastSuccessAt});
+  const SyncStatus({
+    this.phase = SyncPhase.idle,
+    this.lastSuccessAt,
+    this.lastError,
+  });
 
   final SyncPhase phase;
   final DateTime? lastSuccessAt;
 
-  SyncStatus copyWith({SyncPhase? phase, DateTime? lastSuccessAt}) =>
-      SyncStatus(
-        phase: phase ?? this.phase,
-        lastSuccessAt: lastSuccessAt ?? this.lastSuccessAt,
-      );
+  /// What the server said, when it said no. Null when the last run worked or
+  /// never happened.
+  ///
+  /// Kept because the alternative is what this app shipped with: a screen that
+  /// says "не удалось" and nothing else. A refusal is the one failure a user
+  /// cannot wait out and cannot diagnose, and the message Postgres sends back
+  /// names the table and the constraint — which is the difference between
+  /// "синхронизация сломалась" and a bug that can be found.
+  ///
+  /// Not stored. It describes the attempt, not the device, and a message
+  /// surviving a restart would go on accusing a server that has since been
+  /// fixed.
+  final String? lastError;
+
+  SyncStatus copyWith({
+    SyncPhase? phase,
+    DateTime? lastSuccessAt,
+    String? lastError,
+  }) => SyncStatus(
+    phase: phase ?? this.phase,
+    lastSuccessAt: lastSuccessAt ?? this.lastSuccessAt,
+    lastError: lastError ?? this.lastError,
+  );
 
   // Value equality so a rebuild that changes nothing does not repaint.
   @override
   bool operator ==(Object other) =>
       other is SyncStatus &&
       other.phase == phase &&
-      other.lastSuccessAt == lastSuccessAt;
+      other.lastSuccessAt == lastSuccessAt &&
+      other.lastError == lastError;
 
   @override
-  int get hashCode => Object.hash(phase, lastSuccessAt);
-}
-
-/// The one line under "Синхронизация": on the settings row that leads to the
-/// sync screen, and under the switch on the screen itself.
-///
-/// Shared so the two cannot disagree — a row saying "Синхронизировано 5 минут
-/// назад" over a screen saying "Войдите в аккаунт" is the kind of thing that
-/// makes a user stop trusting either.
-///
-/// The order is the order the obstacles come in. Why the switch is where it is
-/// wins over what it would do, because a greyed-out control with no explanation
-/// says no without saying why; a pending question wins over the status, since
-/// nothing is being synced until it is answered; and once it is actually
-/// running, what matters is not what the switch does — that is obvious from the
-/// switch — but whether it is working.
-String syncSummaryLabel({
-  required bool ready,
-  required bool signedIn,
-  required bool needsDecision,
-  required bool active,
-  required SyncStatus status,
-  required DateTime now,
-}) {
-  if (!ready) return 'Сервер недоступен';
-  if (!signedIn) return 'Войдите в аккаунт, чтобы включить';
-  if (needsDecision) return 'Ответьте на вопрос о данных на устройстве';
-  if (active) return syncStatusLabel(status, now: now);
-  return 'Заметки будут доступны на других устройствах';
+  int get hashCode => Object.hash(phase, lastSuccessAt, lastError);
 }
 
 /// One line for the settings screen.
@@ -122,4 +117,117 @@ String _plural(int count, (String, String, String) forms) {
       ? forms.$2
       : forms.$3;
   return '$count $form';
+}
+
+/// How the status card on the account screen should be painted.
+enum SyncCardTone {
+  /// Everything is where it should be.
+  ok,
+
+  /// Nothing is wrong, nothing is happening: off, manual, or waiting.
+  neutral,
+
+  /// A question the user has to answer before anything moves.
+  attention,
+
+  /// The last run was refused.
+  error,
+}
+
+/// The title and the line under it on the account screen's status card
+/// (`Account.dc.html`), with the tone to paint them in.
+///
+/// Pure, like [syncStatusLabel], so every state can be pinned without a screen.
+/// The order is the order the obstacles come in: off, then a pending question,
+/// then what the last run did, then the resting state.
+({String title, String subtitle, SyncCardTone tone}) syncCardInfo({
+  required bool enabled,
+  required bool needsDecision,
+  required bool changingHands,
+  required bool auto,
+  required SyncStatus status,
+  required DateTime now,
+}) {
+  if (!enabled) {
+    return (
+      title: 'Синхронизация выключена',
+      subtitle: 'Заметки и задачи остаются только на этом телефоне',
+      tone: SyncCardTone.neutral,
+    );
+  }
+  if (needsDecision) {
+    return changingHands
+        ? (
+            title: 'На устройстве данные другого аккаунта',
+            subtitle:
+                'Их нужно перенести в ваш аккаунт или стереть — до этого '
+                'синхронизация не работает',
+            tone: SyncCardTone.attention,
+          )
+        : (
+            title: 'Что делать с данными на устройстве?',
+            subtitle: 'Синхронизация не начнётся, пока вы не ответите',
+            tone: SyncCardTone.attention,
+          );
+  }
+
+  final last = _lastTime(status.lastSuccessAt, now);
+  switch (status.phase) {
+    case SyncPhase.running:
+      return (
+        title: 'Синхронизация…',
+        subtitle: last,
+        tone: SyncCardTone.neutral,
+      );
+    case SyncPhase.failed:
+      return (
+        title: 'Не удалось синхронизировать',
+        // The server's own words when it gave any: they name what was refused.
+        subtitle: status.lastError ?? last,
+        tone: SyncCardTone.error,
+      );
+    case SyncPhase.offline:
+      return (
+        title: 'Нет связи с сервером',
+        subtitle: 'Повторим позже. $last',
+        tone: SyncCardTone.neutral,
+      );
+    case SyncPhase.idle:
+      if (status.lastSuccessAt == null) {
+        return (
+          title: auto ? 'Ещё не синхронизировалось' : 'Синхронизация вручную',
+          subtitle: auto
+              ? 'Начнётся само, как только появятся изменения'
+              : 'Нажмите «Синхронизировать сейчас»',
+          tone: SyncCardTone.neutral,
+        );
+      }
+      return auto
+          ? (
+              title: 'Всё синхронизировано',
+              subtitle: last,
+              tone: SyncCardTone.ok,
+            )
+          : (
+              title: 'Синхронизация вручную',
+              subtitle: last,
+              tone: SyncCardTone.neutral,
+            );
+  }
+}
+
+/// "Последний раз сегодня в 09:12", "…вчера в 21:40", "…12 октября в 09:12".
+String _lastTime(DateTime? at, DateTime now) {
+  if (at == null) return 'Ещё не синхронизировалось';
+  final local = at.toLocal();
+  final clock = DateFormat('HH:mm').format(local);
+  final today = DateTime(now.year, now.month, now.day);
+  final day = DateTime(local.year, local.month, local.day);
+  final days = today.difference(day).inDays;
+  final when = switch (days) {
+    0 => 'сегодня',
+    1 => 'вчера',
+    _ => DateFormat('d MMMM', 'ru_RU').format(local),
+  };
+  return 'Последний раз $when в $clock';
 }

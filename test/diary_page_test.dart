@@ -120,49 +120,50 @@ void main() {
   });
 
   group('the screen', () {
-    testWidgets('filters the open tab and says so when nothing is left', (
+    testWidgets(
+      'counts the notes and searches from a box that is always there',
+      (tester) async {
+        await tester.pumpWidget(
+          _diary([
+            _note(id: 1, title: 'Список покупок', text: 'молоко и хлеб'),
+            _note(id: 2, title: 'Планы', text: 'сходить в спортзал'),
+          ]),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('2 записи'), findsOneWidget);
+        expect(find.text('Дневник'), findsOneWidget);
+        expect(find.text('Поиск по записям'), findsOneWidget);
+        expect(find.text('Список покупок'), findsOneWidget);
+        expect(find.text('Планы'), findsOneWidget);
+
+        // found by its body, not its title
+        await tester.enterText(find.byType(TextField), 'молоко');
+        await tester.pumpAndSettle();
+        expect(find.text('Список покупок'), findsOneWidget);
+        expect(find.text('Планы'), findsNothing);
+
+        // found by its title
+        await tester.enterText(find.byType(TextField), 'план');
+        await tester.pumpAndSettle();
+        expect(find.text('Планы'), findsOneWidget);
+        expect(find.text('Список покупок'), findsNothing);
+
+        await tester.enterText(find.byType(TextField), 'ничего подобного');
+        await tester.pumpAndSettle();
+        expect(find.text('Ничего не найдено'), findsOneWidget);
+
+        // the cross empties the box and puts every note back
+        await tester.tap(find.byIcon(LucideIcons.x));
+        await tester.pumpAndSettle();
+        expect(find.text('Список покупок'), findsOneWidget);
+        expect(find.text('Планы'), findsOneWidget);
+      },
+    );
+
+    testWidgets('keeps the archive out of the list, and out of the count', (
       tester,
     ) async {
-      await tester.pumpWidget(
-        _diary([
-          _note(id: 1, title: 'Список покупок', text: 'молоко и хлеб'),
-          _note(id: 2, title: 'Планы', text: 'сходить в спортзал'),
-        ]),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('Список покупок'), findsOneWidget);
-      expect(find.text('Планы'), findsOneWidget);
-
-      await tester.tap(find.byTooltip('Поиск'));
-      await tester.pumpAndSettle();
-      expect(find.text('Поиск по заметкам'), findsOneWidget);
-
-      // found by its body, not its title
-      await tester.enterText(find.byType(TextField), 'молоко');
-      await tester.pumpAndSettle();
-      expect(find.text('Список покупок'), findsOneWidget);
-      expect(find.text('Планы'), findsNothing);
-
-      // found by its title
-      await tester.enterText(find.byType(TextField), 'план');
-      await tester.pumpAndSettle();
-      expect(find.text('Планы'), findsOneWidget);
-      expect(find.text('Список покупок'), findsNothing);
-
-      await tester.enterText(find.byType(TextField), 'ничего подобного');
-      await tester.pumpAndSettle();
-      expect(find.text('Ничего не найдено'), findsOneWidget);
-
-      // closing puts the header and every note back
-      await tester.tap(find.byTooltip('Закрыть поиск'));
-      await tester.pumpAndSettle();
-      expect(find.text('Дневник'), findsOneWidget);
-      expect(find.text('Список покупок'), findsOneWidget);
-      expect(find.text('Планы'), findsOneWidget);
-    });
-
-    testWidgets('the query holds across tabs', (tester) async {
       await tester.pumpWidget(
         _diary([
           _note(id: 1, title: 'Молоко сегодня'),
@@ -175,26 +176,136 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byTooltip('Поиск'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'молоко');
-      await tester.pumpAndSettle();
-
-      expect(find.text('Молоко сегодня'), findsOneWidget);
+      expect(find.text('1 запись'), findsOneWidget);
       expect(find.text('Молоко в архиве'), findsNothing);
 
-      await tester.tap(find.text('Архив'));
+      // not even when it would match
+      await tester.enterText(find.byType(TextField), 'молоко');
+      await tester.pumpAndSettle();
+      expect(find.text('Молоко сегодня'), findsOneWidget);
+      expect(find.text('Молоко в архиве'), findsNothing);
+    });
+
+    testWidgets('has no tabs any more, and shows drafts with a mark', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _diary([
+          _note(id: 1, title: 'Готовая'),
+          _note(id: 2, title: 'Набросок', status: DiaryEntryStatus.draft),
+        ]),
+      );
       await tester.pumpAndSettle();
 
-      expect(find.text('Молоко в архиве'), findsOneWidget);
-      expect(find.text('Молоко сегодня'), findsNothing);
+      expect(find.text('Избранное'), findsNothing);
+      expect(find.text('Черновики'), findsNothing);
+      expect(find.text('Набросок'), findsOneWidget);
+      expect(find.text('Черновик'), findsOneWidget);
+    });
+
+    testWidgets('the archive button opens the archive page', (tester) async {
+      await tester.pumpWidget(
+        _diary([
+          _note(id: 1, title: 'Живая'),
+          _note(id: 2, title: 'Старая', status: DiaryEntryStatus.archived),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Архив'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Старая'), findsOneWidget);
+      expect(find.text('Живая'), findsNothing);
+    });
+
+    testWidgets('an empty archive says so', (tester) async {
+      await tester.pumpWidget(_diary([_note(id: 1, title: 'Живая')]));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Архив'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('В архиве пусто'), findsOneWidget);
     });
   });
 
-  group('the card', () {
-    testWidgets('carries the date, the mood, two lines of text and the tags', (
+  group('pinned notes', () {
+    testWidgets('are tiles above the list, and not in it twice', (
       tester,
     ) async {
+      await tester.pumpWidget(
+        _diary([
+          _note(id: 1, title: 'Обычная'),
+          _note(id: 2, title: 'Важная', favorite: true),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('ЗАКРЕПЛЁННЫЕ'), findsOneWidget);
+      expect(find.text('Важная'), findsOneWidget);
+      expect(find.text('Обычная'), findsOneWidget);
+      expect(find.textContaining('Изменено'), findsOneWidget);
+    });
+
+    testWidgets('no block without a pinned note', (tester) async {
+      await tester.pumpWidget(_diary([_note(id: 1, title: 'Обычная')]));
+      await tester.pumpAndSettle();
+
+      expect(find.text('ЗАКРЕПЛЁННЫЕ'), findsNothing);
+    });
+
+    testWidgets('a search lists them with the rest', (tester) async {
+      await tester.pumpWidget(
+        _diary([
+          _note(id: 1, title: 'Молоко обычное'),
+          _note(id: 2, title: 'Молоко важное', favorite: true),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'молоко');
+      await tester.pumpAndSettle();
+
+      expect(find.text('ЗАКРЕПЛЁННЫЕ'), findsNothing);
+      expect(find.text('Молоко обычное'), findsOneWidget);
+      expect(find.text('Молоко важное'), findsOneWidget);
+    });
+
+    testWidgets('a long press offers to pin or unpin', (tester) async {
+      await tester.pumpWidget(
+        _diary([
+          _note(id: 1, title: 'Обычная'),
+          _note(id: 2, title: 'Важная', favorite: true),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.longPress(find.text('Обычная'));
+      await tester.pumpAndSettle();
+      expect(find.text('Закрепить'), findsOneWidget);
+      expect(find.text('В архив'), findsOneWidget);
+    });
+  });
+
+  group('the list', () {
+    testWidgets('is cut into sections by date, newest first', (tester) async {
+      final now = DateTime.now();
+      DiaryEntry at(int id, String title, DateTime date) =>
+          _note(id: id, title: title).copyWith(updatedAt: date);
+      final old = DateTime(now.year - 1, 3, 15);
+      await tester.pumpWidget(
+        _diary([at(1, 'Свежая', now), at(2, 'Давняя', old)]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('ЭТА НЕДЕЛЯ'), findsOneWidget);
+      expect(find.text('МАРТ ${old.year}'), findsOneWidget);
+      // the day and the weekday stand to the left of a note
+      expect(find.text('15'), findsOneWidget);
+    });
+
+    testWidgets('a row carries the text and the labels', (tester) async {
       await tester.pumpWidget(
         _diary(
           [_note(id: 1, title: 'Утро', text: 'кофе и тишина')],
@@ -210,10 +321,8 @@ void main() {
 
       expect(find.text('Утро'), findsOneWidget);
       expect(find.text('кофе и тишина'), findsOneWidget);
-      // the mood: emoji and word, and the dot that keeps it off the date
       expect(find.text('🌿'), findsOneWidget);
       expect(find.text('Спокойствие'), findsOneWidget);
-      expect(find.text('  ·  '), findsOneWidget);
       // on a row the mood is text, not a filled chip
       expect(tester.widget<MoodChip>(find.byType(MoodChip)).filled, isFalse);
       // a tag carries the "#" its name does not
@@ -225,49 +334,32 @@ void main() {
       expect(excerpt.overflow, TextOverflow.ellipsis);
     });
 
-    testWidgets(
-      'counts the tags it cannot fit, and drops the dot with no mood',
-      (tester) async {
-        await tester.pumpWidget(
-          _diary(
-            [_note(id: 1, title: 'Много', text: 'текст')],
-            tags: {
-              1: [
-                _tag(1, 'один'),
-                _tag(2, 'два'),
-                _tag(3, 'три'),
-                _tag(4, 'четыре'),
-                _tag(5, 'пять'),
-              ],
-            },
-          ),
-        );
-        await tester.pumpAndSettle();
-
-        expect(find.text('#один'), findsOneWidget);
-        expect(find.text('#три'), findsOneWidget);
-        expect(find.text('#четыре'), findsNothing);
-        expect(find.text('+2'), findsOneWidget);
-        expect(find.text('  ·  '), findsNothing);
-      },
-    );
-
-    testWidgets('the star says which way it goes', (tester) async {
+    testWidgets('counts the tags it cannot fit', (tester) async {
       await tester.pumpWidget(
-        _diary([
-          _note(id: 1, title: 'Обычная'),
-          _note(id: 2, title: 'Избранная', favorite: true),
-        ]),
+        _diary(
+          [_note(id: 1, title: 'Много', text: 'текст')],
+          tags: {
+            1: [
+              _tag(1, 'один'),
+              _tag(2, 'два'),
+              _tag(3, 'три'),
+              _tag(4, 'четыре'),
+              _tag(5, 'пять'),
+            ],
+          },
+        ),
       );
       await tester.pumpAndSettle();
 
-      expect(find.byTooltip('В избранное'), findsOneWidget);
-      expect(find.byTooltip('Убрать из избранного'), findsOneWidget);
+      expect(find.text('#один'), findsOneWidget);
+      expect(find.text('#три'), findsOneWidget);
+      expect(find.text('#четыре'), findsNothing);
+      expect(find.text('+2'), findsOneWidget);
     });
   });
 
   group('the view mode', () {
-    testWidgets('opens as a list and switches to tiles from the menu', (
+    testWidgets('opens as rows and switches to tiles from the button', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -278,11 +370,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // the list is the default, and it is a list
-      expect(find.byType(ListView), findsOneWidget);
-      expect(find.byType(GridView), findsNothing);
+      // rows are the default, and they are not a grid
+      expect(find.byType(SliverGrid), findsNothing);
 
-      await tester.tap(find.byTooltip('Ещё'));
+      await tester.tap(find.byTooltip('Вид: список'));
       await tester.pumpAndSettle();
       expect(find.text('Отображение списком'), findsOneWidget);
       expect(find.text('Отображение плитками'), findsOneWidget);
@@ -292,15 +383,14 @@ void main() {
       await tester.tap(find.text('Отображение плитками'));
       await tester.pumpAndSettle();
 
-      expect(find.byType(GridView), findsOneWidget);
-      expect(find.byType(ListView), findsNothing);
       expect(find.text('Первая'), findsOneWidget);
       expect(find.text('Вторая'), findsOneWidget);
       // two columns
-      final grid = tester.widget<GridView>(find.byType(GridView));
+      final grid = tester.widget<SliverGrid>(find.byType(SliverGrid));
       final delegate =
           grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
       expect(delegate.crossAxisCount, 2);
+      expect(find.byTooltip('Вид: плитки'), findsOneWidget);
 
       // and it is remembered
       expect(_prefs.getString('diary_view_mode'), 'grid');
@@ -313,7 +403,7 @@ void main() {
       await tester.pumpWidget(_diary([_note(id: 1, title: 'Плитка')]));
       await tester.pumpAndSettle();
 
-      expect(find.byType(GridView), findsOneWidget);
+      expect(find.byType(SliverGrid), findsOneWidget);
     });
 
     testWidgets('search filters the tiles too', (tester) async {
@@ -328,12 +418,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byTooltip('Поиск'));
-      await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'молоко');
       await tester.pumpAndSettle();
 
-      expect(find.byType(GridView), findsOneWidget);
+      expect(find.byType(SliverGrid), findsOneWidget);
       expect(find.text('Список покупок'), findsOneWidget);
       expect(find.text('Планы'), findsNothing);
     });

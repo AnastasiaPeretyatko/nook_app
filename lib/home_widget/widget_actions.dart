@@ -3,6 +3,8 @@ import 'dart:ui' show DartPluginRegistrant;
 import 'package:flutter/widgets.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:todo_app/settings/sync_settings.dart';
+import 'package:todo_app/utils/task_audience.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/home_widget/home_widget_bridge.dart';
 import 'package:todo_app/home_widget/today_payload.dart';
@@ -55,7 +57,9 @@ enum WidgetTapAction { toggle, open, create, refresh, unknown }
 /// The action [uri] asks for, or [WidgetTapAction.unknown] for anything else,
 /// null included.
 WidgetTapAction widgetTapActionOf(Uri? uri) {
-  if (uri == null || uri.scheme != widgetUriScheme || uri.host != widgetUriHost) {
+  if (uri == null ||
+      uri.scheme != widgetUriScheme ||
+      uri.host != widgetUriHost) {
     return WidgetTapAction.unknown;
   }
   return switch (uri.path) {
@@ -139,12 +143,19 @@ Future<void> onHomeWidgetTap(Uri? uri) async {
 Future<void> pushWidgetPayload(AppDatabase database) async {
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
-  final tasks = await database.tasksDao.getRootTasks();
+  final prefs = await SharedPreferences.getInstance();
+  // No session in this isolate. The account that settled what is on the device
+  // is the one its groups belong to, so it stands in for "me".
+  final me = prefs.getString(SyncClaimNotifier.prefsKey);
+  final tasks = [
+    for (final task in await database.tasksDao.getRootTasks())
+      if (isMyTask(task, me)) task,
+  ];
   final logs = await database.tasksDao.getLogsBetween(
     today,
     today.add(const Duration(days: todayWidgetHorizonDays)),
   );
-  final theme = widgetThemeFromPrefs(await SharedPreferences.getInstance());
+  final theme = widgetThemeFromPrefs(prefs);
 
   await HomeWidgetBridge().push(
     buildTodayWidgetPayload(

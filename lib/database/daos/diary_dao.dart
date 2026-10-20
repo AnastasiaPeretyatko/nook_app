@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 import '../../sync/merge.dart' show storedSeconds;
+import '../../utils/note_labels.dart' show defaultNoteMoodUids;
 import '../app_database.dart';
 
 part 'diary_dao.g.dart';
@@ -371,8 +372,30 @@ class DiaryDao extends DatabaseAccessor<AppDatabase> with _$DiaryDaoMixin {
   Future<List<DiaryEntry>> pendingEntries() =>
       (select(diaryEntries)..where((e) => e.dirty.equals(true))).get();
 
+  /// The moods waiting to be sent — the ones the user invented, never the eight
+  /// the app seeded.
+  ///
+  /// A seeded mood is a constant of the app, not somebody's data: it is written
+  /// out in `defaultNoteMoods`, it arrives with the install, and nothing here
+  /// can rename or delete it. The server keeps **one** shared row for each,
+  /// owned by nobody, so a device that sent its copy would be claiming a
+  /// constant — and, because those uuids are the same on every install on
+  /// earth, would collide with whichever account got there first. That
+  /// collision is what took the whole push down: moods go up before tags,
+  /// notes, links and tasks, so an account that could not send them sent
+  /// nothing at all, ever. See `supabase/004_shared_moods.sql`.
+  ///
+  /// A mood with no uid falls out here too — `uid NOT IN (...)` is null for a
+  /// null uid, so the row is not returned. That is the right answer for a
+  /// different reason: there is nothing to address such a row by, and it would
+  /// be sent as an `id` of null and refused.
   Future<List<NoteMood>> pendingMoods() =>
-      (select(noteMoods)..where((m) => m.dirty.equals(true))).get();
+      (select(noteMoods)..where(
+            (m) =>
+                m.dirty.equals(true) &
+                m.uid.isNotIn(defaultNoteMoodUids.toList()),
+          ))
+          .get();
 
   Future<List<NoteTag>> pendingTags() =>
       (select(noteTags)..where((t) => t.dirty.equals(true))).get();
@@ -382,6 +405,16 @@ class DiaryDao extends DatabaseAccessor<AppDatabase> with _$DiaryDaoMixin {
   /// What the "there are N notes here, upload them?" question counts. On a
   /// first sync that is every note on the device, which is exactly what the
   /// question is about.
+  /// How many notes are on the device at all. The twin of
+  /// [TasksDao.taskCount] — why it is not [unsentEntryCount] is written there.
+  Future<int> entryCount() async {
+    final count = diaryEntries.id.count();
+    final row = await (selectOnly(
+      diaryEntries,
+    )..addColumns([count])).getSingle();
+    return row.read(count) ?? 0;
+  }
+
   Future<int> unsentEntryCount() async {
     final count = diaryEntries.id.count();
     final row =
@@ -408,8 +441,93 @@ class DiaryDao extends DatabaseAccessor<AppDatabase> with _$DiaryDaoMixin {
       await update(
         diaryEntries,
       ).write(const DiaryEntriesCompanion(dirty: Value(false)));
+      // The catalogues as well, or the answer is only part honoured: a tag the
+      // user invented is unsent data of theirs exactly as a note is, and
+      // leaving its mark on would send it up on the next run while the dialog
+      // said nothing would go. The eight seeded moods are already settled and
+      // are never offered anyway — see [pendingMoods] — so this reaches only
+      // the ones somebody made.
+      await update(
+        noteTags,
+      ).write(const NoteTagsCompanion(dirty: Value(false)));
+      await update(
+        noteMoods,
+      ).write(const NoteMoodsCompanion(dirty: Value(false)));
       // Deletions of notes that are staying here are nobody else's news.
       await delete(syncTombstones).go();
+    });
+  }
+
+  /// Every note, label and link on this device, gone. The twin of
+  /// [TasksDao.wipeAllTasks], and always run with it.
+  ///
+  /// The eight seeded moods **stay**. They are not the user's data — they are a
+  /// constant of the app, written out in `defaultNoteMoods` and shared by every
+  /// account on the server — and deleting them would empty the mood picker for
+  /// whoever signs in next. Everything a person actually made goes, including a
+  /// mood they invented: that one is theirs, and it is exactly what the next
+  /// account must not find waiting.
+  ///
+  /// A mood with no uid goes too. It cannot be a seeded one — those carry
+  /// theirs from the list — so it is somebody's, and `uid NOT IN (...)` alone
+  /// would answer null for it and leave it behind.
+  ///
+  /// The image **files** are not this method's to remove: they live on disk,
+  /// not in the database. [wipeAccountData] deletes them around this call.
+  Future<void> wipeAllEntries() {
+    return transaction(() async {
+      await delete(diaryEntryMoods).go();
+      await delete(diaryEntryTags).go();
+      await delete(diaryEntries).go();
+      await delete(noteTags).go();
+      await (delete(noteMoods)..where(
+            (m) => m.uid.isNull() | m.uid.isNotIn(defaultNoteMoodUids.toList()),
+          ))
+          .go();
+      await (delete(
+        syncTombstones,
+      )..where((t) => t.sourceTable.equals(diaryEntries.actualTableName))).go();
+    });
+  }
+
+  /// Fresh identities for the notes and the labels somebody made, and the marks
+  /// to send them again. The twin of [TasksDao.remintTaskUids] — the reasoning
+  /// is written out there.
+  ///
+  /// The seeded moods are left alone, and that is the whole point of telling
+  /// them apart: their uuids are constants shared with the server and every
+  /// other install, so a new one would not be a fresh identity but a mood
+  /// nobody else has ever heard of.
+  Future<void> remintEntryUids() {
+    return transaction(() async {
+      for (final entry in await select(diaryEntries).get()) {
+        await (update(diaryEntries)..where((e) => e.id.equals(entry.id))).write(
+          DiaryEntriesCompanion(
+            uid: Value(_uuid.v4()),
+            dirty: const Value(true),
+          ),
+        );
+      }
+      for (final tag in await select(noteTags).get()) {
+        await (update(noteTags)..where((t) => t.id.equals(tag.id))).write(
+          NoteTagsCompanion(uid: Value(_uuid.v4()), dirty: const Value(true)),
+        );
+      }
+      final mine =
+          await (select(noteMoods)..where(
+                (m) =>
+                    m.uid.isNull() |
+                    m.uid.isNotIn(defaultNoteMoodUids.toList()),
+              ))
+              .get();
+      for (final mood in mine) {
+        await (update(noteMoods)..where((m) => m.id.equals(mood.id))).write(
+          NoteMoodsCompanion(uid: Value(_uuid.v4()), dirty: const Value(true)),
+        );
+      }
+      await (delete(
+        syncTombstones,
+      )..where((t) => t.sourceTable.equals(diaryEntries.actualTableName))).go();
     });
   }
 

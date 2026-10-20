@@ -1,3 +1,5 @@
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:todo_app/settings/theme_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -89,8 +91,13 @@ int _tappableDays(WidgetTester tester) => find
     .evaluate()
     .length;
 
+/// The week start, the lateness grace and the "today" switch are read from the
+/// store, so anything drawing a habit needs one.
+late SharedPreferences _prefs;
+
 Widget _sheet(Task task, List<TaskLog> logs) => ProviderScope(
   overrides: [
+    sharedPreferencesProvider.overrideWithValue(_prefs),
     logsBetweenProvider.overrideWith((ref, range) => Stream.value(logs)),
   ],
   child: MaterialApp(
@@ -99,6 +106,11 @@ Widget _sheet(Task task, List<TaskLog> logs) => ProviderScope(
 );
 
 void main() {
+  setUpAll(() async {
+    SharedPreferences.setMockInitialValues({});
+    _prefs = await SharedPreferences.getInstance();
+  });
+
   testWidgets('marks only the days logged for this habit', (tester) async {
     final logs = [
       // This habit: two completed days.

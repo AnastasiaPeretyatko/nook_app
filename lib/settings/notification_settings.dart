@@ -73,22 +73,3 @@ class ReminderLeadMinutesNotifier extends Notifier<int> {
 /// with "за" repeated inside every line.
 String reminderLeadLabel(int minutes) =>
     minutes <= 0 ? 'Вовремя' : '$minutes минут';
-
-/// The state of reminders in one line, for the settings row that leads to their
-/// screen — the same job [syncSummaryLabel] does for syncing.
-///
-/// A refusal by the phone is reported ahead of the lead time: a device that lets
-/// nothing through does not have a "5 minutes early" to speak of, and that is
-/// the one state the row exists to surface. [notificationsAllowed] is `null`
-/// where there is nothing to ask, which is not a refusal.
-String reminderSummaryLabel({
-  required bool enabled,
-  required bool? notificationsAllowed,
-  required int leadMinutes,
-}) {
-  if (!enabled) return 'Выключены';
-  if (notificationsAllowed == false) return 'Выключены в настройках телефона';
-  return leadMinutes <= 0
-      ? 'Напоминают вовремя'
-      : 'Напоминают за $leadMinutes минут';
-}

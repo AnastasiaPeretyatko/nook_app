@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
+import 'package:todo_app/settings/sync_settings.dart';
 import 'package:todo_app/sync/providers.dart';
 import 'package:todo_app/sync/sync_service.dart';
 
@@ -46,10 +47,10 @@ class SyncController {
 
   void start() {
     _heartbeat?.cancel();
-    _heartbeat = Timer.periodic(_heartbeatPeriod, (_) => _run());
+    _heartbeat = Timer.periodic(_heartbeatPeriod, (_) => _run(automatic: true));
     // Once immediately: the app has just been opened, or sync has just been
     // switched on, and both are moments where something is probably waiting.
-    unawaited(_run());
+    unawaited(_run(automatic: true));
   }
 
   void stop() {
@@ -62,15 +63,28 @@ class SyncController {
   /// Something changed locally. Sends it, once the changes stop coming.
   void nudge() {
     _debounce?.cancel();
-    _debounce = Timer(_debounceDelay, _run);
+    _debounce = Timer(_debounceDelay, () => _run(automatic: true));
   }
 
-  /// Sends now, waiting for the result — what the settings screen's "обновить"
-  /// uses, and what a test drives directly with no clock involved.
-  Future<SyncOutcome> syncNow() => _run();
+  /// Sends now, waiting for the result — what the account screen's button
+  /// uses, and what a test drives directly with no clock involved. Asked for by
+  /// the user, so it ignores "Автоматически" and "Только по Wi-Fi".
+  Future<SyncOutcome> syncNow() => _run(automatic: false);
 
-  Future<SyncOutcome> _run() async {
+  /// The same, for the moments the app picks itself — coming back to the front.
+  /// Does nothing when syncing is manual, or when it waits for Wi-Fi and there
+  /// is none.
+  Future<SyncOutcome> syncIfAuto() => _run(automatic: true);
+
+  Future<SyncOutcome> _run({required bool automatic}) async {
     if (!_ref.read(syncActiveProvider)) return SyncOutcome.skipped;
+    if (automatic) {
+      if (!_ref.read(syncAutoProvider)) return SyncOutcome.skipped;
+      if (_ref.read(syncWifiOnlyProvider) &&
+          !await _ref.read(onWifiProvider)()) {
+        return SyncOutcome.skipped;
+      }
+    }
 
     final status = _ref.read(syncStatusProvider.notifier);
     final service = _ref.read(syncServiceProvider);
@@ -90,9 +104,9 @@ class SyncController {
         }
         await status.reportSuccess(DateTime.now());
       case SyncOutcome.offline:
-        status.reportFailure(offline: true);
+        status.reportFailure(offline: true, detail: service.lastError);
       case SyncOutcome.failed:
-        status.reportFailure(offline: false);
+        status.reportFailure(offline: false, detail: service.lastError);
       case SyncOutcome.skipped:
         // Never attempted — a run already going, or a recent failure still
         // being waited out. Saying "failed" would be a lie, and saying
@@ -160,6 +174,7 @@ class _SyncScopeState extends ConsumerState<SyncScope>
     ref.listenManual<AsyncValue<List<DiaryEntry>>>(diaryEntriesProvider, nudge);
     ref.listenManual<AsyncValue<List<Task>>>(allTasksProvider, nudge);
     ref.listenManual<AsyncValue<List<TaskLog>>>(allLogsProvider, nudge);
+    ref.listenManual<AsyncValue<List<CycleDay>>>(cycleDaysProvider, nudge);
   }
 
   @override
@@ -174,7 +189,7 @@ class _SyncScopeState extends ConsumerState<SyncScope>
     // have been away for hours, and nothing on the other device could have
     // told it so.
     if (state == AppLifecycleState.resumed) {
-      unawaited(ref.read(syncControllerProvider).syncNow());
+      unawaited(ref.read(syncControllerProvider).syncIfAuto());
     }
   }
 

@@ -53,13 +53,8 @@ final taskRemindersProvider = Provider<List<TaskReminder>>((ref) {
   if (tasks.isEmpty) return const [];
 
   final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
-  final range = DateRange(
-    today,
-    today.add(const Duration(days: defaultReminderHorizonDays)),
-  );
-  final logs =
-      ref.watch(logsBetweenProvider(range)).valueOrNull ?? const <TaskLog>[];
+  // The whole history: a habit's streak is counted back from today.
+  final logs = ref.watch(allLogsProvider).valueOrNull ?? const <TaskLog>[];
 
   return taskRemindersFor(
     tasks: tasks,

@@ -4,12 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/main.dart';
 import 'package:todo_app/pages/create_task_page.dart';
-import 'package:todo_app/pages/habits_page.dart';
+import 'package:todo_app/pages/tasks_page.dart';
 import 'package:todo_app/pages/home_page.dart';
+import 'package:todo_app/settings/theme_provider.dart';
+import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/utils/surfaces.dart';
 import 'package:todo_app/utils/task_colors.dart';
 import 'package:todo_app/widgets/habits/task_actions_sheet.dart';
@@ -33,8 +36,13 @@ final _task = Task(
   updatedAt: _today,
 );
 
+/// The home screen reads one stored setting — whether habits get a dot in the
+/// calendar — so the store has to exist before it is rendered.
+late SharedPreferences _prefs;
+
 Widget _app(Widget home) => ProviderScope(
   overrides: [
+    sharedPreferencesProvider.overrideWithValue(_prefs),
     rootTasksProvider.overrideWith((ref) => Stream.value([_task])),
     allTasksProvider.overrideWith((ref) => Stream.value([_task])),
     subtasksProvider.overrideWith((ref, parentId) => Stream.value(const [])),
@@ -90,13 +98,29 @@ void _expectSomethingWasPainted(WidgetTester tester) {
 }
 
 /// Contrast of every explicitly coloured label against the surface it is on.
-void _expectLabelsRead(WidgetTester tester, Color surface) {
+///
+/// Texts under [onFill] sit on a fill of their own — the calendar's selected
+/// day — and are checked against that [fill] instead.
+void _expectLabelsRead(
+  WidgetTester tester,
+  Color surface, {
+  Finder? onFill,
+  Color? fill,
+}) {
+  final own = onFill == null
+      ? const <Text>{}
+      : tester
+            .widgetList<Text>(
+              find.descendant(of: onFill, matching: find.byType(Text)),
+            )
+            .toSet();
   for (final text in tester.widgetList<Text>(find.byType(Text))) {
     final color = text.style?.color;
+    final surface_ = own.contains(text) ? fill! : surface;
     // A null colour inherits the theme's, which is dark-theme correct.
     if (color == null) continue;
     expect(
-      _contrast(Color.alphaBlend(color, surface), surface),
+      _contrast(Color.alphaBlend(color, surface_), surface_),
       greaterThanOrEqualTo(3.0),
       reason: '"${text.data}" is drawn in $color',
     );
@@ -104,21 +128,11 @@ void _expectLabelsRead(WidgetTester tester, Color surface) {
 }
 
 /// Fill colour of the tab bar's selected thumb, whatever tone it is.
-Color _tabThumbColour(WidgetTester tester) {
-  final container = tester
-      .widgetList<Container>(find.byType(Container))
-      .firstWhere(
-        (c) =>
-            c.decoration is BoxDecoration &&
-            (c.decoration! as BoxDecoration).borderRadius ==
-                BorderRadius.circular(999),
-      );
-  return ((container.decoration! as BoxDecoration).color)!;
-}
-
 void main() {
   setUpAll(() async {
     await initializeDateFormatting('ru_RU', null);
+    SharedPreferences.setMockInitialValues({});
+    _prefs = await SharedPreferences.getInstance();
   });
 
   setUp(() {
@@ -189,10 +203,8 @@ void main() {
 
   group('the habits screen in the dark theme', () {
     testWidgets('paints no white slabs', (tester) async {
-      await tester.pumpWidget(_app(const HabitsPage()));
-      await tester.pumpAndSettle();
-      // The rows live on the "Задачи" tab, which is not the one that opens.
-      await tester.tap(find.text('Задачи'));
+      // The rows live on the tasks tab.
+      await tester.pumpWidget(_app(const TasksPage()));
       await tester.pumpAndSettle();
 
       _expectSomethingWasPainted(tester);
@@ -212,40 +224,37 @@ void main() {
     testWidgets('the date, the tabs and the task rows all read', (
       tester,
     ) async {
-      await tester.pumpWidget(_app(const HabitsPage()));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Задачи'));
+      await tester.pumpWidget(_app(const TasksPage()));
       await tester.pumpAndSettle();
 
       // Task rows are the lightest surface on the screen, so checking against
       // them is the strict end of the range.
       _expectLabelsRead(tester, rowSurface(_dark));
     });
-
-    testWidgets('the selected tab label reads on its thumb', (tester) async {
-      await tester.pumpWidget(_app(const HabitsPage()));
-      await tester.pumpAndSettle();
-
-      final thumb = _tabThumbColour(tester);
-      expect(thumb, isNot(const Color(0xFFD1D1D6)));
-      expect(
-        _contrast(Color.alphaBlend(onTaskColor(thumb), thumb), thumb),
-        greaterThanOrEqualTo(4.5),
-      );
-    });
   });
 
   group('the home screen in the dark theme', () {
-    testWidgets('the month and the year read on the page', (tester) async {
+    testWidgets('the month reads on the page', (tester) async {
       await tester.pumpWidget(_app(const HomePage()));
       await tester.pumpAndSettle();
 
       _expectSomethingWasPainted(tester);
+      // The year joins the month only when it is not this one.
       expect(find.text(_monthLabel()), findsOneWidget);
-      expect(find.text('${_today.year}'), findsOneWidget);
-      // The calendar sits on the page, the timeline on its sheet; the sheet is
+      // The calendar sits on the page, the timeline on its cards; the card is
       // the lighter of the two, so it is the stricter background to check.
-      _expectLabelsRead(tester, raisedSurface(_dark));
+      // The selected day is a light pill in the dark theme; its own labels
+      // are dark, and read against it.
+      final pill = AppPalette.dark.textPrimary;
+      _expectLabelsRead(
+        tester,
+        raisedSurface(_dark),
+        onFill: find.byWidgetPredicate(
+          (w) =>
+              w is Container && (w.decoration as BoxDecoration?)?.color == pill,
+        ),
+        fill: pill,
+      );
     });
   });
 }

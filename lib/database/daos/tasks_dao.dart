@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 import '../../sync/merge.dart' show storedSeconds;
+import '../../utils/task_audience.dart' show canEditTaskAs;
 import '../app_database.dart';
 
 part 'tasks_dao.g.dart';
@@ -36,7 +37,17 @@ part 'tasks_dao.g.dart';
 /// closed one is a row nothing reads: every lasting trace of a run is folded
 /// into that day's log by [_closeRun] before the session is closed. Restore the
 /// logs and every screen in the app draws what it drew.
-@DriftAccessor(tables: [Tasks, TaskLogs, TaskSessions, SyncTombstones])
+@DriftAccessor(
+  tables: [
+    Tasks,
+    TaskLogs,
+    TaskSessions,
+    SyncTombstones,
+    TaskGroups,
+    GroupMembers,
+    GroupMarks,
+  ],
+)
 class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
   TasksDao(super.db);
 
@@ -53,6 +64,21 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
       DateTime(moment.year, moment.month, moment.day);
 
   Stream<List<Task>> watchAllTasks() => select(tasks).watch();
+
+  Stream<List<TaskGroup>> watchGroups() =>
+      (select(taskGroups)..orderBy([(g) => OrderingTerm.asc(g.name)])).watch();
+
+  Stream<List<GroupMember>> watchGroupMembers() => (select(
+    groupMembers,
+  )..orderBy([(m) => OrderingTerm.asc(m.displayName)])).watch();
+
+  Stream<List<GroupMark>> watchGroupMarks() => select(groupMarks).watch();
+
+  /// One-shot reads of the mirror, for the task form.
+  Future<List<TaskGroup>> getGroups() =>
+      (select(taskGroups)..orderBy([(g) => OrderingTerm.asc(g.name)])).get();
+
+  Future<List<GroupMember>> getGroupMembers() => select(groupMembers).get();
 
   Stream<List<Task>> watchRootTasks() =>
       (select(tasks)..where((t) => t.parentId.isNull())).watch();
@@ -110,7 +136,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
   /// unsent by passing a companion of its own.
   ///
   /// `updatedAt` is forced as well, and forced to be **strictly greater than it
-  /// was**, for the reason spelled out on [_stampAfter]: the task form already
+  /// was**, for the reason spelled out on [stampAfter]: the task form already
   /// passed a stamp of its own, but two edits inside one second would otherwise
   /// be stored as the same instant and [clearTaskDirty] would drop the second.
   Future<int> updateTaskById(int id, TasksCompanion task) {
@@ -118,7 +144,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
       final current = await getTaskById(id);
       return (update(tasks)..where((t) => t.id.equals(id))).write(
         task.copyWith(
-          updatedAt: Value(_stampAfter(current?.updatedAt)),
+          updatedAt: Value(stampAfter(current?.updatedAt)),
           dirty: const Value(true),
         ),
       );
@@ -142,12 +168,22 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
   /// **as stored** rather than with `isAfter`: `now` is always a fraction later
   /// than a value read back from the database, so `isAfter` would say yes and
   /// then write the very same second.
-  static DateTime _stampAfter(DateTime? previous) {
+  static DateTime stampAfter(DateTime? previous) {
     final now = DateTime.now();
     if (previous == null) return now;
     return storedSeconds(now) > storedSeconds(previous)
         ? now
         : previous.add(const Duration(seconds: 1));
+  }
+
+  /// What a write sets [TaskLogs.completedAt] to: now on the tick, null on the
+  /// untick, and untouched when [completed] is not being written or the day was
+  /// already ticked — a counter re-ticks on every step past its target.
+  static Value<DateTime?> _completedAtFor(bool? completed, TaskLog? existing) {
+    if (completed == null) return const Value.absent();
+    if (!completed) return const Value(null);
+    if (existing != null && existing.completed) return const Value.absent();
+    return Value(DateTime.now());
   }
 
   /// Moves a task in or out of the archive. Only the status is written, so the
@@ -199,6 +235,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
 
     final affectedIds = [for (final task in family) task.id];
     await (delete(taskLogs)..where((l) => l.taskId.isIn(affectedIds))).go();
+    await (delete(groupMarks)..where((g) => g.taskId.isIn(affectedIds))).go();
     await (delete(taskSessions)..where((s) => s.taskId.isIn(affectedIds))).go();
     await (delete(tasks)..where((t) => t.parentId.equals(id))).go();
     await (delete(tasks)..where((t) => t.id.equals(id))).go();
@@ -437,7 +474,8 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
             date: day,
             completed: Value(completed ?? false),
             value: value != null ? Value(value) : const Value.absent(),
-            updatedAt: Value(_stampAfter(null)),
+            completedAt: _completedAtFor(completed, null),
+            updatedAt: Value(stampAfter(null)),
           ),
         );
       } else {
@@ -447,8 +485,9 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
             completed: completed != null
                 ? Value(completed)
                 : const Value.absent(),
+            completedAt: _completedAtFor(completed, existing),
             dirty: const Value(true),
-            updatedAt: Value(_stampAfter(existing.updatedAt)),
+            updatedAt: Value(stampAfter(existing.updatedAt)),
           ),
         );
       }
@@ -476,15 +515,17 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
             taskId: taskId,
             date: day,
             completed: const Value(true),
-            updatedAt: Value(_stampAfter(null)),
+            completedAt: _completedAtFor(true, null),
+            updatedAt: Value(stampAfter(null)),
           ),
         );
       } else {
         await (update(taskLogs)..where((l) => l.id.equals(existing.id))).write(
           TaskLogsCompanion(
             completed: Value(!existing.completed),
+            completedAt: _completedAtFor(!existing.completed, existing),
             dirty: const Value(true),
-            updatedAt: Value(_stampAfter(existing.updatedAt)),
+            updatedAt: Value(stampAfter(existing.updatedAt)),
           ),
         );
       }
@@ -521,7 +562,35 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
     final row =
         await (selectOnly(tasks)
               ..addColumns([count])
-              ..where(tasks.dirty.equals(true) & tasks.parentId.isNull()))
+              ..where(
+                tasks.dirty.equals(true) &
+                    tasks.parentId.isNull() &
+                    tasks.groupUid.isNull(),
+              ))
+            .getSingle();
+    return row.read(count) ?? 0;
+  }
+
+  /// How many tasks are on the device at all, sent or not.
+  ///
+  /// Not [unsentTaskCount], and the difference is the whole point. That one
+  /// counts what is waiting to go up, which is the right question the first
+  /// time an account is involved — everything here is unsent, because nothing
+  /// can be sent before the question is answered. It is the **wrong** question
+  /// when the device changes hands: the previous account's tasks went up under
+  /// that account and carry no mark at all, so counting the unsent would find
+  /// none of them and the dialog would never appear over the data it exists to
+  /// protect.
+  ///
+  /// Root tasks only, for the same reason [unsentTaskCount] counts roots: a
+  /// subtask is never a row on any screen, and a number the user cannot see is
+  /// a number they cannot check.
+  Future<int> taskCount() async {
+    final count = tasks.id.count();
+    final row =
+        await (selectOnly(tasks)
+              ..addColumns([count])
+              ..where(tasks.parentId.isNull() & tasks.groupUid.isNull()))
             .getSingle();
     return row.read(count) ?? 0;
   }
@@ -544,6 +613,79 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
         taskLogs,
       ).write(const TaskLogsCompanion(dirty: Value(false)));
       await delete(syncTombstones).go();
+    });
+  }
+
+  /// Every task, day mark and timer run on this device, gone.
+  ///
+  /// What a phone needs when a **different** account signs in: the local
+  /// database has no notion of who owns a row — there is no `user_id` column
+  /// here and there never was — so the previous account's tasks are simply
+  /// still on the screen, editable, and confusingly half-connected to a server
+  /// that will not take them. Nothing but removing them makes the app tell the
+  /// truth about whose data it is showing.
+  ///
+  /// Only this account's *tasks*: the tombstones of notes are the diary twin's
+  /// to drop, and the two run together.
+  ///
+  /// Sessions go too. An open one is a timer running right now, and a timer
+  /// belonging to a task that no longer exists would keep ticking against
+  /// nothing — [startTimer] banks a run left open by a crash, and there would be
+  /// no row left to bank it into.
+  Future<void> wipeAllTasks() {
+    return transaction(() async {
+      await delete(taskLogs).go();
+      await delete(groupMarks).go();
+      await delete(taskSessions).go();
+      await delete(tasks).go();
+      await delete(groupMembers).go();
+      await delete(taskGroups).go();
+      await (delete(
+        syncTombstones,
+      )..where((t) => t.sourceTable.equals(tasks.actualTableName))).go();
+    });
+  }
+
+  /// Gives every task a fresh identity and marks the lot to be sent again.
+  ///
+  /// For the one case where data stays on the device and changes hands: the
+  /// user signs in as somebody else and answers "upload" to the question about
+  /// what is already here. Without this the answer cannot be honoured at all.
+  ///
+  /// Two reasons, and either alone would be enough. A task that went up under
+  /// the previous account carries `dirty = false`, so nothing would ever offer
+  /// it to the new one. And its uid is the **primary key of a row the previous
+  /// account owns** on the server, so an upsert under the new account is
+  /// refused — the row cannot be inserted, and cannot be updated either, since
+  /// the policies show a client only its own rows. A new uuid is what makes it
+  /// this account's task rather than a claim on someone else's.
+  ///
+  /// The day marks keep their `(task, date)` identity and are re-keyed for free
+  /// by their task's new uid; they need the mark, and nothing else.
+  ///
+  /// The tombstones go: they name uids belonging to the other account, and
+  /// sending them would ask the server to delete that account's rows.
+  ///
+  /// One statement per task, because each needs its own uuid and SQLite has no
+  /// function that would generate one — the same bargain `_backfillUids` makes
+  /// in the migrations.
+  ///
+  /// Group tasks are not taken over: they belong to the groups the previous
+  /// account was in, and re-minted they would go up as this account's personal
+  /// copies of someone else's tasks. They go, with the groups; this account's
+  /// own groups arrive on its first pull.
+  Future<void> remintTaskUids() {
+    return transaction(() async {
+      await replaceGroups(const [], const []);
+      for (final task in await select(tasks).get()) {
+        await (update(tasks)..where((t) => t.id.equals(task.id))).write(
+          TasksCompanion(uid: Value(_uuid.v4()), dirty: const Value(true)),
+        );
+      }
+      await update(taskLogs).write(const TaskLogsCompanion(dirty: Value(true)));
+      await (delete(
+        syncTombstones,
+      )..where((t) => t.sourceTable.equals(tasks.actualTableName))).go();
     });
   }
 
@@ -647,6 +789,70 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
           .write(const TaskLogsCompanion(dirty: Value(false)));
     }
   }
+
+  /// Mirrors the server's answer to "which groups am I in, and with whom".
+  ///
+  /// Whole, not merged: the lists are small and the server is the only writer.
+  /// A group missing from [groups] is one this account left, was removed from,
+  /// or that was deleted — the server tells all three the same way, by no
+  /// longer showing it — so its tasks come off the device, with no tombstones:
+  /// the deletion is not news to anyone.
+  Future<void> replaceGroups(
+    List<TaskGroupsCompanion> groups,
+    List<GroupMembersCompanion> members,
+  ) {
+    return transaction(() async {
+      await delete(groupMembers).go();
+      await delete(taskGroups).go();
+      for (final group in groups) {
+        await into(taskGroups).insert(group);
+      }
+      for (final member in members) {
+        await into(groupMembers).insert(member);
+      }
+
+      final kept = [for (final group in groups) group.uid.value];
+      final gone = await (select(
+        tasks,
+      )..where((t) => t.groupUid.isNotNull() & t.groupUid.isNotIn(kept))).get();
+      for (final task in gone) {
+        await _deleteCascade(task.id);
+      }
+    });
+  }
+
+  /// The group of a task, or null when this device has no such group.
+  Future<TaskGroup?> groupByUid(String uid) =>
+      (select(taskGroups)..where((g) => g.uid.equals(uid))).getSingleOrNull();
+
+  /// Whether [userUid] may edit [task]: any personal task, and a group task
+  /// only as its author or the group's owner — what the server allows, see
+  /// `supabase/005_groups.sql`.
+  Future<bool> canEditTask(Task task, String userUid) async {
+    final groupUid = task.groupUid;
+    return canEditTaskAs(
+      task,
+      userUid,
+      groupOwnerUid: groupUid == null
+          ? null
+          : (await groupByUid(groupUid))?.ownerUid,
+    );
+  }
+
+  /// Another member's mark on a group task, as the server has it.
+  Future<void> applyGroupMark({
+    required int taskId,
+    required String userUid,
+    required DateTime date,
+    required bool completed,
+  }) => into(groupMarks).insertOnConflictUpdate(
+    GroupMarksCompanion.insert(
+      taskId: taskId,
+      userUid: userUid,
+      date: dayOf(date),
+      completed: Value(completed),
+    ),
+  );
 
   /// Removes a task the server says is gone, subtasks and logs and all.
   ///

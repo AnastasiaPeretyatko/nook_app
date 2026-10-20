@@ -52,7 +52,7 @@ void main() {
     test('the picker offers exactly the palette accents', () {
       expect(
         ColorPickerRow.colors.map((c) => c.toARGB32()),
-        taskPalette.map((s) => s.accent.toARGB32()),
+        pickableTaskPalette.map((s) => s.accent.toARGB32()),
       );
     });
 

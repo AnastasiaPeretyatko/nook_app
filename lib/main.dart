@@ -4,22 +4,26 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:todo_app/auth/supabase_init.dart';
+import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/pages/create_note_page.dart';
 import 'package:todo_app/pages/create_task_page.dart';
+import 'package:todo_app/pages/cycle_page.dart';
 import 'package:todo_app/pages/diary_page.dart';
 import 'package:todo_app/pages/habits_page.dart';
 import 'package:todo_app/pages/home_page.dart';
-import 'package:todo_app/pages/settings_page.dart';
+import 'package:todo_app/pages/tasks_page.dart';
 import 'package:todo_app/home_widget/home_widget_scope.dart';
 import 'package:todo_app/home_widget/providers.dart';
 import 'package:todo_app/home_widget/widget_actions.dart';
 import 'package:todo_app/notifications/providers.dart';
 import 'package:todo_app/notifications/task_reminder.dart';
 import 'package:todo_app/notifications/timer_notification.dart';
+import 'package:todo_app/settings/about_settings.dart';
 import 'package:todo_app/settings/app_version.dart';
 import 'package:todo_app/settings/notification_settings.dart';
 import 'package:todo_app/settings/theme_provider.dart';
 import 'package:todo_app/sync/sync_controller.dart';
+import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/utils/task_colors.dart';
 import 'package:todo_app/widgets/app_bottom_nav_bar.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
@@ -52,22 +56,35 @@ class MainScreen extends ConsumerStatefulWidget {
 
 class _MainScreenState extends ConsumerState<MainScreen>
     with SingleTickerProviderStateMixin {
-  /// The diary's slot in [_pages]. The centre button reads it to decide what it
-  /// creates, so the two lists and this constant have to stay in step.
-  static const int _diaryIndex = 2;
+  /// The tasks tab's slot — and so the one that carries the overdue badge.
+  /// Named, like the two constants after it, because the tabs have been
+  /// reordered twice already.
+  static const int _tasksIndex = 1;
 
-  /// The schedule's slot in [_pages] — where a tap on the home-screen widget
-  /// lands, that being the screen the widget is a small copy of.
-  static const int _homeIndex = 0;
+  /// The timeline's slot in the pages list — where the app opens, and where a tap on
+  /// the home-screen widget lands, that being the screen the widget is a small
+  /// copy of.
+  ///
+  /// Both the launch tab and the widget's target are named through it rather
+  /// than written out: a literal left behind by a reorder is what once opened
+  /// the app on the wrong screen.
+  static const int _timelineIndex = 2;
+
+  /// The diary's slot. The "+" button reads it to decide what it creates.
+  static const int _diaryIndex = 3;
+
+  /// The cycle tab's slot — last, and present only while the cycle is tracked.
+  /// It has no "+": nothing there is a task.
+  static const int _cycleIndex = 4;
 
   /// One tab change, start to finish — the same 300ms the nav bar's indicator
   /// takes to slide, so the bar and the page it points at arrive together.
   static const Duration _tabMotion = Duration(milliseconds: 300);
 
-  int _currentIndex = 1;
+  int _currentIndex = _timelineIndex;
 
   /// The tab being left behind, kept only for as long as it is still painted.
-  int _leavingIndex = 1;
+  int _leavingIndex = _timelineIndex;
 
   late final AnimationController _motion = AnimationController(
     vsync: this,
@@ -76,19 +93,41 @@ class _MainScreenState extends ConsumerState<MainScreen>
     value: 1,
   );
 
-  static const List<Widget> _pages = [
-    HomePage(),
-    HabitsPage(),
-    DiaryPage(),
-    SettingsPage(),
+  /// The "Иней" tabs (DESIGN.md §6, "Навигация"). Settings are not one: they
+  /// open from the profile button on the habits tab.
+  static List<Widget> _pagesFor({required bool cycle}) => [
+    const HabitsPage(),
+    const TasksPage(),
+    const HomePage(),
+    const DiaryPage(),
+    // Last, so that turning it on or off never moves another tab.
+    if (cycle) const CyclePage(),
   ];
 
-  static const List<AppNavItem> _navItems = [
-    AppNavItem(icon: LucideIcons.house, label: 'Home'),
-    AppNavItem(icon: LucideIcons.repeat, label: 'Привычки'),
-    AppNavItem(icon: LucideIcons.book_open, label: 'Дневник'),
-    AppNavItem(icon: LucideIcons.settings, label: 'Settings'),
+  static List<AppNavItem> _navItemsFor({required bool cycle}) => [
+    const AppNavItem(icon: LucideIcons.circle_check, label: 'Привычки'),
+    const AppNavItem(icon: LucideIcons.list, label: 'Задачи'),
+    const AppNavItem(icon: LucideIcons.git_commit_vertical, label: 'Таймлайн'),
+    const AppNavItem(icon: LucideIcons.file_text, label: 'Дневник'),
+    if (cycle) const AppNavItem(icon: LucideIcons.flower_2, label: 'Цикл'),
   ];
+
+  /// The bar's buttons for this frame: the nav items with the overdue count put on
+  /// the tasks tab, the screen those tasks are listed on.
+  ///
+  /// The number is read here and handed over. `AppBottomNavBar` draws what it is
+  /// given and knows nothing about tasks — it is on every screen, including the
+  /// two that have no tasks on them at all.
+  static List<AppNavItem> _navItemsWithBadge(
+    int overdueTasks, {
+    required bool cycle,
+  }) {
+    final items = _navItemsFor(cycle: cycle);
+    return [
+      for (var i = 0; i < items.length; i++)
+        i == _tasksIndex ? items[i].withBadge(overdueTasks) : items[i],
+    ];
+  }
 
   @override
   void initState() {
@@ -100,7 +139,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
     ref.listenManual<WidgetTapRequest?>(widgetTapProvider, (_, request) {
       switch (request?.action) {
         case WidgetTapAction.open:
-          _selectTab(_homeIndex);
+          _selectTab(_timelineIndex);
         case WidgetTapAction.create:
           _openTaskForm();
         case _:
@@ -126,6 +165,17 @@ class _MainScreenState extends ConsumerState<MainScreen>
 
   @override
   Widget build(BuildContext context) {
+    // The one-off tasks whose day has gone by unticked. Watched here, on the
+    // screen that owns the bar, so the badge is up to date on whichever tab the
+    // user is looking at — the tasks tab does not have to have been opened for
+    // the count to appear.
+    final overdueTasks = ref.watch(overdueTasksProvider).length;
+    final cycle = ref.watch(aboutSettingsProvider.select((a) => a.cycleOn));
+    final pages = _pagesFor(cycle: cycle);
+    // The cycle tab can vanish under a visit (settings switched off elsewhere).
+    if (_currentIndex >= pages.length) _currentIndex = _timelineIndex;
+    if (_leavingIndex >= pages.length) _leavingIndex = _currentIndex;
+
     return Scaffold(
       extendBody: true,
       // Rebuilt every frame of the motion, and that costs nothing: the four
@@ -134,14 +184,21 @@ class _MainScreenState extends ConsumerState<MainScreen>
       body: AnimatedBuilder(
         animation: _motion,
         builder: (context, _) => Stack(
-          children: [for (var i = 0; i < _pages.length; i++) _tabPage(i)],
+          children: [for (var i = 0; i < pages.length; i++) _tabPage(pages, i)],
         ),
       ),
+      floatingActionButton: _currentIndex == _cycleIndex
+          ? null
+          : _AddButton(
+              tooltip: _currentIndex == _diaryIndex
+                  ? 'Новая запись'
+                  : 'Новая задача',
+              onPressed: _onAddTap,
+            ),
       bottomNavigationBar: AppBottomNavBar(
-        items: _navItems,
+        items: _navItemsWithBadge(overdueTasks, cycle: cycle),
         currentIndex: _currentIndex,
         onTap: _selectTab,
-        onCenterTap: _onCenterTap,
       ),
     );
   }
@@ -160,7 +217,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
   /// semantics and focus. Not `Visibility.maintain` — that one maintains all
   /// six, so a screen reader would read four screens at once and a focus
   /// traversal could land in the search field of a diary nobody is looking at.
-  Widget _tabPage(int index) {
+  Widget _tabPage(List<Widget> pages, int index) {
     final t = _motion.value;
     final isCurrent = index == _currentIndex;
     final isLeaving = index == _leavingIndex && t < 1;
@@ -174,7 +231,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
       // is still on screen for another moment and must not.
       child: IgnorePointer(
         ignoring: !isCurrent,
-        child: _tabTransition(index, t: t),
+        child: _tabTransition(pages[index], index, t: t),
       ),
     );
   }
@@ -188,8 +245,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
   /// travels the other way. Nothing overlaps at any point of the motion, which
   /// is why there is no shadow here — the only seam is the join between the two,
   /// and it is off-screen the moment the sheet comes to rest.
-  Widget _tabTransition(int index, {required double t}) {
-    final page = _pages[index];
+  Widget _tabTransition(Widget page, int index, {required double t}) {
     // Settled: handed over bare, so no transform stands between the compositor
     // and a screen that is simply being looked at.
     if (t >= 1) return page;
@@ -211,42 +267,101 @@ class _MainScreenState extends ConsumerState<MainScreen>
     );
   }
 
-  /// The centre button is contextual: on the diary it opens the note editor,
+  /// The "+" button is contextual: on the diary it opens the note editor,
   /// everywhere else the task form. Both are pushed routes, so the button
   /// behaves the same way wherever it is pressed — only what it creates
-  /// changes. The nav bar stays unaware of pages: it only reports the tap.
-  void _onCenterTap() {
+  /// changes.
+  void _onAddTap() {
     if (_currentIndex == _diaryIndex) {
       Navigator.of(
         context,
       ).push(MaterialPageRoute(builder: (_) => const CreateNotePage()));
       return;
     }
-    _openTaskForm();
+    // On the day screen the form opens on the day being looked at: swipe the
+    // schedule to the 1st of September, press the button, and the task is the
+    // 1st of September's. No other tab has a day on it, so there the form keeps
+    // its own default of today.
+    _openTaskForm(
+      initialDate: _currentIndex == _timelineIndex
+          ? ref.read(selectedDayProvider)
+          : null,
+    );
   }
 
-  /// The task form, pushed. Two callers: the centre button, and
-  /// "Добавить задачу" on the home-screen widget.
-  void _openTaskForm() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const CreateTaskPage()));
+  /// The task form, as a bottom sheet. Two callers: the "+" button, and
+  /// "Добавить задачу" on the home-screen widget — which passes no day, the
+  /// widget only ever showing today.
+  void _openTaskForm({DateTime? initialDate}) =>
+      showCreateTaskSheet(context, initialDate: initialDate);
+}
+
+/// The floating "+" of every tab: a dark rounded square, light in the dark
+/// theme — the main action is drawn in the text colour, not the accent
+/// (DESIGN.md §1, §4: 56px, radius 20, 24 from the edge, 20 above the bar).
+class _AddButton extends StatelessWidget {
+  const _AddButton({required this.tooltip, required this.onPressed});
+
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(Theme.of(context));
+    final shape = BorderRadius.circular(20);
+    return Padding(
+      // On top of the 16 the scaffold's endFloat already leaves.
+      padding: const EdgeInsets.only(right: 8, bottom: 4),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: shape,
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x2E1B2230),
+              offset: Offset(0, 8),
+              blurRadius: 24,
+            ),
+          ],
+        ),
+        child: Material(
+          color: p.textPrimary,
+          borderRadius: shape,
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onPressed,
+            child: Tooltip(
+              message: tooltip,
+              child: SizedBox.square(
+                dimension: 56,
+                child: Icon(LucideIcons.plus, size: 24, color: p.background),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
 /// Builds a theme whose accent (primary) comes from [seed], while surfaces and
 /// backgrounds stay neutral so selecting a color only recolors elements, not
-/// the whole screen.
+/// the whole screen. The neutrals are the "Иней" tokens, [AppPalette].
 ///
 /// Public so tests can render a screen in the theme the app actually ships,
 /// rather than in `ThemeData.dark()`.
 ThemeData buildAppTheme(Color seed, Brightness brightness) {
   final isLight = brightness == Brightness.light;
+  final p = isLight ? AppPalette.light : AppPalette.dark;
 
-  // In dark theme a near-black accent is invisible, so apply it as white.
-  final accent = (!isLight && seed.computeLuminance() < 0.1)
-      ? Colors.white
-      : seed;
+  // One of the six accents takes its own dark tone. Any other colour (a test's)
+  // is used as given, except that a near-black one is invisible on the dark
+  // page and is applied as white.
+  final known = appAccents
+      .where((a) => a.light.toARGB32() == seed.toARGB32())
+      .firstOrNull;
+  final accent = isLight
+      ? seed
+      : known?.dark ?? (seed.computeLuminance() < 0.1 ? Colors.white : seed);
 
   final base = ColorScheme.fromSeed(seedColor: accent, brightness: brightness);
   // Whichever of black/white contrasts better with the accent. Not
@@ -261,52 +376,55 @@ ThemeData buildAppTheme(Color seed, Brightness brightness) {
     primary: accent,
     onPrimary: onAccent,
     surfaceTint: Colors.transparent,
-    surface: isLight ? Colors.white : const Color(0xFF121212),
-    onSurface: isLight ? const Color(0xFF1A1A1A) : const Color(0xFFECECEC),
-    onSurfaceVariant: isLight
-        ? const Color(0xFF6B6B6B)
-        : const Color(0xFFB0B0B0),
-    surfaceContainerLowest: isLight ? Colors.white : const Color(0xFF0D0D0D),
-    surfaceContainerLow: isLight
-        ? const Color(0xFFF7F7F7)
-        : const Color(0xFF1A1A1A),
-    surfaceContainer: isLight
-        ? const Color(0xFFF2F2F2)
-        : const Color(0xFF1E1E1E),
-    surfaceContainerHigh: isLight
-        ? const Color(0xFFECECEC)
-        : const Color(0xFF282828),
-    surfaceContainerHighest: isLight
-        ? const Color(0xFFE6E6E6)
-        : const Color(0xFF333333),
-    outlineVariant: isLight ? const Color(0xFFDADADA) : const Color(0xFF3A3A3A),
+    // A card is `surface`; the page under it is `p.background`. The container
+    // ladder climbs from the card through the chip tones, lightest = most
+    // raised in the dark theme, where a shadow shows nothing.
+    surface: p.surface,
+    onSurface: p.textPrimary,
+    onSurfaceVariant: p.textSecondary,
+    surfaceContainerLowest: p.background,
+    surfaceContainerLow: p.surface,
+    surfaceContainer: p.surfaceMuted,
+    surfaceContainerHigh: p.chip,
+    surfaceContainerHighest: isLight ? p.segmentTrack : p.segmentSelected,
+    outline: p.outline,
+    outlineVariant: p.border,
+    error: p.danger,
+    onError: isLight ? Colors.white : AppPalette.dark.background,
   );
 
   return ThemeData(
     brightness: brightness,
     colorScheme: scheme,
-    scaffoldBackgroundColor: scheme.surface,
-    // The whole app is Nunito. Set on the theme rather than per style, so every
+    scaffoldBackgroundColor: p.background,
+    extensions: [p],
+    // The whole app is Onest. Set on the theme rather than per style, so every
     // widget that reads a text style off the theme — including the ones inside
     // the framework and the note editor — gets it without being told. The
     // family is bundled in `assets/fonts`; see the `fonts:` block in
     // pubspec.yaml for which weights exist. A weight that is not there resolves
     // to the nearest one that is, so nothing is ever left without a face.
-    fontFamily: 'Nunito',
-    // One switch look for the whole app: an accent thumb on a half-strength
-    // accent track. That is what a bare `activeThumbColor` used to produce in
-    // the task form — Flutter derives the track from the thumb with alpha 0x80
-    // when only the thumb is given — while a switch with no override at all
-    // took the M3 default of a solid accent track and an `onPrimary` thumb.
-    // Only the selected state is spelled out; returning null anywhere else
-    // keeps the M3 default, so the off and disabled states stay neutral.
+    fontFamily: 'Onest',
+    // One switch look for the whole app. On: an accent thumb on a half-strength
+    // accent track. Off: a white thumb (a soft white in the dark theme) on the
+    // palette's off track, with no outline — the M3 default draws an outlined
+    // grey ring there, which read as a disabled control. Disabled stays dim.
     switchTheme: SwitchThemeData(
-      thumbColor: WidgetStateProperty.resolveWith(
-        (states) => _switchIsOn(states) ? accent : null,
-      ),
-      trackColor: WidgetStateProperty.resolveWith(
-        (states) => _switchIsOn(states) ? accent.withValues(alpha: 0.5) : null,
-      ),
+      thumbColor: WidgetStateProperty.resolveWith((states) {
+        final disabled = states.contains(WidgetState.disabled);
+        final colour = states.contains(WidgetState.selected)
+            ? accent
+            : (isLight ? Colors.white : p.textPrimary);
+        return disabled ? colour.withValues(alpha: 0.5) : colour;
+      }),
+      trackColor: WidgetStateProperty.resolveWith((states) {
+        final disabled = states.contains(WidgetState.disabled);
+        final colour = states.contains(WidgetState.selected)
+            ? accent.withValues(alpha: 0.5)
+            : p.switchOff;
+        return disabled ? colour.withValues(alpha: 0.5) : colour;
+      }),
+      trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
     ),
     // A `FilledButton` is an accent-filled control, so its label is the brand
     // ink — one recognisable white on every accent — and not the scheme's
@@ -327,10 +445,6 @@ ThemeData buildAppTheme(Color seed, Brightness brightness) {
 }
 
 /// A switch that is on and touchable — the only state [buildAppTheme] repaints.
-bool _switchIsOn(Set<WidgetState> states) =>
-    states.contains(WidgetState.selected) &&
-    !states.contains(WidgetState.disabled);
-
 class MyApp extends ConsumerStatefulWidget {
   const MyApp({super.key});
 
@@ -393,9 +507,7 @@ class _MyAppState extends ConsumerState<MyApp> {
       // Wrapped around the app rather than placed on a screen: syncing has to
       // keep up while the diary is nowhere in sight, and the lifecycle events
       // it listens for belong to the whole app. It draws nothing.
-      home: const SyncScope(
-        child: HomeWidgetScope(child: MainScreen()),
-      ),
+      home: const SyncScope(child: HomeWidgetScope(child: MainScreen())),
     );
   }
 }

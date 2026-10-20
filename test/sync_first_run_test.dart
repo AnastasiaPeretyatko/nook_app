@@ -135,14 +135,29 @@ void main() {
       expect(await dao.pendingTombstones(), isEmpty);
     });
 
-    test('does not clear the catalogues', () async {
-      // Deliberate, and load-bearing. A mood is not a note; both devices
-      // already carry the same eight seeded ones; and above all, a link sent
-      // for some *future* note would be rejected by Postgres outright if the
-      // label it points at had never been uploaded.
+    test('clears the catalogues too', () async {
+      // A tag somebody invented is unsent data of theirs exactly as a note is,
+      // and leaving its mark on would send it up on the next run while the
+      // dialog said nothing would go. The answer has to reach every table it
+      // claimed to.
+      await dao.insertTag(name: 'Личное', colorKey: 'violet');
+      await dao.insertMood(name: 'Вдохновение', emoji: '✨');
+
       await dao.keepExistingEntriesLocal();
 
-      expect(await dao.pendingMoods(), hasLength(8));
+      expect(await dao.pendingTags(), isEmpty);
+      expect(await dao.pendingMoods(), isEmpty);
+    });
+
+    test('a label edited afterwards does go up', () async {
+      await dao.insertTag(name: 'Личное', colorKey: 'violet');
+      await dao.keepExistingEntriesLocal();
+
+      await dao.insertTag(name: 'Работа', colorKey: 'blue');
+
+      // The same bargain the notes get: "не загружать" is about what is here
+      // now, not a promise never to sync anything again.
+      expect((await dao.pendingTags()).map((t) => t.name), ['Работа']);
     });
 
     test('a note edited afterwards does go up', () async {

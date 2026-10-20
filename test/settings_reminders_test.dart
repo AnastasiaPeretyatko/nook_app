@@ -3,10 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:todo_app/notifications/providers.dart';
-import 'package:todo_app/pages/notifications_page.dart';
 import 'package:todo_app/pages/settings_page.dart';
 import 'package:todo_app/settings/notification_settings.dart';
 import 'package:todo_app/settings/theme_provider.dart';
+import 'package:todo_app/widgets/settings/notifications_section.dart';
 
 /// Stands in for the platform: the real notifier talks to the plugin, which is
 /// not there in a test, and what matters here is only *when* the screen asks.
@@ -81,13 +81,17 @@ Future<void> _pumpNotifications(
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
-      child: const MaterialApp(home: NotificationsPage()),
+      child: MaterialApp(
+        home: Scaffold(
+          body: ListView(children: const [NotificationsSection()]),
+        ),
+      ),
     ),
   );
   await tester.pumpAndSettle();
 }
 
-/// The settings list, which now only reports on reminders and leads to them.
+/// The whole settings screen, reminders block included.
 Future<void> _pumpSettings(
   WidgetTester tester,
   ProviderContainer container,
@@ -101,13 +105,8 @@ Future<void> _pumpSettings(
   await tester.pumpAndSettle();
 }
 
-/// The reminders switch specifically.
-///
-/// Named rather than "the only `SwitchListTile` on the screen": it is that
-/// again now that exact alarms have no row, but it has already stopped being it
-/// twice, and `tester.widget<SwitchListTile>` throws on two matches rather than
-/// picking one.
-Finder _switch() => find.widgetWithText(SwitchListTile, 'Включить уведомления');
+/// The reminders switch: the only one in the block.
+Finder _switch() => find.byType(Switch);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -206,8 +205,8 @@ void main() {
       addTearDown(container.dispose);
       await _pumpNotifications(tester, container);
 
-      expect(find.text('Включить уведомления'), findsOneWidget);
-      expect(tester.widget<SwitchListTile>(_switch()).value, isTrue);
+      expect(find.text('Напоминания'), findsOneWidget);
+      expect(tester.widget<Switch>(_switch()).value, isTrue);
     });
 
     testWidgets('tapping it turns reminders off', (tester) async {
@@ -218,7 +217,7 @@ void main() {
       await tester.tap(_switch());
       await tester.pumpAndSettle();
 
-      expect(tester.widget<SwitchListTile>(_switch()).value, isFalse);
+      expect(tester.widget<Switch>(_switch()).value, isFalse);
       expect(container.read(taskRemindersEnabledProvider), isFalse);
     });
 
@@ -229,7 +228,7 @@ void main() {
       addTearDown(container.dispose);
       await _pumpNotifications(tester, container);
 
-      expect(tester.widget<SwitchListTile>(_switch()).value, isFalse);
+      expect(tester.widget<Switch>(_switch()).value, isFalse);
     });
 
     testWidgets('it cannot read "on" while the system says no', (tester) async {
@@ -240,7 +239,7 @@ void main() {
       addTearDown(container.dispose);
       await _pumpNotifications(tester, container);
 
-      expect(tester.widget<SwitchListTile>(_switch()).value, isFalse);
+      expect(tester.widget<Switch>(_switch()).value, isFalse);
       // Underneath, the wish is untouched: it is what the permission being
       // granted later has to restore.
       expect(container.read(taskRemindersEnabledProvider), isTrue);
@@ -253,7 +252,7 @@ void main() {
       addTearDown(container.dispose);
       await _pumpNotifications(tester, container);
 
-      expect(tester.widget<SwitchListTile>(_switch()).value, isTrue);
+      expect(tester.widget<Switch>(_switch()).value, isTrue);
     });
 
     testWidgets('a blocked switch sends the user to the system screen', (
@@ -296,7 +295,7 @@ void main() {
       addTearDown(container.dispose);
       await _pumpNotifications(tester, container);
 
-      expect(find.text('Напоминать за'), findsNothing);
+      expect(find.text('Напоминать заранее'), findsNothing);
     });
 
     testWidgets('turning the switch on asks for the permission', (
@@ -395,7 +394,7 @@ void main() {
       addTearDown(container.dispose);
       await _pumpNotifications(tester, container);
 
-      expect(find.widgetWithText(ListTile, 'Напоминать за'), findsOneWidget);
+      expect(find.text('Напоминать заранее'), findsOneWidget);
       expect(find.text('Вовремя'), findsOneWidget);
     });
 
@@ -412,7 +411,7 @@ void main() {
       addTearDown(container.dispose);
       await _pumpNotifications(tester, container);
 
-      await tester.tap(find.text('Напоминать за'));
+      await tester.tap(find.text('Напоминать заранее'));
       await tester.pumpAndSettle();
       // Only in the sheet: the row shows the lead in force, which is not this
       // one, so there is no second widget with the same words.
@@ -431,7 +430,7 @@ void main() {
       addTearDown(container.dispose);
       await _pumpNotifications(tester, container);
 
-      expect(find.text('Напоминать за'), findsNothing);
+      expect(find.text('Напоминать заранее'), findsNothing);
     });
 
     testWidgets('exact alarms get no row of their own', (tester) async {
@@ -442,7 +441,7 @@ void main() {
       addTearDown(container.dispose);
       await _pumpNotifications(tester, container);
 
-      expect(find.byType(SwitchListTile), findsOneWidget);
+      expect(find.byType(Switch), findsOneWidget);
       expect(find.text('Напоминания приходят с опозданием'), findsOneWidget);
     });
 
@@ -500,86 +499,29 @@ void main() {
     });
   });
 
-  group('the summary line', () {
-    test('names the lead while everything is in order', () {
-      expect(
-        reminderSummaryLabel(
-          enabled: true,
-          notificationsAllowed: true,
-          leadMinutes: 5,
-        ),
-        'Напоминают за 5 минут',
-      );
-      expect(
-        reminderSummaryLabel(
-          enabled: true,
-          notificationsAllowed: null,
-          leadMinutes: 0,
-        ),
-        'Напоминают вовремя',
-      );
-    });
-
-    test('the phone refusing is what the line reports', () {
-      expect(
-        reminderSummaryLabel(
-          enabled: true,
-          notificationsAllowed: false,
-          leadMinutes: 5,
-        ),
-        'Выключены в настройках телефона',
-      );
-    });
-
-    test('switched off is switched off, whatever the phone says', () {
-      // The user's own "no" is not a problem to be reported, so it wins over
-      // the permission — there is nothing left to fix.
-      expect(
-        reminderSummaryLabel(
-          enabled: false,
-          notificationsAllowed: false,
-          leadMinutes: 5,
-        ),
-        'Выключены',
-      );
-    });
-  });
-
-  group('the settings row', () {
-    testWidgets('reports the state and leads to the screen', (tester) async {
-      final container = await _container(prefs: {'reminder_lead_minutes': 10});
-      addTearDown(container.dispose);
-      await _pumpSettings(tester, container);
-
-      expect(find.text('Уведомления'), findsOneWidget);
-      expect(find.text('Напоминают за 10 минут'), findsOneWidget);
-      // No switch of its own: the row cannot say what the screen says, so it
-      // does not try.
-      expect(_switch(), findsNothing);
-
-      await tester.tap(find.text('Уведомления'));
-      await tester.pumpAndSettle();
-
-      expect(_switch(), findsOneWidget);
-    });
-
-    testWidgets('a phone that refuses is visible from the list', (
-      tester,
-    ) async {
-      final container = await _container(permission: _FakePermission(false));
-      addTearDown(container.dispose);
-      await _pumpSettings(tester, container);
-
-      expect(find.text('Выключены в настройках телефона'), findsOneWidget);
-    });
-
-    testWidgets('the other rows are still there', (tester) async {
+  group('the settings screen', () {
+    testWidgets('holds every block, reminders included', (tester) async {
+      // Tall enough for the whole list: a ListView builds only what shows.
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(800, 3000);
+      addTearDown(tester.view.reset);
       final container = await _container();
       addTearDown(container.dispose);
       await _pumpSettings(tester, container);
 
-      expect(find.text('Внешний вид'), findsOneWidget);
-      expect(find.text('Синхронизация'), findsOneWidget);
+      // Captions are drawn in capitals.
+      expect(find.text('ВНЕШНИЙ ВИД'), findsOneWidget);
+      expect(find.text('ПРИВЫЧКИ И АНАЛИТИКА'), findsOneWidget);
+      expect(find.text('УВЕДОМЛЕНИЯ'), findsOneWidget);
+      expect(find.text('Напоминать заранее'), findsOneWidget);
+    });
+
+    testWidgets('has no "Данные" block any more', (tester) async {
+      final container = await _container();
+      addTearDown(container.dispose);
+      await _pumpSettings(tester, container);
+
+      expect(find.text('ДАННЫЕ'), findsNothing);
     });
   });
 }

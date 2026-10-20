@@ -51,6 +51,63 @@ class Tasks extends Table {
 
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
   DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
+
+  /// The [TaskGroups.uid] this task is shared in; null for a personal task.
+  /// Fixed at creation — the server ignores a change, see
+  /// `supabase/005_groups.sql`.
+  TextColumn get groupUid => text().nullable()();
+
+  /// Which member the group task is handed to; null means "for everyone",
+  /// each member ticking it for themselves.
+  TextColumn get assigneeUid => text().nullable()();
+
+  /// Who wrote the group task — with the group's owner, the only one who may
+  /// edit it. Null for a personal task: on this device that is always "me".
+  TextColumn get authorUid => text().nullable()();
+}
+
+/// A group this account is in. Mirrored whole from the server on every sync —
+/// never edited here, so it carries no sync marks. Changes go through the
+/// server functions of `supabase/005_groups.sql`.
+///
+/// `task_groups`, not `groups`: GROUPS is an SQLite keyword.
+class TaskGroups extends Table {
+  TextColumn get uid => text()();
+  TextColumn get name => text()();
+  TextColumn get ownerUid => text()();
+
+  @override
+  Set<Column> get primaryKey => {uid};
+}
+
+/// The current members of [TaskGroups], with the name and picture each one
+/// published. Mirrored whole like the groups.
+class GroupMembers extends Table {
+  TextColumn get groupUid => text()();
+  TextColumn get userUid => text()();
+  TextColumn get displayName => text().nullable()();
+  TextColumn get avatarUrl => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {groupUid, userUid};
+}
+
+/// **Other members'** marks on group tasks — what "2 из 3" is read from.
+///
+/// A table apart from [TaskLogs] on purpose: that one holds exactly one row per
+/// task and day, and everything that ticks, counts and reads a habit relies on
+/// it. Here the key carries the member too. Only ever written by a pull, never
+/// sent: a member's marks are theirs to change.
+class GroupMarks extends Table {
+  IntColumn get taskId => integer().references(Tasks, #id)();
+  TextColumn get userUid => text()();
+
+  /// Local midnight, like [TaskLogs.date].
+  DateTimeColumn get date => dateTime()();
+  BoolColumn get completed => boolean().withDefault(const Constant(false))();
+
+  @override
+  Set<Column> get primaryKey => {taskId, userUid, date};
 }
 
 /// One task's answer for one day: ticked, and how much of it was done.
@@ -89,6 +146,12 @@ class TaskLogs extends Table {
   DateTimeColumn get date => dateTime()();
   BoolColumn get completed => boolean().withDefault(const Constant(false))();
   RealColumn get value => real().nullable()();
+
+  /// The moment the day was ticked; null while it is not, and on every row
+  /// ticked before v17 — that time was never recorded and cannot be recovered.
+  /// Not [date] with a time on it: [date] is half of the row's key. No default,
+  /// for the reason spelled out on [updatedAt].
+  DateTimeColumn get completedAt => dateTime().nullable()();
 
   /// Changed here and not yet sent. See [SyncTombstones].
   BoolColumn get dirty => boolean().withDefault(const Constant(true))();
@@ -329,4 +392,53 @@ class SyncTombstones extends Table {
   /// tombstone re-written after a failed send must replace rather than pile up.
   @override
   Set<Column> get primaryKey => {sourceTable, uid};
+}
+
+/// What a woman marked on one day of her cycle (`CycleDay.dc.html`): the flow,
+/// the mood, symptoms, discharge, the pill, sex and a note.
+///
+/// **One row per calendar day, and the day is the identity** — the same shape as
+/// [TaskLogs], for the same reason: two phones that marked one day converge on
+/// the pair `(user, date)` without anything having to merge them. So there is no
+/// `uid` here and no tombstone: taking a mark back saves the day *empty* (flow 0,
+/// the rest unset) rather than deleting the row, which is how a task log keeps
+/// `completed = false`. An empty row is not shown anywhere as a mark.
+///
+/// The options are small integers, **indexes into the lists in
+/// `utils/cycle_marks.dart`** — they travel to the server as numbers, so the
+/// order of those lists is a stored format and may only ever be appended to.
+///
+/// Health data: it goes up only while "Синхронизировать цикл" is on, and the
+/// server shows it to its owner alone. See `supabase/008_cycle_sync.sql`.
+@TableIndex(name: 'cycle_days_date', unique: true, columns: {#date})
+class CycleDays extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  /// The calendar day, as **local midnight** — see [TaskLogs.date].
+  DateTimeColumn get date => dateTime()();
+
+  /// 0 = none … 4 = heavy.
+  IntColumn get flow => integer().withDefault(const Constant(0))();
+
+  /// Null = not marked.
+  IntColumn get mood => integer().nullable()();
+
+  /// The chosen symptoms, as comma-separated indexes: `"0,3"`. Empty = none.
+  TextColumn get symptoms => text().withDefault(const Constant(''))();
+  IntColumn get discharge => integer().nullable()();
+
+  /// 0 = no, 1 = protected, 2 = unprotected; null = not marked.
+  IntColumn get sex => integer().nullable()();
+  BoolColumn get pill => boolean().withDefault(const Constant(false))();
+  TextColumn get note => text().nullable()();
+
+  /// Changed here and not yet sent. See [SyncTombstones].
+  BoolColumn get dirty => boolean().withDefault(const Constant(true))();
+
+  /// When the device last changed the day; the merge compares it. The epoch
+  /// default is a bare constant for the reason spelled out on
+  /// [TaskLogs.updatedAt] — and every write in `CycleDao` passes a real one.
+  DateTimeColumn get updatedAt => dateTime().withDefault(
+    Constant(DateTime.fromMillisecondsSinceEpoch(0)),
+  )();
 }

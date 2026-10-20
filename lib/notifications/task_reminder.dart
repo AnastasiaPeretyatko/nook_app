@@ -1,4 +1,5 @@
 import 'package:todo_app/database/app_database.dart';
+import 'package:todo_app/utils/last_done.dart';
 import 'package:todo_app/utils/recurrence.dart';
 
 /// A reminder the shade should fire for one occurrence of a task.
@@ -23,8 +24,13 @@ class TaskReminder {
   /// The instant it should fire — the occurrence's own time less the lead the
   /// user asked for, so it may fall on the day before an early-morning task.
   final DateTime at;
+
+  /// "Медитация в 22:00" — the task's name and the time it is for.
   final String title;
-  final String body;
+
+  /// The second line: a habit's streak ("Серия 4 дня — не прерывай её"). Null
+  /// for a one-off task and for a habit with no streak worth naming.
+  final String? body;
 
   /// What the reminder would say and when. Compared against an already
   /// scheduled one so a renamed or re-timed task is rescheduled rather than
@@ -65,7 +71,10 @@ const maxScheduledReminders = 64;
 ///
 /// [leadMinutes] moves every reminder that far ahead of the time its task
 /// carries. The task's own time still names the occurrence and still is what the
-/// body says; only the firing instant moves.
+/// title says; only the firing instant moves.
+///
+/// [logs] should be the whole history, not just the window: a streak is counted
+/// back from the occurrence for as far as the marks go.
 List<TaskReminder> taskRemindersFor({
   required List<Task> tasks,
   required List<TaskLog> logs,
@@ -109,8 +118,10 @@ List<TaskReminder> taskRemindersFor({
           taskId: task.id,
           day: day,
           at: at,
-          title: task.title,
-          body: _body(startMinutes, task.endTimeMinutes, lead),
+          title: _title(task.title, startMinutes, task.endTimeMinutes),
+          body: task.repeatType == null
+              ? null
+              : _streakBody(_streakBefore(task, day, completedDays)),
         ),
       );
     }
@@ -124,15 +135,40 @@ List<TaskReminder> taskRemindersFor({
   return reminders.length <= limit ? reminders : reminders.sublist(0, limit);
 }
 
-String _body(int startMinutes, int? endMinutes, int leadMinutes) {
+String _title(String name, int startMinutes, int? endMinutes) {
   final start = _fmtTime(startMinutes);
-  final when = endMinutes == null || endMinutes <= startMinutes
-      ? start
-      : '$start – ${_fmtTime(endMinutes)}';
-  // Abbreviated to "мин" rather than declined: the lead is what changes here,
-  // and no spelling of it needs a plural rule.
-  return leadMinutes > 0 ? 'Через $leadMinutes мин · $when' : when;
+  return endMinutes == null || endMinutes <= startMinutes
+      ? '$name в $start'
+      : '$name с $start до ${_fmtTime(endMinutes)}';
 }
+
+/// How many scheduled occurrences of [task] in a row were marked, counting back
+/// from the one before [day]. Days the rule skips neither add nor break it.
+///
+/// Counted from what is marked **now**: an occurrence between today and [day]
+/// that is not marked yet ends the streak, so a reminder scheduled for later in
+/// the week names no streak until the days before it are done — better silent
+/// than promising a streak that may not survive. The list is recomputed on
+/// every tick, which is when it fills in.
+int _streakBefore(Task task, DateTime day, Set<(int, DateTime)> done) {
+  final first = taskAnchorDate(task);
+  var count = 0;
+  var d = DateTime(day.year, day.month, day.day - 1);
+  // The ceiling keeps a habit that is hardly ever scheduled from walking years.
+  for (var i = 0; i < 400 && !d.isBefore(first); i++) {
+    if (isTaskScheduledOn(task, d)) {
+      if (!done.contains((task.id, d))) break;
+      count++;
+    }
+    d = DateTime(d.year, d.month, d.day - 1);
+  }
+  return count;
+}
+
+/// Only a streak of two or more is worth a line: "Серия 1 день" says nothing.
+String? _streakBody(int streak) => streak < 2
+    ? null
+    : 'Серия $streak ${pluralRu(streak, 'день', 'дня', 'дней')} — не прерывай её';
 
 String _fmtTime(int minutes) {
   final normalized = minutes % (24 * 60);

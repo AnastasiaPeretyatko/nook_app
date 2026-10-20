@@ -199,13 +199,10 @@ class WidgetPalette {
   /// constants, so the widget cannot drift away from the app the way a copied
   /// hex value always eventually does.
   factory WidgetPalette.fromScheme(ColorScheme scheme) {
-    // In the dark theme the card is the next surface up rather than the
-    // background itself: a widget lies on the wallpaper, and #121212 against a
-    // dark photo is not a card, it is a hole. The light theme's surface is
-    // already white, which on any wallpaper reads as one.
-    final card = scheme.brightness == Brightness.light
-        ? scheme.surface
-        : scheme.surfaceContainerLow;
+    // The card tone, not the page under it: a widget lies on the wallpaper,
+    // and the near-black page against a dark photo is not a card, it is a
+    // hole. `buildAppTheme` keeps the page out of `surface` in both themes.
+    final card = scheme.surface;
     return WidgetPalette(
       card: card.toARGB32(),
       title: flattenOn(card, scheme.onSurface).toARGB32(),
@@ -298,12 +295,7 @@ TodayWidgetPayload buildTodayWidgetPayload({
     );
   }
 
-  return TodayWidgetPayload(
-    days: days,
-    light: light,
-    dark: dark,
-    mode: mode,
-  );
+  return TodayWidgetPayload(days: days, light: light, dark: dark, mode: mode);
 }
 
 WidgetTask _rowFor(Task task, {required bool done}) {

@@ -4,21 +4,24 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:table_calendar/table_calendar.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/pages/habits_page.dart';
 import 'package:todo_app/settings/theme_provider.dart';
-import 'package:todo_app/widgets/home/task_calendar.dart';
+import 'package:todo_app/pages/home_page.dart';
 
-/// The two screens' top headings — "27 августа ЧТ" over the habits and
-/// "Август 2026" over the day screen — are written in the same style and have
-/// to come out the same size, at every system font size and not only at 1.0.
+/// The two screens' top headings — the date and "Привычки" over the habits, the
+/// month over the timeline — have to grow with the system font size, not
+/// only sit right at 1.0.
 ///
-/// They did not: the habits one was a bare `RichText`, which defaults to
+/// They once did not: the habits one was a bare `RichText`, which defaults to
 /// `TextScaler.noScaling`, while the calendar's month is a `Text` and reads
 /// `MediaQuery.textScalerOf`. Nothing in either style said so, which is why
 /// this is pinned rather than left to a reading of the two files.
+///
+/// The month is read out of `DateFormat`, never spelled into the test: a
+/// literal "августа" made this pass in August only.
 void main() {
   const scale = 1.5;
   late SharedPreferences prefs;
@@ -69,30 +72,26 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     // Read out now: the second tree replaces this one, and a paragraph held
     // across the swap is a render object that has been taken down.
-    final habits = paragraph(tester, 'августа');
-    final habitsSize = habits.text.style?.fontSize;
-    final habitsScaler = habits.textScaler;
+    final now = DateTime.now();
+    final dateScaler = paragraph(
+      tester,
+      // "октября": the month as it reads after a day number. Alone, `MMMM`
+      // gives the nominative "октябрь", which the heading never shows.
+      DateFormat('d MMMM', 'ru_RU').format(now).split(' ').last,
+    ).textScaler;
+    final titleScaler = paragraph(tester, 'Привычки').textScaler;
 
-    await tester.pumpWidget(
-      wrap(
-        Scaffold(
-          body: TaskCalendar(
-            focusedDay: DateTime.now(),
-            selectedDay: DateTime.now(),
-            calendarFormat: CalendarFormat.week,
-            onDaySelected: (_, _) {},
-            onPageChanged: (_) {},
-            onTodayPressed: () {},
-          ),
-        ),
-      ),
-    );
+    // The month now heads the timeline screen itself, above its calendar.
+    await tester.pumpWidget(wrap(const HomePage()));
     await tester.pump(const Duration(milliseconds: 400));
-    final month = paragraph(tester, 'вгуст');
+    // Without its first letter: the calendar capitalises the month.
+    final month = paragraph(
+      tester,
+      DateFormat('LLLL', 'ru_RU').format(now).substring(1),
+    );
 
-    expect(habitsSize, isNotNull);
-    expect(habitsSize, month.text.style?.fontSize);
-    expect(habitsScaler, const TextScaler.linear(scale));
-    expect(habitsScaler, month.textScaler);
+    expect(dateScaler, const TextScaler.linear(scale));
+    expect(titleScaler, const TextScaler.linear(scale));
+    expect(month.textScaler, const TextScaler.linear(scale));
   });
 }
