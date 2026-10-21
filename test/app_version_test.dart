@@ -1,18 +1,27 @@
-import 'dart:io';
-
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:todo_app/settings/app_version.dart';
 
-void main() {
-  test('the version in settings is the version in pubspec.yaml', () {
-    final line = File(
-      'pubspec.yaml',
-    ).readAsLinesSync().firstWhere((l) => l.startsWith('version:'));
+Future<String> _label(String version, String build) {
+  PackageInfo.setMockInitialValues(
+    appName: 'Nook',
+    packageName: 'com.yourname.todo_app',
+    version: version,
+    buildNumber: build,
+    buildSignature: '',
+  );
+  final container = ProviderContainer();
+  addTearDown(container.dispose);
+  return container.read(appVersionLabelProvider.future);
+}
 
-    expect(appVersion, line.substring('version:'.length).trim());
+void main() {
+  test('the footer shows the installed version and build', () async {
+    expect(await _label('2.0.2', '5'), '2.0.2 (5)');
   });
 
-  test('the label spells the build number out', () {
-    expect(appVersionLabel, matches(RegExp(r'^\d+\.\d+\.\d+( \(\d+\))?$')));
+  test('without a build number it is the bare version', () async {
+    expect(await _label('2.0.2', ''), '2.0.2');
   });
 }

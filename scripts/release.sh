@@ -24,10 +24,6 @@ CODE=${VERSION#*+}
 [[ "$NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$CODE" =~ ^[0-9]+$ ]] \
   || { echo "pubspec version must look like 1.0.4+5, got '$VERSION'" >&2; exit 1; }
 
-# The Settings footer; test/app_version_test.dart guards the same thing.
-grep -q "^const appVersion = '$VERSION';" lib/settings/app_version.dart \
-  || { echo "bump appVersion in lib/settings/app_version.dart to '$VERSION' too" >&2; exit 1; }
-
 if [ -z "$DRY_RUN" ]; then
   # An update only installs over an app signed with the same key, so a release
   # signed with the debug key would strand everyone who installs it.
