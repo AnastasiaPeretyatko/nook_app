@@ -14,6 +14,7 @@ import 'package:todo_app/pages/groups_page.dart';
 import 'package:todo_app/pages/habits_page.dart';
 import 'package:todo_app/pages/home_page.dart';
 import 'package:todo_app/pages/tasks_page.dart';
+import 'package:todo_app/push/push_registration.dart';
 import 'package:todo_app/home_widget/home_widget_scope.dart';
 import 'package:todo_app/home_widget/providers.dart';
 import 'package:todo_app/home_widget/widget_actions.dart';
@@ -556,6 +557,7 @@ class _MyAppState extends ConsumerState<MyApp> {
   Widget build(BuildContext context) {
     final themeMode = ref.watch(themeModeProvider);
     final appColor = ref.watch(appColorProvider);
+    ref.watch(pushRegistrationProvider);
     return MaterialApp(
       title: appName,
       theme: buildAppTheme(appColor, Brightness.light),

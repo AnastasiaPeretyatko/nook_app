@@ -59,3 +59,7 @@ app.*.map.json
 docs/
 TASKS.md
 MEMORY.md
+
+# Firebase service-account keys: the key that sends push. Never commit.
+*service-account*.json
+*firebase-adminsdk*.json

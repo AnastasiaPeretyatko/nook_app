@@ -9,6 +9,7 @@ import 'package:todo_app/auth/providers.dart';
 import 'package:todo_app/auth/supabase_init.dart';
 import 'package:todo_app/auth/user_profile.dart';
 import 'package:todo_app/database/providers.dart';
+import 'package:todo_app/push/push_registration.dart';
 import 'package:todo_app/sync/first_sync.dart';
 import 'package:todo_app/sync/providers.dart';
 import 'package:todo_app/sync/sync_controller.dart';
@@ -146,6 +147,8 @@ class _AccountPageState extends ConsumerState<AccountPage> {
     });
     try {
       if (choice == _SignOutChoice.wipe && !await _clearDevice()) return;
+      // Before the session goes: afterwards nothing authorises the call.
+      await unregisterDevice(ref.read(supabaseClientProvider));
       await repo.signOut();
     } catch (error) {
       if (mounted) setState(() => _error = authErrorMessage(error));
