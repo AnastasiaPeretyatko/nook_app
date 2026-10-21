@@ -31,8 +31,10 @@ import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/utils/group_events.dart';
 import 'package:todo_app/utils/task_colors.dart';
 import 'package:todo_app/widgets/app_bottom_nav_bar.dart';
+import 'package:todo_app/update/providers.dart';
 import 'package:todo_app/widgets/app_toast.dart';
 import 'package:todo_app/widgets/member_avatar.dart';
+import 'package:todo_app/widgets/update_banner.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
 Future<void> main() async {
@@ -139,6 +141,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
   @override
   void initState() {
     super.initState();
+    // Once per launch; the banner appears only if GitHub has a newer build.
+    ref.read(updateProvider.notifier).check();
     // Taps on the home-screen widget that mean "open the app somewhere". They
     // are reported by `HomeWidgetScope` above this screen, because a launch has
     // to be caught before any screen is on it; acting on one needs a tab and a
@@ -249,10 +253,16 @@ class _MainScreenState extends ConsumerState<MainScreen>
                   : 'Новая задача',
               onPressed: _onAddTap,
             ),
-      bottomNavigationBar: AppBottomNavBar(
-        items: _navItemsWithBadge(overdueTasks, cycle: cycle),
-        currentIndex: _currentIndex,
-        onTap: _selectTab,
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const UpdateBanner(),
+          AppBottomNavBar(
+            items: _navItemsWithBadge(overdueTasks, cycle: cycle),
+            currentIndex: _currentIndex,
+            onTap: _selectTab,
+          ),
+        ],
       ),
     );
   }
