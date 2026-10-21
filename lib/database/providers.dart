@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:todo_app/auth/providers.dart';
+import 'package:todo_app/settings/group_settings.dart';
 import 'package:todo_app/utils/overdue.dart';
 import 'package:todo_app/utils/task_audience.dart';
 import 'app_database.dart';
@@ -95,7 +96,7 @@ final myUidProvider = Provider<String?>(
 /// The root tasks that are **mine** — see [TaskAudience.mine]. What the habits
 /// grid, the calendar, the reminders and the home-screen widget read, so none
 /// of them shows, reminds of or counts another member's task. A task handed to
-/// someone else is on [delegatedTasksProvider] instead.
+/// someone else is on [othersGroupTasksProvider] when its group asks for it.
 final rootTasksProvider = StreamProvider<List<Task>>((ref) {
   final me = ref.watch(myUidProvider);
   return ref
@@ -109,15 +110,23 @@ final rootTasksProvider = StreamProvider<List<Task>>((ref) {
       );
 });
 
-/// Group tasks I wrote and handed to another member. Derived from
-/// [allTasksProvider] rather than a query of its own, so a screen that is handed
-/// its tasks gets these from the same place.
-final delegatedTasksProvider = Provider<List<Task>>((ref) {
+/// Group tasks that are **not** mine — one I handed to another member, or
+/// another member's own — in the groups switched to "show all"
+/// ([groupsShowAllProvider]). What the day screen adds to [rootTasksProvider].
+/// Derived from [allTasksProvider] rather than a query of its own.
+final othersGroupTasksProvider = Provider<List<Task>>((ref) {
   final me = ref.watch(myUidProvider);
-  return [
+  final others = [
     for (final t in ref.watch(allTasksProvider).valueOrNull ?? const <Task>[])
-      if (t.parentId == null && taskAudience(t, me) == TaskAudience.delegated)
-        t,
+      if (t.parentId == null && !isMyTask(t, me)) t,
+  ];
+  // The setting is read only when there is something to filter, so a phone with
+  // no groups never asks for it.
+  if (others.isEmpty) return const [];
+  final showAll = ref.watch(groupsShowAllProvider);
+  return [
+    for (final t in others)
+      if (showAll.contains(t.groupUid)) t,
   ];
 });
 
@@ -160,11 +169,32 @@ final logsForDateProvider = StreamProvider.family<List<TaskLog>, DateTime>((
   ref,
   date,
 ) {
-  return ref.watch(tasksDaoProvider).watchLogsForDate(date);
+  final tasks = ref.watch(allTasksProvider).valueOrNull ?? const <Task>[];
+  final marks =
+      ref.watch(groupMarksProvider).valueOrNull ?? const <GroupMark>[];
+  return ref
+      .watch(tasksDaoProvider)
+      .watchLogsForDate(date)
+      .map(
+        (logs) => withSharedTicks(
+          logs,
+          tasks,
+          marks,
+          includes: (day) => day == DateTime(date.year, date.month, date.day),
+        ),
+      );
 });
 
+// The logs below count a tick by another member on a group task "for everyone"
+// as done (see [withSharedTicks]), so no screen needs a rule of its own for it.
 final allLogsProvider = StreamProvider<List<TaskLog>>((ref) {
-  return ref.watch(tasksDaoProvider).watchAllLogs();
+  final tasks = ref.watch(allTasksProvider).valueOrNull ?? const <Task>[];
+  final marks =
+      ref.watch(groupMarksProvider).valueOrNull ?? const <GroupMark>[];
+  return ref
+      .watch(tasksDaoProvider)
+      .watchAllLogs()
+      .map((logs) => withSharedTicks(logs, tasks, marks));
 });
 
 /// The one-off tasks whose day has passed with them still unticked — the rule is
@@ -245,5 +275,20 @@ final logsBetweenProvider = StreamProvider.family<List<TaskLog>, DateRange>((
   ref,
   range,
 ) {
-  return ref.watch(tasksDaoProvider).watchLogsBetween(range.start, range.end);
+  final tasks = ref.watch(allTasksProvider).valueOrNull ?? const <Task>[];
+  final marks =
+      ref.watch(groupMarksProvider).valueOrNull ?? const <GroupMark>[];
+  final from = DateTime(range.start.year, range.start.month, range.start.day);
+  final to = DateTime(range.end.year, range.end.month, range.end.day);
+  return ref
+      .watch(tasksDaoProvider)
+      .watchLogsBetween(range.start, range.end)
+      .map(
+        (logs) => withSharedTicks(
+          logs,
+          tasks,
+          marks,
+          includes: (day) => !day.isBefore(from) && day.isBefore(to),
+        ),
+      );
 });

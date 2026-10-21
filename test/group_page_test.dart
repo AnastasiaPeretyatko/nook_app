@@ -4,11 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/groups/groups_repository.dart';
 import 'package:todo_app/pages/groups_page.dart';
+import 'package:todo_app/settings/theme_provider.dart';
+import 'package:todo_app/sync/sync_controller.dart';
+import 'package:todo_app/sync/sync_service.dart';
 
 /// Only the two calls the invite sheet makes; anything else is a bug in the test.
 class _FakeRepo implements GroupsRepository {
@@ -24,6 +28,19 @@ class _FakeRepo implements GroupsRepository {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// Counts the manual syncs; the real controller would reach for Supabase.
+class _FakeSync extends SyncController {
+  _FakeSync(super.ref);
+
+  int runs = 0;
+
+  @override
+  Future<SyncOutcome> syncNow() async {
+    runs++;
+    return SyncOutcome.done;
+  }
+}
+
 /// The group screen (`Group.dc.html`): members, the filter, the list, the invite.
 void main() {
   const me = 'a';
@@ -33,6 +50,7 @@ void main() {
   final today = DateTime(now.year, now.month, now.day);
 
   late AppDatabase db;
+  late SharedPreferences prefs;
 
   Task task(
     int id,
@@ -66,6 +84,7 @@ void main() {
     WidgetTester tester, {
     String owner = me,
     _FakeRepo? repo,
+    List<Override> extra = const [],
   }) async {
     // The rows the ring writes to: ids line up with [tasks].
     await tester.runAsync(() async {
@@ -81,9 +100,13 @@ void main() {
         );
       }
     });
+    SharedPreferences.setMockInitialValues({});
+    prefs = await SharedPreferences.getInstance();
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
+          ...extra,
           databaseProvider.overrideWithValue(db),
           myUidProvider.overrideWithValue(me),
           groupsRepositoryProvider.overrideWithValue(repo),
@@ -160,7 +183,7 @@ void main() {
       expect(find.text(title), findsOneWidget);
     }
     expect(find.text('Все'), findsNWidgets(2)); // the chip and the pill
-    expect(find.text('Сегодня, 19:00 · 0 из 3'), findsOneWidget);
+    expect(find.text('Сегодня, 19:00 · ждёт'), findsOneWidget);
   });
 
   testWidgets('a member chip keeps their tasks and the shared ones', (
@@ -184,6 +207,41 @@ void main() {
     await tester.tap(find.text('Все').first);
     await tester.pumpAndSettle();
     expect(find.text('Вынести мусор'), findsOneWidget);
+  });
+
+  testWidgets('pulling the page down syncs now', (tester) async {
+    late _FakeSync sync;
+    await open(
+      tester,
+      extra: [
+        syncControllerProvider.overrideWith((ref) => sync = _FakeSync(ref)),
+      ],
+    );
+
+    await tester.fling(find.text('Семья'), const Offset(0, 400), 1000);
+    await tester.pumpAndSettle();
+
+    expect(sync.runs, 1);
+  });
+
+  testWidgets('"Все задачи на таймлайне" is off, and switching it on is kept', (
+    tester,
+  ) async {
+    await open(tester);
+    expect(find.text('Только назначенные на вас и на всех'), findsOneWidget);
+
+    await tester.tap(find.byType(Switch).first);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('В таймлайне и календаре — все задачи группы'),
+      findsOneWidget,
+    );
+    expect(prefs.getStringList('groups_show_all'), ['g1']);
+
+    await tester.tap(find.byType(Switch).first);
+    await tester.pumpAndSettle();
+    expect(prefs.getStringList('groups_show_all'), isEmpty);
   });
 
   testWidgets('the ring ticks a task that is mine', (tester) async {

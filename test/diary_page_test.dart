@@ -90,6 +90,23 @@ void main() {
     _prefs = await SharedPreferences.getInstance();
   });
 
+  group('an empty diary', () {
+    testWidgets('invites the first note, and a search with no hits does not', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_diary(const []));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Здесь будут ваши записи'), findsOneWidget);
+      expect(find.text('Написать запись'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), 'что-то');
+      await tester.pumpAndSettle();
+      expect(find.text('Ничего не найдено'), findsOneWidget);
+      expect(find.text('Написать запись'), findsNothing);
+    });
+  });
+
   group('the matching itself', () {
     test('several words mean all of them, in any order', () {
       final terms = searchTerms('  Молоко   ХЛЕБ ');

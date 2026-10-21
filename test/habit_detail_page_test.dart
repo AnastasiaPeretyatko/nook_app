@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +10,7 @@ import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/main.dart';
 import 'package:todo_app/pages/habit_detail_page.dart';
 import 'package:todo_app/pages/habits_page.dart';
+import 'package:todo_app/widgets/habits/habits_week.dart' show DashedBox;
 import 'package:todo_app/settings/theme_provider.dart';
 
 final _stamp = DateTime(2026, 1, 1);
@@ -135,6 +137,34 @@ void main() {
       expect(numbers, findsNWidgets(days));
     });
 
+    testWidgets('days ahead get a dashed outline only where the rule lands', (
+      tester,
+    ) async {
+      Finder dashed() => find.descendant(
+        of: find.byType(GridView).first,
+        matching: find.byWidgetPredicate(
+          (w) => w is CustomPaint && w.foregroundPainter is DashedBox,
+        ),
+      );
+      final last = DateTime(_today.year, _today.month + 1, 0).day;
+
+      // Daily: every day left in the month.
+      await _pump(tester, const HabitDetailPage(taskId: 1), [_habit(age: 1)]);
+      expect(dashed(), findsNWidgets(last - _today.day));
+
+      await tester.pumpWidget(
+        const SizedBox(),
+      ); // drop the first provider scope
+
+      // Weekly on today's weekday: only the same weekdays that are left.
+      final weekly = _habit(age: 1).copyWith(
+        repeatType: const Value(RepeatType.weekly),
+        repeatDaysMask: Value(1 << (_today.weekday - 1)),
+      );
+      await _pump(tester, const HabitDetailPage(taskId: 1), [weekly]);
+      expect(dashed(), findsNWidgets((last - _today.day) ~/ 7));
+    });
+
     testWidgets('a habit of one to three months gets a bar per week', (
       tester,
     ) async {
@@ -195,6 +225,29 @@ void main() {
     expect(find.text('Последние 12 месяцев'), findsNothing);
     expect(find.text('Каждый месяц'), findsNothing);
     expect(find.text('Во сколько выполняешь'), findsOneWidget);
+  });
+
+  testWidgets('a sideways swipe steps between the tabs and stops at the ends', (
+    tester,
+  ) async {
+    await _pump(tester, const HabitDetailPage(taskId: 1), [_habit()]);
+    await tester.tap(find.text('Месяц'));
+    await tester.pumpAndSettle();
+
+    // Right on the first tab: nowhere to go.
+    await tester.fling(find.text('Месяц'), const Offset(400, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(find.text('Последние 12 месяцев'), findsNothing);
+
+    // Left: next tab.
+    await tester.fling(find.text('Месяц'), const Offset(-400, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(find.text('Последние 12 месяцев'), findsOneWidget);
+
+    // Right: back.
+    await tester.fling(find.text('Год'), const Offset(400, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(find.text('Последние 12 месяцев'), findsNothing);
   });
 
   testWidgets('the time chart needs a time, and says when it runs', (

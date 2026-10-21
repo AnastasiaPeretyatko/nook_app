@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The "Сегодня" home-screen widget.
+<!-- The "Сегодня" home-screen widget, one design from 4×2 up to 4×4: the number
+     of rows follows the height, and the "Добавить задачу" line appears only
+     when there is room for it.
 
      Only the view types RemoteViews allows appear here: FrameLayout,
      LinearLayout, TextView, ImageView. Everything that carries a colour is an
@@ -28,10 +30,10 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
-        android:paddingLeft="16dp"
-        android:paddingTop="14dp"
-        android:paddingRight="16dp"
-        android:paddingBottom="12dp">
+        android:paddingLeft="14dp"
+        android:paddingTop="10dp"
+        android:paddingRight="14dp"
+        android:paddingBottom="10dp">
 
         <LinearLayout
             android:id="@+id/widget_header"
@@ -45,130 +47,64 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:fontFamily="@font/nunito_bold"
+                android:fontFamily="@font/onest_semibold"
                 android:includeFontPadding="false"
                 android:text="@string/widget_title"
-                android:textSize="17sp" />
-
-            <TextView
-                android:id="@+id/widget_date"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:fontFamily="@font/nunito_semibold"
-                android:includeFontPadding="false"
-                android:textSize="13sp" />
-
-            <ImageView
-                android:id="@+id/widget_calendar"
-                android:layout_width="17dp"
-                android:layout_height="17dp"
-                android:layout_marginStart="8dp"
-                android:contentDescription="@null"
-                android:src="@drawable/widget_ic_calendar" />
-        </LinearLayout>
-
-        <ImageView
-            android:id="@+id/widget_divider_top"
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginTop="12dp"
-            android:contentDescription="@null"
-            android:scaleType="fitXY"
-            android:src="@drawable/widget_hairline" />
-
-        <LinearLayout
-            android:id="@+id/widget_rows"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_marginTop="2dp"
-            android:layout_weight="1"
-            android:orientation="vertical" />
-
-        <TextView
-            android:id="@+id/widget_more"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="2dp"
-            android:fontFamily="@font/nunito_semibold"
-            android:includeFontPadding="false"
-            android:textSize="12sp"
-            android:visibility="gone" />
-
-        <ImageView
-            android:id="@+id/widget_divider_bottom"
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:contentDescription="@null"
-            android:scaleType="fitXY"
-            android:src="@drawable/widget_hairline" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <LinearLayout
-                android:id="@+id/widget_add"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <ImageView
-                    android:id="@+id/widget_add_icon"
-                    android:layout_width="15dp"
-                    android:layout_height="15dp"
-                    android:contentDescription="@null"
-                    android:src="@drawable/widget_ic_plus" />
-
-                <TextView
-                    android:id="@+id/widget_add_label"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:fontFamily="@font/nunito_semibold"
-                    android:includeFontPadding="false"
-                    android:text="@string/widget_add_task"
-                    android:textSize="13sp" />
-            </LinearLayout>
+                android:textSize="15sp" />
 
             <TextView
                 android:id="@+id/widget_progress_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:fontFamily="@font/nunito_semibold"
+                android:fontFamily="@font/onest_medium"
                 android:includeFontPadding="false"
                 android:textSize="12sp" />
+        </LinearLayout>
 
-            <!-- The progress bar, in two layers so that both of its colours can
-                 follow the theme: a groove that is a tinted shape, and a fill
-                 that is a bitmap drawn white and tinted with the accent. The
-                 fill has to be a bitmap because its width is the day's progress,
-                 and RemoteViews cannot resize a view before API 31. -->
+        <LinearLayout
+            android:id="@+id/widget_rows"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="4dp"
+            android:layout_weight="1"
+            android:orientation="vertical" />
+
+        <LinearLayout
+            android:id="@+id/widget_add"
+            android:layout_width="match_parent"
+            android:layout_height="34dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
             <FrameLayout
-                android:id="@+id/widget_progress"
-                android:layout_width="66dp"
-                android:layout_height="7dp"
-                android:layout_marginStart="8dp">
+                android:layout_width="30dp"
+                android:layout_height="30dp">
 
                 <ImageView
-                    android:id="@+id/widget_progress_track"
+                    android:id="@+id/widget_add_disc"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
                     android:contentDescription="@null"
-                    android:scaleType="fitXY"
-                    android:src="@drawable/widget_progress_track" />
+                    android:src="@drawable/widget_check_fill" />
 
                 <ImageView
-                    android:id="@+id/widget_progress_fill"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
+                    android:id="@+id/widget_add_icon"
+                    android:layout_width="14dp"
+                    android:layout_height="14dp"
+                    android:layout_gravity="center"
                     android:contentDescription="@null"
-                    android:scaleType="fitXY" />
+                    android:src="@drawable/widget_ic_plus" />
             </FrameLayout>
+
+            <TextView
+                android:id="@+id/widget_add_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:fontFamily="@font/onest_medium"
+                android:includeFontPadding="false"
+                android:text="@string/widget_add_task"
+                android:textSize="13sp" />
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>

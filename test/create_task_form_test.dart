@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/pages/create_task_page.dart';
+import 'package:todo_app/widgets/color_picker_row.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
 late AppDatabase db;
@@ -116,6 +117,78 @@ void main() {
     view.devicePixelRatio = 1.0;
     addTearDown(view.resetPhysicalSize);
     addTearDown(view.resetDevicePixelRatio);
+  });
+
+  testWidgets('the form opens full screen, with no handle to drag', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [databaseProvider.overrideWithValue(db)],
+        child: MaterialApp(
+          locale: const Locale('ru', 'RU'),
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: const [Locale('ru', 'RU')],
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showCreateTaskSheet(context),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(tester.getSize(find.byType(CreateTaskPage)), const Size(1000, 2600));
+    // The only 40x4 bar on the old sheet was its grab handle.
+    expect(
+      find.byWidgetPredicate(
+        (w) => w is Container && w.constraints?.maxWidth == 40,
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets(
+    'after the title come the colour and the subtasks, then the rest',
+    (tester) async {
+      await tester.pumpWidget(_form());
+      await tester.pumpAndSettle();
+
+      double top(Finder f) => tester.getTopLeft(f).dy;
+      final description = top(find.text('Описание'));
+      final colour = top(find.byType(ColorPickerRow));
+      final subtasks = top(find.text('ПОДЗАДАЧИ'));
+      final when = top(find.text('КОГДА'));
+      expect(description < colour, isTrue);
+      expect(colour < subtasks, isTrue);
+      expect(subtasks < when, isTrue);
+    },
+  );
+
+  group('keyboard on open', () {
+    bool titleFocused(WidgetTester tester) => tester
+        .widget<EditableText>(find.byType(EditableText).first)
+        .focusNode
+        .hasFocus;
+
+    testWidgets('a new task puts the cursor in the title', (tester) async {
+      await tester.pumpWidget(_form());
+      await tester.pumpAndSettle();
+      expect(titleFocused(tester), isTrue);
+    });
+
+    testWidgets('editing a task does not open the keyboard', (tester) async {
+      await _openValueForm(tester);
+      expect(titleFocused(tester), isFalse);
+    });
   });
 
   group('repeat block', () {

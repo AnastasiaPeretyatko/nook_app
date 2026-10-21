@@ -22,24 +22,43 @@ class HomeWidgetBridge {
   /// The key the payload is stored under. Read by `TodayWidgetProvider`.
   static const payloadKey = 'today_payload';
 
-  /// What was last handed to the platform. A widget redraw is a broadcast and a
-  /// re-inflate in the launcher, so an unchanged payload is worth not sending —
-  /// and the app pushes on every task edit, every tick and every theme change.
-  String? _pushed;
+  /// The habit widgets — the week of one habit and the row of circles — share
+  /// one payload, since they draw the same data. Spelled like [providerName]:
+  /// the Kotlin classes and the manifest receivers carry the same names.
+  static const habitsPayloadKey = 'habits_payload';
+  static const habitProviderNames = [
+    'HabitWeekWidgetProvider',
+    'HabitStripWidgetProvider',
+  ];
+
+  /// What was last handed to the platform, per key. A widget redraw is a
+  /// broadcast and a re-inflate in the launcher, so an unchanged payload is
+  /// worth not sending — and the app pushes on every task edit, every tick and
+  /// every theme change.
+  final _pushed = <String, String>{};
 
   static bool get _supported =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
-  /// Stores [payload] and asks the widget to redraw.
+  /// Stores [payload] and asks the "Сегодня" widget to redraw.
   ///
   /// Safe to call as often as anything changes: an identical payload returns
   /// immediately, and a platform that has no widgets does nothing at all.
-  Future<void> push(String payload) async {
-    if (!_supported || payload == _pushed) return;
+  Future<void> push(String payload) =>
+      _push(payloadKey, payload, const [providerName]);
+
+  /// The same for the two habit widgets.
+  Future<void> pushHabits(String payload) =>
+      _push(habitsPayloadKey, payload, habitProviderNames);
+
+  Future<void> _push(String key, String payload, List<String> providers) async {
+    if (!_supported || _pushed[key] == payload) return;
     try {
-      await HomeWidget.saveWidgetData<String>(payloadKey, payload);
-      await HomeWidget.updateWidget(androidName: providerName);
-      _pushed = payload;
+      await HomeWidget.saveWidgetData<String>(key, payload);
+      for (final name in providers) {
+        await HomeWidget.updateWidget(androidName: name);
+      }
+      _pushed[key] = payload;
     } catch (error, stack) {
       // A widget that could not be redrawn is not a reason to take a task edit
       // down with it. Reported, not thrown.

@@ -52,6 +52,8 @@ class CreateTaskPage extends ConsumerStatefulWidget {
     this.task,
     this.initialDate,
     this.initialGroupUid,
+    this.initialTitle,
+    this.initialHabit = false,
   }) : assert(
          mode == TaskFormMode.create || task != null,
          'edit/clone modes require a source task',
@@ -72,6 +74,11 @@ class CreateTaskPage extends ConsumerStatefulWidget {
   /// Group a new task is made in, for [TaskFormMode.create]: the group screen's
   /// "+" opens the form already pointed at it. The user can still switch it.
   final String? initialGroupUid;
+
+  /// A title a new task starts with, and whether it starts as a daily habit —
+  /// what the empty habits screen's ready-made chips hand over.
+  final String? initialTitle;
+  final bool initialHabit;
 
   @override
   ConsumerState<CreateTaskPage> createState() => _CreateTaskPageState();
@@ -210,6 +217,8 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
       _startMinutes = roundedNow;
       _selectedDate = widget.initialDate ?? DateTime.now();
       _groupUid = widget.initialGroupUid;
+      _titleController.text = widget.initialTitle ?? '';
+      _repeatEnabled = widget.initialHabit;
     }
 
     if (source != null) {
@@ -493,27 +502,16 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
       strong: strong,
       child: Material(
         color: sheet,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        clipBehavior: Clip.antiAlias,
         child: Padding(
           padding: EdgeInsets.only(
             bottom: MediaQuery.of(context).viewInsets.bottom,
           ),
-          child: SizedBox(
-            height: MediaQuery.of(context).size.height * 0.9,
+          // Bottom is left to the list's own padding, so it scrolls past the
+          // system bar instead of stopping above it.
+          child: SafeArea(
+            bottom: false,
             child: Column(
               children: [
-                Padding(
-                  padding: const EdgeInsets.only(top: 10, bottom: 4),
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: palette.outline,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
                   child: Row(
@@ -579,7 +577,12 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
                   child: Form(
                     key: _formKey,
                     child: ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                      padding: EdgeInsets.fromLTRB(
+                        16,
+                        4,
+                        16,
+                        24 + MediaQuery.of(context).padding.bottom,
+                      ),
                       children: [
                         _TitleCard(
                           iconKey: _selectedIconKey,
@@ -600,7 +603,8 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
                               fontWeight: FontWeight.w600,
                               color: strong,
                             ),
-                            autofocus: true,
+                            // A new task is typed at once; an open one is read first.
+                            autofocus: widget.mode == TaskFormMode.create,
                             validator: (v) => (v == null || v.trim().isEmpty)
                                 ? 'Обязательное поле'
                                 : null,
@@ -616,6 +620,36 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
                             maxLines: 3,
                           ),
                         ),
+                        gap,
+                        ColorPickerRow(
+                          selected: _selectedColor,
+                          onChanged: (c) => setState(() => _selectedColor = c),
+                        ),
+                        // Groups hold no subtasks, and a "Значение" task has none either.
+                        if (!isValue && !isGroup) ...[
+                          gap,
+                          _Section(
+                            icon: LucideIcons.list,
+                            title: 'Подзадачи',
+                            children: [
+                              Column(
+                                children: [
+                                  for (var i = 0; i < _subtasks.length; i++)
+                                    _SubtaskRow(
+                                      key: ObjectKey(_subtasks[i]),
+                                      draft: _subtasks[i],
+                                      onToggle: () => setState(() {
+                                        _subtasks[i].done = !_subtasks[i].done;
+                                      }),
+                                      onRemove: () => _removeSubtask(i),
+                                      onSubmitted: _addSubtask,
+                                    ),
+                                  _AddSubtaskButton(onTap: _addSubtask),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ],
                         gap,
                         // Shown as soon as the user belongs to a group at all.
                         if (groups.isNotEmpty || isGroup) ...[
@@ -803,34 +837,7 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
                               ],
                             ],
                           ),
-                          gap,
-                          _Section(
-                            icon: LucideIcons.list,
-                            title: 'Подзадачи',
-                            children: [
-                              Column(
-                                children: [
-                                  for (var i = 0; i < _subtasks.length; i++)
-                                    _SubtaskRow(
-                                      key: ObjectKey(_subtasks[i]),
-                                      draft: _subtasks[i],
-                                      onToggle: () => setState(() {
-                                        _subtasks[i].done = !_subtasks[i].done;
-                                      }),
-                                      onRemove: () => _removeSubtask(i),
-                                      onSubmitted: _addSubtask,
-                                    ),
-                                  _AddSubtaskButton(onTap: _addSubtask),
-                                ],
-                              ),
-                            ],
-                          ),
                         ],
-                        gap,
-                        ColorPickerRow(
-                          selected: _selectedColor,
-                          onChanged: (c) => setState(() => _selectedColor = c),
-                        ),
                       ],
                     ),
                   ),
@@ -2503,21 +2510,25 @@ String _fmtClockTime(int minutes) {
   return '$h:$m';
 }
 
-/// Opens [CreateTaskPage] as a bottom sheet.
+/// Opens [CreateTaskPage] full screen: no grab handle, no drag to dismiss.
 Future<void> showCreateTaskSheet(
   BuildContext context, {
   TaskFormMode mode = TaskFormMode.create,
   Task? task,
   DateTime? initialDate,
   String? initialGroupUid,
-}) => showModalBottomSheet<void>(
-  context: context,
-  isScrollControlled: true,
-  backgroundColor: Colors.transparent,
-  builder: (_) => CreateTaskPage(
-    mode: mode,
-    task: task,
-    initialDate: initialDate,
-    initialGroupUid: initialGroupUid,
+  String? initialTitle,
+  bool initialHabit = false,
+}) => Navigator.of(context).push<void>(
+  MaterialPageRoute(
+    fullscreenDialog: true,
+    builder: (_) => CreateTaskPage(
+      mode: mode,
+      task: task,
+      initialDate: initialDate,
+      initialGroupUid: initialGroupUid,
+      initialTitle: initialTitle,
+      initialHabit: initialHabit,
+    ),
   ),
 );

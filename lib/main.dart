@@ -4,11 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:todo_app/auth/supabase_init.dart';
+import 'package:todo_app/groups/group_events_provider.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/pages/create_note_page.dart';
 import 'package:todo_app/pages/create_task_page.dart';
 import 'package:todo_app/pages/cycle_page.dart';
 import 'package:todo_app/pages/diary_page.dart';
+import 'package:todo_app/pages/groups_page.dart';
 import 'package:todo_app/pages/habits_page.dart';
 import 'package:todo_app/pages/home_page.dart';
 import 'package:todo_app/pages/tasks_page.dart';
@@ -22,10 +24,15 @@ import 'package:todo_app/settings/about_settings.dart';
 import 'package:todo_app/settings/app_version.dart';
 import 'package:todo_app/settings/notification_settings.dart';
 import 'package:todo_app/settings/theme_provider.dart';
+import 'package:todo_app/sync/providers.dart';
 import 'package:todo_app/sync/sync_controller.dart';
+import 'package:todo_app/sync/sync_status.dart';
 import 'package:todo_app/theme/app_palette.dart';
+import 'package:todo_app/utils/group_events.dart';
 import 'package:todo_app/utils/task_colors.dart';
 import 'package:todo_app/widgets/app_bottom_nav_bar.dart';
+import 'package:todo_app/widgets/app_toast.dart';
+import 'package:todo_app/widgets/member_avatar.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
 Future<void> main() async {
@@ -145,6 +152,53 @@ class _MainScreenState extends ConsumerState<MainScreen>
         case _:
           break;
       }
+    });
+
+    // A run that ends badly says so on whatever screen is up — the account page
+    // is not where anyone is looking when a background sync fails. Only the
+    // step from `running`, so the same failure is not announced twice.
+    ref.listenManual<SyncStatus>(syncStatusProvider, (previous, next) {
+      final failed =
+          next.phase == SyncPhase.failed || next.phase == SyncPhase.offline;
+      if (!mounted || !failed || previous?.phase != SyncPhase.running) return;
+      showAppToast(
+        Overlay.of(context, rootOverlay: true),
+        isError: true,
+        message: 'Не удалось синхронизировать',
+        detail: next.phase == SyncPhase.offline
+            ? 'Нет подключения к интернету'
+            : 'Что-то пошло не так',
+        actionLabel: 'Повторить',
+        onAction: () => ref.read(syncControllerProvider).syncNow(),
+        duration: const Duration(seconds: 8),
+      );
+    });
+
+    // Other members' news from the groups: a task handed to me or to everyone, a
+    // task done. A Realtime event starts a sync, the sync changes the mirror,
+    // and the provider says what is new in it.
+    ref.listenManual<List<GroupEvent>>(groupEventsProvider, (_, events) {
+      if (!mounted || events.isEmpty) return;
+      final first = events.first;
+      final one = events.length == 1;
+      showAppToast(
+        Overlay.of(context, rootOverlay: true),
+        leading: MemberAvatar(
+          name: first.actorName,
+          size: 36,
+          accent: memberAccent(first.actorUid),
+        ),
+        message: one ? first.headline : 'Новое в группах: ${events.length}',
+        detail: one
+            ? first.subline
+            : '${first.taskTitle} и ещё ${events.length - 1}',
+        actionLabel: one ? 'Открыть' : null,
+        onAction: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => GroupPage(groupUid: first.groupUid),
+          ),
+        ),
+      );
     });
   }
 

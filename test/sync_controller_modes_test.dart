@@ -11,6 +11,7 @@ import 'package:todo_app/settings/theme_provider.dart';
 import 'package:todo_app/sync/providers.dart';
 import 'package:todo_app/sync/sync_controller.dart';
 import 'package:todo_app/sync/sync_service.dart';
+import 'package:todo_app/sync/sync_status.dart';
 
 /// A service that only counts: the question here is whether the controller asked
 /// for a run, not what the run did.
@@ -24,11 +25,12 @@ class _CountingService extends SyncService {
       );
 
   int runs = 0;
+  SyncOutcome outcome = SyncOutcome.done;
 
   @override
   Future<SyncOutcome> sync() async {
     runs++;
-    return SyncOutcome.done;
+    return outcome;
   }
 }
 
@@ -81,6 +83,44 @@ void main() {
     await c.read(syncControllerProvider).syncIfAuto();
 
     expect(service.runs, 1);
+  });
+
+  group('after a failed run', () {
+    test('automatic runs stop until the user asks again', () async {
+      final c = await container({});
+      final controller = c.read(syncControllerProvider);
+      service.outcome = SyncOutcome.offline;
+
+      await controller.syncIfAuto();
+      expect(service.runs, 1);
+
+      // Back online, but nobody pressed "Повторить": the app stays quiet.
+      service.outcome = SyncOutcome.done;
+      await controller.syncIfAuto();
+      expect(service.runs, 1);
+      expect(c.read(syncStatusProvider).phase, SyncPhase.offline);
+
+      // The user's own run goes through, and a good one lifts the pause.
+      await controller.syncNow();
+      expect(service.runs, 2);
+      await controller.syncIfAuto();
+      expect(service.runs, 3);
+    });
+
+    test(
+      'a refusal pauses them too, and a failed retry keeps the pause',
+      () async {
+        final c = await container({});
+        final controller = c.read(syncControllerProvider);
+        service.outcome = SyncOutcome.failed;
+
+        await controller.syncIfAuto();
+        await controller.syncNow();
+        await controller.syncIfAuto();
+
+        expect(service.runs, 2);
+      },
+    );
   });
 
   group('with "Автоматически" off', () {

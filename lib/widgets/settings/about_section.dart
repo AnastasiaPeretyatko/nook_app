@@ -127,21 +127,26 @@ class AboutSection extends ConsumerWidget {
   }
 }
 
-/// Opens the date picker for the first day of the last period — never a day
-/// that has not come yet.
-Future<void> pickCycleStart(
-  BuildContext context,
-  AboutSettingsNotifier notifier,
-  DateTime? current,
-) async {
+/// Asks for the first day of the last period — never a day that has not come
+/// yet. Null when the picker is dismissed.
+Future<DateTime?> pickCycleStartDate(BuildContext context, DateTime? current) {
   final today = DateTime.now();
-  final picked = await showDatePicker(
+  return showDatePicker(
     context: context,
     initialDate: current ?? today,
     firstDate: DateTime(today.year - 1),
     lastDate: today,
     locale: const Locale('ru', 'RU'),
   );
+}
+
+/// [pickCycleStartDate], and saves the answer.
+Future<void> pickCycleStart(
+  BuildContext context,
+  AboutSettingsNotifier notifier,
+  DateTime? current,
+) async {
+  final picked = await pickCycleStartDate(context, current);
   if (picked != null) await notifier.setLastStart(picked);
 }
 

@@ -11,14 +11,16 @@ import 'package:todo_app/utils/day_plan.dart';
 import 'package:todo_app/utils/habit_labels.dart';
 import 'package:todo_app/utils/last_done.dart';
 import 'package:todo_app/utils/recurrence.dart';
+import 'package:todo_app/pages/create_task_page.dart';
+import 'package:todo_app/settings/group_settings.dart';
 import 'package:todo_app/utils/task_audience.dart';
+import 'package:todo_app/widgets/member_avatar.dart';
 import 'package:todo_app/utils/task_colors.dart';
 import 'package:todo_app/utils/task_icons.dart';
 import 'package:todo_app/utils/task_palette.dart';
 import 'package:todo_app/utils/tracking.dart';
 import 'package:todo_app/widgets/color_picker_row.dart';
 import 'package:todo_app/widgets/habits/task_actions_sheet.dart';
-import 'package:todo_app/widgets/member_avatar.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
 /// The day under the calendar, in the "Иней" layout (`Timeline.dc.html`): an
@@ -107,14 +109,19 @@ class _TaskTimelineState extends ConsumerState<TaskTimeline> {
             subtasksByParent.putIfAbsent(parentId, () => []).add(task);
           }
         }
-        // Mine and the ones I handed to someone else — never another member's
-        // own task, which only the group's screen lists.
+        // Mine, plus every task of a group switched to "show all"; the rest of a
+        // group is listed by its own screen.
         final me = ref.watch(myUidProvider);
+        // Read only when another member's task exists at all, like the group
+        // providers below: a phone with no groups costs no lookup.
+        final showAll = allTasks.any((t) => !isMyTask(t, me))
+            ? ref.watch(groupsShowAllProvider)
+            : const <String>{};
         final dayTasks = allTasks
             .where(
               (t) =>
                   t.parentId == null &&
-                  taskAudience(t, me) != TaskAudience.hidden &&
+                  (isMyTask(t, me) || showAll.contains(t.groupUid)) &&
                   t.status == TaskStatus.active &&
                   isTaskScheduledOn(t, selectedDay),
             )
@@ -166,20 +173,26 @@ class _TaskTimelineState extends ConsumerState<TaskTimeline> {
           GroupMember? member(String? uid) => members
               .where((m) => m.groupUid == groupUid && m.userUid == uid)
               .firstOrNull;
-          final doneBy = groupTaskDoneBy(
-            task,
-            selectedDay,
-            me: me,
-            doneByMe: logsByTaskId[task.id]?.completed ?? false,
-            marks: marks,
-          );
           final assignee = task.assigneeUid;
           if (assignee == null) {
-            final count = members.where((m) => m.groupUid == groupUid).length;
-            return _GroupNote('Для всех · ${doneBy.length} из $count');
+            final status = sharedTaskStatus(
+              task,
+              selectedDay,
+              me: me,
+              done: logsByTaskId[task.id]?.completed ?? false,
+              marks: marks,
+              members: members,
+            );
+            return _GroupNote('Для всех · $status');
           }
           if (assignee != me) {
-            final done = doneBy.contains(assignee);
+            final done = groupTaskDoneBy(
+              task,
+              selectedDay,
+              me: me,
+              doneByMe: false,
+              marks: marks,
+            ).contains(assignee);
             final name = memberName(member(assignee));
             return _GroupNote(
               'Для: $name · ${done
@@ -211,8 +224,8 @@ class _TaskTimelineState extends ConsumerState<TaskTimeline> {
           );
           final running = runningTimers.contains(task.id);
           final targetSeconds = (task.targetDurationMinutes ?? 0) * 60;
-          // A circle acts on the habit's own terms; a delegated task is not
-          // mine to tick, and a timer runs against the clock, so only today's.
+          // A circle acts on the habit's own terms; a task of someone else's is
+          // not mine to tick, and a timer runs against the clock, so only today's.
           final VoidCallback quick = note?.delegatedTo != null
               ? openSheet
               : switch (task.trackingMode) {
@@ -283,7 +296,11 @@ class _TaskTimelineState extends ConsumerState<TaskTimeline> {
             ],
             const SizedBox(height: 14),
             if (timed.isEmpty)
-              const _EmptyState()
+              _EmptyState(
+                free: dayTasks.isEmpty,
+                day: selectedDay,
+                nowMinutes: isToday ? nowMin : null,
+              )
             else
               _TimelineCard(
                 clusters: clusterByOverlap(timed),
@@ -411,7 +428,7 @@ class _DayOverview extends StatelessWidget {
     final weekday = DateFormat('EEEE', 'ru_RU').format(day);
     final busy = busyMinutes([for (final e in timed) e.task]);
     final summary = taskCount == 0
-        ? 'Нет дел'
+        ? 'дел нет · весь день свободен'
         : [
             '$taskCount ${pluralRu(taskCount, 'дело', 'дела', 'дел')}',
             if (busy > 0) 'занято ${durationLabel(busy)}',
@@ -815,7 +832,7 @@ class _UntimedSlot extends StatelessWidget {
               clipBehavior: Clip.none,
               children: [
                 _Circle(entry: entry),
-                // A task handed to someone else carries their letter.
+                // A task of another member carries their letter.
                 if (delegatedTo != null)
                   Positioned(
                     right: -4,
@@ -1628,32 +1645,146 @@ class _FreeRow extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+  const _EmptyState({
+    required this.free,
+    required this.day,
+    required this.nowMinutes,
+  });
+
+  /// Nothing at all on the day. False means there are tasks, just none with a
+  /// time — they sit in "В течение дня" above.
+  final bool free;
+  final DateTime day;
+
+  /// Minutes past midnight when the day is today: "Сейчас" opens the line.
+  final int? nowMinutes;
 
   @override
   Widget build(BuildContext context) {
     final p = AppPalette.of(Theme.of(context));
+    if (!free) {
+      return _Card(
+        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
+        child: Column(
+          children: [
+            Icon(LucideIcons.clock, size: 40, color: p.iconMuted),
+            const SizedBox(height: 12),
+            Text(
+              'На этот день нет задач со временем',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 15, color: p.textSecondary),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Нажмите + и укажите время задачи',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13, color: p.textTertiary),
+            ),
+          ],
+        ),
+      );
+    }
+    // The line of the day, empty: "Сейчас" on today, then a dashed stretch with
+    // the invitation beside it (`EmptyTimeline.dc.html`).
+    final now = nowMinutes;
     return _Card(
-      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Column(
         children: [
-          Icon(LucideIcons.clock, size: 40, color: p.iconMuted),
-          const SizedBox(height: 12),
-          Text(
-            'На этот день нет задач со временем',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 15, color: p.textSecondary),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Нажмите + и укажите время задачи',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 13, color: p.textTertiary),
+          if (now != null)
+            _NowRow(
+              minutes: now,
+              next: null,
+              minutesToNext: null,
+              first: true,
+              last: true,
+            ),
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 150),
+            child: Stack(
+              children: [
+                Positioned(
+                  left: _Axis.lineX - 0.75,
+                  top: 0,
+                  bottom: 0,
+                  width: 1.5,
+                  child: CustomPaint(painter: _DashedLine(p.outline)),
+                ),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(_Axis.bodyLeft, 16, 16, 18),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'День пока свободен',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: p.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Добавьте задачу со временем — она появится на линии '
+                        'дня.',
+                        style: TextStyle(
+                          fontSize: 14,
+                          height: 1.4,
+                          color: p.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Material(
+                        color: p.textPrimary,
+                        borderRadius: BorderRadius.circular(14),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () =>
+                              showCreateTaskSheet(context, initialDate: day),
+                          child: Container(
+                            height: 44,
+                            padding: const EdgeInsets.symmetric(horizontal: 18),
+                            alignment: Alignment.center,
+                            child: Text(
+                              'Добавить задачу',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: p.background,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
+}
+
+/// A vertical line of 3px dashes 4px apart, as long as the room it is given.
+class _DashedLine extends CustomPainter {
+  const _DashedLine(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = color;
+    for (var y = 0.0; y < size.height; y += 7) {
+      canvas.drawRect(Rect.fromLTWH(0, y, size.width, 3), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DashedLine old) => old.color != color;
 }
 
 /// The line a group task carries on the timeline.
@@ -1662,8 +1793,8 @@ class _GroupNote {
 
   final String text;
 
-  /// Set when the task is one I handed to another member: their name, and
-  /// [done] for whether they have ticked it.
+  /// Set when the task is another member's, handed to them or their own: their
+  /// name, and [done] for whether they have ticked it.
   final String? delegatedTo;
   final bool done;
 }

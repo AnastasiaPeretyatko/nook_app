@@ -183,6 +183,50 @@ void main() {
       expect(graves.map((g) => g.sourceTable).toSet(), {'tasks'});
     });
 
+    test('undoing it brings back the family as new, unsent tasks', () async {
+      final parentId = await addTask('Уборка');
+      final childId = await addTask('Пыль', parentId: parentId);
+      await dao.toggleCompletion(parentId, day);
+      await dao.toggleCompletion(childId, day);
+      await dao.startTimer(
+        parentId,
+        DateTime(2026, 8, 26, 9),
+        targetSeconds: 60,
+      );
+      final before = await task(parentId);
+      final childBefore = await task(childId);
+      // As if the first sync had already taken them.
+      await db
+          .update(db.tasks)
+          .write(const TasksCompanion(dirty: Value(false)));
+      await db
+          .update(db.taskLogs)
+          .write(const TaskLogsCompanion(dirty: Value(false)));
+
+      final deleted = await dao.deleteTaskCascade(parentId);
+      expect(await dao.getTaskById(parentId), isNull);
+      await dao.restoreDeleted(deleted!);
+
+      final back = await task(parentId);
+      expect(back.title, 'Уборка');
+      expect((await task(childId)).parentId, parentId);
+      // A fresh identity: the old one may already be deleted on the server, and
+      // a deletion wins on the next pull.
+      expect(back.uid, isNot(before.uid));
+      expect((await task(childId)).uid, isNot(childBefore.uid));
+      expect(back.dirty, isTrue);
+      expect((await log(parentId, day)).dirty, isTrue);
+      expect(await db.select(db.taskLogs).get(), hasLength(2));
+      expect(await dao.getOpenSession(parentId), isNotNull);
+      // The old identities stay marked as gone.
+      final graves = await db.select(db.syncTombstones).get();
+      expect(graves.map((g) => g.uid).toSet(), {before.uid, childBefore.uid});
+    });
+
+    test('deleting what does not exist gives nothing to undo', () async {
+      expect(await dao.deleteTaskCascade(404), isNull);
+    });
+
     test('leaves none for the logs', () async {
       // A log's disappearance is always already told by its task's: the one
       // statement in the app that deletes any deletes every log of one task, and

@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
+import 'package:todo_app/pages/create_note_page.dart';
+import 'package:todo_app/widgets/empty_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:todo_app/database/app_database.dart';
@@ -331,10 +333,22 @@ class _DiaryList extends ConsumerWidget {
             .where((e) => e.status != DiaryEntryStatus.archived)
             .where(_found)
             .toList();
+        if (shown.isEmpty && terms.isEmpty) {
+          return EmptyScreen(
+            family: 'violet',
+            icon: LucideIcons.pencil,
+            title: 'Здесь будут ваши записи',
+            body: 'Мысли, идеи, списки. Первая запись — в один тап.',
+            actionLabel: 'Написать запись',
+            onAction: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const CreateNotePage()),
+            ),
+          );
+        }
         if (shown.isEmpty) {
           return Center(
             child: Text(
-              terms.isEmpty ? 'Пока нет заметок' : 'Ничего не найдено',
+              'Ничего не найдено',
               style: theme.textTheme.bodyMedium?.copyWith(color: labelInk),
             ),
           );

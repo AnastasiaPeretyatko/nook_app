@@ -55,6 +55,38 @@ class CycleDao extends DatabaseAccessor<AppDatabase> with _$CycleDaoMixin {
     });
   }
 
+  /// Takes every mark off [day]. The row stays, empty — that is how the other
+  /// devices hear of it (see [saveDay]).
+  Future<void> clearDay(DateTime day) => saveDay(day);
+
+  /// What an ordinary period day is marked with when it is added from the
+  /// calendar, where only "was it a period day" is asked: the middle of the
+  /// flow list ("Средние").
+  static const defaultFlow = 3;
+
+  /// Marks [day] as a period day, or takes that back, **leaving everything else
+  /// on the day as it was** — the mood, the symptoms, the note. A day that
+  /// already has a flow keeps its strength when it is marked again.
+  Future<void> setPeriodDay(DateTime day, {required bool on}) {
+    return transaction(() async {
+      final existing = await getDay(day);
+      await saveDay(
+        day,
+        flow: on
+            ? (existing != null && existing.flow > 0
+                  ? existing.flow
+                  : defaultFlow)
+            : 0,
+        mood: existing?.mood,
+        symptoms: parseSymptoms(existing?.symptoms ?? ''),
+        discharge: existing?.discharge,
+        sex: existing?.sex,
+        pill: existing?.pill ?? false,
+        note: existing?.note,
+      );
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // The surface the sync engine works through (see `TasksDao`'s twin of it).
   // ---------------------------------------------------------------------------

@@ -34,3 +34,16 @@ const cycleMoodColors = [
   Color(0xFF9C8DDB),
   Color(0xFF8A92A1),
 ];
+
+/// The dot of a symptom chip: the design gives each one of three tones. Which
+/// one is only a matter of the symptom's place in `cycleSymptoms`, so a symptom
+/// keeps its colour.
+const cycleSymptomColors = [
+  Color(0xFFCF93AB),
+  Color(0xFF9C8DDB),
+  Color(0xFF7FA3E3),
+];
+
+/// The dot on the flow's and the discharge's chips.
+const cycleFlowDot = periodColor;
+const cycleDischargeDot = fertileColor;

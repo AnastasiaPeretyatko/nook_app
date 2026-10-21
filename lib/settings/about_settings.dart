@@ -23,6 +23,7 @@ class AboutSettings {
     this.lastStart,
     this.cycleLength = 27,
     this.periodLength = 5,
+    this.periodExceptions = const {},
   });
 
   final Gender gender;
@@ -35,6 +36,12 @@ class AboutSettings {
   final DateTime? lastStart;
   final int cycleLength;
   final int periodLength;
+
+  /// Days the forecast calls period days that the user took off in the calendar
+  /// ("Изменить даты"). A day has no way to say "not a period" in the database —
+  /// no flow is just the default — so this is kept beside the forecast it
+  /// corrects: on this phone, in the same prefs, and never synced.
+  final Set<DateTime> periodExceptions;
 
   /// The "Цикл" tab exists only for this.
   bool get cycleOn => gender == Gender.female && trackCycle;
@@ -54,12 +61,14 @@ class AboutSettings {
     DateTime? lastStart,
     int? cycleLength,
     int? periodLength,
+    Set<DateTime>? periodExceptions,
   }) => AboutSettings(
     gender: gender ?? this.gender,
     trackCycle: trackCycle ?? this.trackCycle,
     lastStart: lastStart ?? this.lastStart,
     cycleLength: cycleLength ?? this.cycleLength,
     periodLength: periodLength ?? this.periodLength,
+    periodExceptions: periodExceptions ?? this.periodExceptions,
   );
 }
 
@@ -77,6 +86,7 @@ class AboutSettingsNotifier extends Notifier<AboutSettings> {
   static const _start = 'cycle_last_start';
   static const _length = 'cycle_length';
   static const _period = 'cycle_period_length';
+  static const _exceptions = 'cycle_period_exceptions';
 
   @override
   AboutSettings build() {
@@ -96,6 +106,10 @@ class AboutSettingsNotifier extends Notifier<AboutSettings> {
         periodLengthRange.min,
         periodLengthRange.max,
       ),
+      periodExceptions: {
+        for (final text in prefs.getStringList(_exceptions) ?? const <String>[])
+          ?DateTime.tryParse(text),
+      },
     );
   }
 
@@ -111,12 +125,29 @@ class AboutSettingsNotifier extends Notifier<AboutSettings> {
 
   Future<void> setLastStart(DateTime day) async {
     final d = DateTime(day.year, day.month, day.day);
-    state = state.copyWith(lastStart: d);
+    // A new start is a new forecast: what was taken off the old one is moot.
+    state = state.copyWith(lastStart: d, periodExceptions: const {});
+    final prefs = ref.read(sharedPreferencesProvider);
+    await prefs.remove(_exceptions);
     // `yyyy-MM-dd`, so it reads back as the same local day.
-    await ref
-        .read(sharedPreferencesProvider)
-        .setString(_start, d.toIso8601String().substring(0, 10));
+    await prefs.setString(_start, _text(d));
   }
+
+  /// Takes [day] off the forecast's period days (or puts it back).
+  Future<void> setPeriodException(
+    DateTime day, {
+    required bool excluded,
+  }) async {
+    final d = DateTime(day.year, day.month, day.day);
+    final days = {...state.periodExceptions};
+    excluded ? days.add(d) : days.remove(d);
+    state = state.copyWith(periodExceptions: days);
+    await ref.read(sharedPreferencesProvider).setStringList(_exceptions, [
+      for (final e in days) _text(e),
+    ]);
+  }
+
+  static String _text(DateTime d) => d.toIso8601String().substring(0, 10);
 
   Future<void> setCycleLength(int days) async {
     final v = days.clamp(cycleLengthRange.min, cycleLengthRange.max);

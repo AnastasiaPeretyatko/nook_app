@@ -1,4 +1,5 @@
 import 'package:todo_app/widgets/app_dialogs.dart';
+import 'package:todo_app/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -239,6 +240,7 @@ class HabitActionsSheet extends ConsumerWidget {
 
   Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
     final navigator = Navigator.of(context);
+    final overlay = Overlay.of(context, rootOverlay: true);
     final confirmed = await showConfirmDialog(
       context,
       icon: DialogIcons.delete,
@@ -251,8 +253,19 @@ class HabitActionsSheet extends ConsumerWidget {
     );
 
     if (confirmed == true) {
-      await ref.read(tasksDaoProvider).deleteTaskCascade(task.id);
+      final dao = ref.read(tasksDaoProvider);
+      final deleted = await dao.deleteTaskCascade(task.id);
       navigator.pop();
+      if (deleted != null) {
+        showAppToast(
+          overlay,
+          message: isValueTask(task)
+              ? 'Отслеживание удалено'
+              : 'Привычка удалена',
+          actionLabel: 'Отменить',
+          onAction: () => dao.restoreDeleted(deleted),
+        );
+      }
     }
   }
 }

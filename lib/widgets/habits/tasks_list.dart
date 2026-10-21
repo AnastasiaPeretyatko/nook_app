@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
+import 'package:todo_app/pages/create_task_page.dart';
 import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/utils/habit_labels.dart';
 import 'package:todo_app/utils/last_done.dart';
@@ -11,6 +12,7 @@ import 'package:todo_app/utils/task_audience.dart';
 import 'package:todo_app/utils/task_colors.dart';
 import 'package:todo_app/utils/task_palette.dart';
 import 'package:todo_app/widgets/color_picker_row.dart';
+import 'package:todo_app/widgets/empty_screen.dart';
 import 'package:todo_app/widgets/habits/task_actions_sheet.dart';
 import 'package:todo_app/widgets/list_card.dart';
 import 'package:todo_app/widgets/page_header.dart';
@@ -111,9 +113,11 @@ class _TasksListState extends ConsumerState<TasksList> {
           : const Center(child: CircularProgressIndicator());
     } else if (_showDone) {
       body = done.isEmpty
-          ? const _EmptyState(
+          ? const EmptyScreen(
+              family: 'blue',
+              icon: LucideIcons.list_checks,
               title: 'Пока ничего не выполнено',
-              hint: 'Отмеченные задачи появятся здесь',
+              body: 'Отмеченные задачи появятся здесь.',
             )
           : _list(context, [
               SectionCaption(title: 'Выполнено', trailing: '${done.length}'),
@@ -132,9 +136,13 @@ class _TasksListState extends ConsumerState<TasksList> {
               ),
             ]);
     } else if (active.isEmpty) {
-      body = const _EmptyState(
-        title: 'Нет задач',
-        hint: 'Нажмите + чтобы добавить задачу',
+      body = EmptyScreen(
+        family: 'blue',
+        icon: LucideIcons.list,
+        title: 'На сегодня всё чисто',
+        body: 'Задач нет. Добавьте новую или просто отдохните.',
+        actionLabel: 'Добавить задачу',
+        onAction: () => showCreateTaskSheet(context),
       );
     } else {
       final overdue = <Task>[];
@@ -464,30 +472,6 @@ class TaskRow extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.title, required this.hint});
-
-  final String title;
-  final String hint;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = AppPalette.of(Theme.of(context));
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(LucideIcons.circle_check, size: 48, color: p.iconMuted),
-          const SizedBox(height: 12),
-          Text(title, style: TextStyle(fontSize: 15, color: p.textSecondary)),
-          const SizedBox(height: 4),
-          Text(hint, style: TextStyle(fontSize: 13, color: p.textTertiary)),
-        ],
       ),
     );
   }

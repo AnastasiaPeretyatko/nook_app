@@ -9,7 +9,9 @@ import 'package:todo_app/settings/analytics_settings.dart';
 import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/utils/week.dart';
 import 'package:todo_app/widgets/color_picker_row.dart';
+import 'package:todo_app/pages/create_task_page.dart';
 import 'package:todo_app/pages/habit_detail_page.dart';
+import 'package:todo_app/widgets/empty_screen.dart';
 import 'package:todo_app/widgets/habits/habit_actions_sheet.dart';
 import 'package:todo_app/widgets/list_card.dart';
 import 'package:todo_app/utils/habit_labels.dart';
@@ -21,9 +23,9 @@ import 'package:todo_app/utils/task_palette.dart';
 import 'package:todo_app/utils/tracking.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
-/// The habits tab's body in the "Иней" design (`Main.dc.html`): this week's
-/// strip, then today's habits in one card, then the "Значение" tasks in the
-/// same card, then the habits the rule leaves off today in a card of their own.
+/// The habits tab's body in the "Иней" design (`Main.dc.html`): today's habits
+/// in one card, then the habits the rule leaves off today in a card of their
+/// own, and at the very bottom the "Значение" tasks in theirs.
 ///
 /// The off-today card is not in the mock-up, which only draws a day's list. It
 /// is here so that a habit stays reachable on the days it is not due — its
@@ -38,7 +40,6 @@ class HabitsToday extends ConsumerWidget {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final monday = startOfWeek(today, ref.watch(weekStartProvider));
-    final week = List.generate(7, (i) => monday.add(Duration(days: i)));
     final logsAsync = ref.watch(
       logsBetweenProvider(
         DateRange(monday, monday.add(const Duration(days: 7))),
@@ -60,7 +61,22 @@ class HabitsToday extends ConsumerWidget {
         final active = tasks.where((t) => t.status == TaskStatus.active);
         final habits = active.where((t) => t.repeatType != null).toList();
         final values = active.where(isValueTask).toList();
-        if (habits.isEmpty && values.isEmpty) return const _EmptyState();
+        if (habits.isEmpty && values.isEmpty) {
+          return EmptyScreen(
+            family: 'green',
+            icon: LucideIcons.circle_check,
+            title: 'Пока нет привычек',
+            body: 'Начните с одной маленькой — например, стакан воды утром.',
+            presets: const ['Вода', 'Зарядка', 'Чтение', 'Медитация'],
+            onPreset: (name) => showCreateTaskSheet(
+              context,
+              initialTitle: name,
+              initialHabit: true,
+            ),
+            actionLabel: 'Создать привычку',
+            onAction: () => showCreateTaskSheet(context, initialHabit: true),
+          );
+        }
 
         final logs = logsAsync.valueOrNull ?? const <TaskLog>[];
         final runningSince = <int, DateTime>{
@@ -86,18 +102,6 @@ class HabitsToday extends ConsumerWidget {
           for (final t in habits)
             if (!isTaskScheduledOn(t, today)) t,
         ];
-
-        _WeekDayMark markOf(DateTime day) {
-          if (day.isAfter(today)) return _WeekDayMark.none;
-          final due = [
-            for (final t in habits)
-              if (isTaskScheduledOn(t, day)) t,
-          ];
-          if (due.isEmpty) return _WeekDayMark.none;
-          return due.every((t) => doneOn(t, day))
-              ? _WeekDayMark.allDone
-              : _WeekDayMark.open;
-        }
 
         HabitRow row(Task task) => HabitRow(
           task: task,
@@ -138,7 +142,6 @@ class HabitsToday extends ConsumerWidget {
               .incrementCounter(task.id, today, counterTarget(task).toDouble()),
         );
 
-        final todayRows = [...dueToday, ...values];
         final doneCount = dueToday.where((t) => doneOn(t, today)).length;
         // Clear of the floating "+" too, which the scaffold's inset does not
         // count: 56 for the button, 20 above the bar, and a little air.
@@ -147,129 +150,26 @@ class HabitsToday extends ConsumerWidget {
         return ListView(
           padding: EdgeInsets.only(top: 4, bottom: bottomInset),
           children: [
-            _WeekStrip(days: week, today: today, markOf: markOf),
-            if (todayRows.isNotEmpty) ...[
+            if (dueToday.isNotEmpty) ...[
               SectionCaption(
                 title: 'Сегодня',
-                trailing: dueToday.isEmpty
-                    ? null
-                    : '$doneCount из ${dueToday.length}',
+                trailing: '$doneCount из ${dueToday.length}',
               ),
-              RowsCard(children: [for (final t in todayRows) row(t)]),
+              RowsCard(children: [for (final t in dueToday) row(t)]),
             ],
             if (notToday.isNotEmpty) ...[
               const SectionCaption(title: 'Не сегодня'),
               RowsCard(children: [for (final t in notToday) row(t)]),
             ],
+            // A "Значение" task is a record, not something due: it gets a block
+            // of its own at the very bottom rather than a place among today's.
+            if (values.isNotEmpty) ...[
+              const SectionCaption(title: 'Значения'),
+              RowsCard(children: [for (final t in values) row(t)]),
+            ],
           ],
         );
       },
-    );
-  }
-}
-
-enum _WeekDayMark { none, open, allDone }
-
-/// This week, from the day the settings start it on, today drawn as a dark pill. The dot under a day
-/// says how that day went: accent when every habit due on it was done, an
-/// outline when some were not, nothing for a day still ahead or with nothing
-/// due.
-class _WeekStrip extends StatelessWidget {
-  const _WeekStrip({
-    required this.days,
-    required this.today,
-    required this.markOf,
-  });
-
-  final List<DateTime> days;
-  final DateTime today;
-  final _WeekDayMark Function(DateTime day) markOf;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final p = AppPalette.of(theme);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(21, 14, 21, 4),
-      child: Row(
-        children: [
-          for (final day in days)
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 3),
-                child: _dayCell(theme, p, day, markOf(day)),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _dayCell(
-    ThemeData theme,
-    AppPalette p,
-    DateTime day,
-    _WeekDayMark mark,
-  ) {
-    final isToday = day == today;
-    final onPill = p.background;
-    final dot = switch (mark) {
-      _WeekDayMark.none => Colors.transparent,
-      _WeekDayMark.allDone => isToday ? onPill : theme.colorScheme.primary,
-      _WeekDayMark.open => isToday ? onPill.withValues(alpha: 0.4) : p.outline,
-    };
-    final name = weekdayShort[day.weekday - 1];
-    return Semantics(
-      label:
-          '$name, ${day.day}${switch (mark) {
-            _WeekDayMark.allDone => ', всё выполнено',
-            _WeekDayMark.open => ', не всё выполнено',
-            _WeekDayMark.none => '',
-          }}',
-      selected: isToday,
-      excludeSemantics: true,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        decoration: isToday
-            ? BoxDecoration(
-                color: p.textPrimary,
-                borderRadius: BorderRadius.circular(14),
-              )
-            : null,
-        child: Column(
-          children: [
-            Text(
-              name,
-              style: TextStyle(
-                fontSize: 11,
-                color: isToday
-                    ? onPill.withValues(alpha: 0.75)
-                    : p.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '${day.day}',
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: isToday ? FontWeight.w600 : FontWeight.w500,
-                color: isToday
-                    ? onPill
-                    : day.isAfter(today)
-                    ? p.textTertiary
-                    : p.textPrimary,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              width: 5,
-              height: 5,
-              decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -836,28 +736,6 @@ class _HabitTimerControlState extends State<HabitTimerControl> {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState();
-
-  @override
-  Widget build(BuildContext context) {
-    final p = AppPalette.of(Theme.of(context));
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(LucideIcons.repeat, size: 48, color: p.iconMuted),
-          const SizedBox(height: 12),
-          Text(
-            'Нет повторяющихся задач',
-            style: TextStyle(fontSize: 15, color: p.textSecondary),
-          ),
-        ],
-      ),
     );
   }
 }

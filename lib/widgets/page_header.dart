@@ -69,11 +69,16 @@ class RoundIconButton extends StatelessWidget {
     required this.icon,
     required this.tooltip,
     required this.onPressed,
+    this.iconColor,
   });
 
   final IconData icon;
   final String tooltip;
   final VoidCallback onPressed;
+
+  /// The glyph's colour when it should say something (a pinned note); the
+  /// ordinary ink otherwise.
+  final Color? iconColor;
 
   @override
   Widget build(BuildContext context) {
@@ -88,7 +93,7 @@ class RoundIconButton extends StatelessWidget {
           onTap: onPressed,
           child: SizedBox.square(
             dimension: 44,
-            child: Icon(icon, size: 20, color: p.textPrimary),
+            child: Icon(icon, size: 20, color: iconColor ?? p.textPrimary),
           ),
         ),
       ),

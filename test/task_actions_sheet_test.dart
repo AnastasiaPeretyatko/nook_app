@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
+import 'package:todo_app/widgets/app_toast.dart';
 import 'package:todo_app/widgets/habits/task_actions_sheet.dart';
 
 late AppDatabase db;
@@ -28,6 +29,37 @@ Widget _sheet(Task task) => ProviderScope(
         task: task,
         completed: false,
         completionDate: _today,
+      ),
+    ),
+  ),
+);
+
+/// A page with one button that opens the sheet as a real modal, so the sheet's
+/// own `pop` has a route to close.
+Widget _launcher(Task task, {bool completed = false}) => ProviderScope(
+  overrides: [databaseProvider.overrideWithValue(db)],
+  child: MaterialApp(
+    locale: const Locale('ru', 'RU'),
+    localizationsDelegates: const [
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ],
+    supportedLocales: const [Locale('ru', 'RU')],
+    home: Scaffold(
+      body: Builder(
+        builder: (context) => TextButton(
+          onPressed: () => showModalBottomSheet<void>(
+            context: context,
+            isScrollControlled: true,
+            builder: (_) => TaskActionsSheet(
+              task: task,
+              completed: completed,
+              completionDate: _today,
+            ),
+          ),
+          child: const Text('open'),
+        ),
       ),
     ),
   ),
@@ -160,6 +192,188 @@ void main() {
     await _flush(tester);
 
     expect(_tickedBoxes(tester), 0);
+    await _close(tester);
+  });
+
+  testWidgets('deleting shows a toast that takes it back', (tester) async {
+    final task = await seed(tester);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [databaseProvider.overrideWithValue(db)],
+        child: MaterialApp(
+          locale: const Locale('ru', 'RU'),
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: const [Locale('ru', 'RU')],
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => showModalBottomSheet<void>(
+                  context: context,
+                  isScrollControlled: true,
+                  builder: (_) => TaskActionsSheet(
+                    task: task,
+                    completed: false,
+                    completionDate: _today,
+                  ),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await _flush(tester);
+
+    await tester.tap(find.text('Удалить'));
+    await _flush(tester);
+    await tester.tap(find.text('Удалить').last);
+    await _flush(tester);
+
+    expect(find.text('Задача удалена'), findsOneWidget);
+    expect(await _db(tester, () => db.tasksDao.getTaskById(task.id)), isNull);
+
+    await tester.tap(find.text('Отменить'));
+    await _flush(tester);
+
+    expect(find.text('Задача удалена'), findsNothing);
+    expect(
+      await _db(tester, () => db.tasksDao.getTaskById(task.id)),
+      isNotNull,
+    );
+    expect(
+      await _db(tester, () => db.tasksDao.getSubtasks(task.id)),
+      hasLength(2),
+    );
+    await _close(tester);
+  });
+
+  /// A bare app with a button that shows the toast, to test it on its own.
+  Future<void> pumpToastApp(WidgetTester tester, {String? action}) =>
+      tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => showAppToast(
+                  Overlay.of(context, rootOverlay: true),
+                  message: 'Задача удалена',
+                  actionLabel: action,
+                  onAction: () {},
+                ),
+                child: const Text('show'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+  testWidgets('the toast goes by itself after its time', (tester) async {
+    await pumpToastApp(tester, action: 'Отменить');
+    await tester.tap(find.text('show'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Задача удалена'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 6));
+    await tester.pumpAndSettle();
+    expect(find.text('Задача удалена'), findsNothing);
+  });
+
+  testWidgets('the toast can be swiped away', (tester) async {
+    await pumpToastApp(tester);
+    await tester.tap(find.text('show'));
+    await tester.pumpAndSettle(const Duration(milliseconds: 100));
+
+    await tester.fling(find.text('Задача удалена'), const Offset(600, 0), 1500);
+    await tester.pumpAndSettle();
+    expect(find.text('Задача удалена'), findsNothing);
+  });
+
+  testWidgets('the toast sits at the bottom edge of the screen', (
+    tester,
+  ) async {
+    await pumpToastApp(tester, action: 'Отменить');
+    await tester.tap(find.text('show'));
+    await tester.pumpAndSettle(const Duration(milliseconds: 100));
+
+    final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
+    final pill = tester.getRect(find.byType(Dismissible));
+    expect(screen.height - pill.bottom, 12);
+    await tester.pump(const Duration(seconds: 6));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('"На завтра" moves the task and its ticked subtasks', (
+    tester,
+  ) async {
+    final task = await seed(tester);
+    final subs = await _db(tester, () => db.tasksDao.getSubtasks(task.id));
+    await _db(
+      tester,
+      () => db.tasksDao.setLog(subs.first.id, _today, completed: true),
+    );
+    await tester.pumpWidget(_launcher(task));
+    await tester.tap(find.text('open'));
+    await _flush(tester);
+    expect(find.text('Выполнено'), findsOneWidget);
+    expect(find.text('Изменить'), findsOneWidget);
+    expect(find.text('Дублировать'), findsOneWidget);
+
+    await tester.tap(find.text('На завтра'));
+    await _flush(tester);
+
+    final now = DateTime.now();
+    final tomorrow = DateTime(now.year, now.month, now.day + 1);
+    final moved = await _db(tester, () => db.tasksDao.getTaskById(task.id));
+    expect(moved!.startDate, tomorrow);
+    expect(moved.dirty, isTrue);
+    // The tick went along: set on the new day, cleared on the old.
+    final logs = await _db(tester, () => db.select(db.taskLogs).get());
+    expect(logs.where((l) => l.completed).map((l) => (l.taskId, l.date)), [
+      (subs.first.id, tomorrow),
+    ]);
+    expect(find.text('На завтра'), findsNothing, reason: 'the sheet closed');
+    await _close(tester);
+  });
+
+  testWidgets('"На завтра" is not offered for a habit or a ticked task', (
+    tester,
+  ) async {
+    final task = await seed(tester, children: 0);
+    final habit = task.copyWith(repeatType: const Value(RepeatType.daily));
+
+    await tester.pumpWidget(_launcher(habit));
+    await tester.tap(find.text('open'));
+    await _flush(tester);
+    expect(find.text('На завтра'), findsNothing);
+    expect(find.text('Изменить'), findsOneWidget);
+    await _close(tester);
+
+    await tester.pumpWidget(_launcher(task, completed: true));
+    await tester.tap(find.text('open'));
+    await _flush(tester);
+    expect(find.text('На завтра'), findsNothing);
+    await _close(tester);
+  });
+
+  testWidgets('the title block says when the task is', (tester) async {
+    final base = await seed(tester, children: 0);
+    final task = base.copyWith(
+      scheduledTimeMinutes: const Value(15 * 60),
+      endTimeMinutes: const Value(15 * 60 + 30),
+    );
+    // The sheet reads the day it was opened for: 18 August in these tests.
+    await tester.pumpWidget(_launcher(task));
+    await tester.tap(find.text('open'));
+    await _flush(tester);
+
+    expect(find.text('18 августа, 15:00 – 15:30'), findsOneWidget);
     await _close(tester);
   });
 }

@@ -1,5 +1,6 @@
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -12,7 +13,9 @@ import 'package:todo_app/settings/about_settings.dart';
 import 'package:todo_app/settings/theme_provider.dart';
 import 'package:todo_app/widgets/app_bottom_nav_bar.dart';
 import 'package:todo_app/widgets/app_dialogs.dart' show AppSheet;
+import 'package:todo_app/widgets/cycle/cycle_colors.dart' show todayBlue;
 import 'package:todo_app/widgets/cycle/cycle_heart.dart';
+import 'package:todo_app/widgets/habits/habits_week.dart' show DashedBox;
 
 /// The Cycle tab: the day picked in the week, the button and the quick marks
 /// that follow it, the hearts, and the figures worked out from the marks.
@@ -70,12 +73,12 @@ void main() {
   // The strip comes first in the tree, so its number is the first match.
   Finder stripDay(DateTime day) => find.text('${day.day}').first;
 
-  testWidgets('a picked day is what the button opens', (tester) async {
+  testWidgets('a picked day is what a quick mark opens', (tester) async {
     await pump(tester);
     await tester.tap(stripDay(yesterday));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Отметить'));
+    await tester.tap(find.text('Настроение'));
     await tester.pumpAndSettle();
 
     // The card under the ring says the date too, so look in the sheet.
@@ -89,9 +92,18 @@ void main() {
     expect(find.text('День цикла 10'), findsOneWidget);
   });
 
+  testWidgets('there is no "Отметить" bar on the tab any more', (tester) async {
+    await pump(tester);
+    expect(find.text('Отметить'), findsNothing);
+    // The four quick marks are how a day is marked here.
+    for (final label in ['Месячные', 'Секс', 'Настроение', 'Симптомы']) {
+      expect(find.text(label), findsWidgets, reason: label);
+    }
+  });
+
   testWidgets('and with nothing picked it is today', (tester) async {
     await pump(tester);
-    await tester.tap(find.text('Отметить'));
+    await tester.tap(find.text('Настроение'));
     await tester.pumpAndSettle();
 
     expect(
@@ -102,6 +114,25 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('День цикла 11'), findsOneWidget);
+  });
+
+  testWidgets('today is dashed in the week once another day is picked', (
+    tester,
+  ) async {
+    await pump(tester);
+    final dashed = find.byWidgetPredicate(
+      (w) => w is CustomPaint && w.foregroundPainter is DashedBox,
+    );
+    // Today is the picked day at first: the dark pill, no dashes.
+    expect(dashed, findsNothing);
+
+    await tester.tap(stripDay(yesterday));
+    await tester.pumpAndSettle();
+    expect(dashed, findsOneWidget);
+
+    await tester.tap(find.text('Сегодня'));
+    await tester.pumpAndSettle();
+    expect(dashed, findsNothing);
   });
 
   testWidgets('the ring follows the picked day', (tester) async {
@@ -116,6 +147,76 @@ void main() {
     expect(find.text('/ 27'), findsOneWidget);
   });
 
+  testWidgets("today's number on the ring is never cut off", (tester) async {
+    await pump(tester);
+    final badge = find.byWidgetPredicate(
+      (w) =>
+          w is Container &&
+          w.decoration is BoxDecoration &&
+          (w.decoration as BoxDecoration).color == todayBlue &&
+          w.constraints?.minWidth == 22,
+    );
+
+    // Days all the way round: the badge sits right of its dot, so it is the
+    // right-hand and the lower ones that used to run past the ring's square.
+    for (final d in [2, 6, 8, 13, 15, 20, 25]) {
+      await container
+          .read(aboutSettingsProvider.notifier)
+          .setLastStart(DateTime(today.year, today.month, today.day - (d - 1)));
+      await tester.pumpAndSettle();
+
+      final stack = tester.widget<Stack>(
+        find.ancestor(of: badge, matching: find.byType(Stack)).first,
+      );
+      expect(stack.clipBehavior, Clip.none, reason: 'day $d');
+
+      final card = find
+          .ancestor(
+            of: badge,
+            matching: find.byWidgetPredicate(
+              (w) =>
+                  w is Container &&
+                  w.decoration is BoxDecoration &&
+                  (w.decoration as BoxDecoration).border != null,
+            ),
+          )
+          .first;
+      // On the line from the centre through the day's dot, clear of its rim.
+      final ringRect = tester.getRect(
+        find.ancestor(of: badge, matching: find.byType(Stack)).first,
+      );
+      final marker = tester.getRect(
+        find.byWidgetPredicate(
+          (w) =>
+              w is Container &&
+              w.decoration is BoxDecoration &&
+              (w.decoration as BoxDecoration).border?.top.color == todayBlue,
+        ),
+      );
+      final badgeRect = tester.getRect(badge);
+      expect(badgeRect.overlaps(marker), isFalse, reason: 'day $d');
+      final toMarker = marker.center - ringRect.center;
+      final toBadge = badgeRect.center - ringRect.center;
+      final cross = toMarker.dx * toBadge.dy - toMarker.dy * toBadge.dx;
+      expect(
+        cross.abs() / (toMarker.distance * toBadge.distance),
+        lessThan(0.02),
+        reason: 'day $d: the number is not outwards from its dot',
+      );
+      expect(toBadge.distance, greaterThan(toMarker.distance));
+
+      final inside = tester
+          .getRect(card)
+          .contains(tester.getRect(badge).topLeft);
+      expect(inside, isTrue, reason: 'day $d: the badge leaves its card');
+      expect(
+        tester.getRect(card).contains(tester.getRect(badge).bottomRight),
+        isTrue,
+        reason: 'day $d',
+      );
+    }
+  });
+
   testWidgets('a day that has not come can be looked at, not marked', (
     tester,
   ) async {
@@ -127,7 +228,7 @@ void main() {
     await tester.tap(shown.first);
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Отметить'));
+    await tester.tap(find.text('Настроение'));
     await tester.pumpAndSettle();
     expect(find.text('Сохранить'), findsNothing);
     expect(find.byTooltip('Сохранить'), findsNothing);
@@ -214,29 +315,28 @@ void main() {
     tester,
   ) async {
     await pump(tester);
-    final nextWeek = DateTime(today.year, today.month, today.day + 7);
+    // The ring says which day of the cycle it shows: 11 today, 27 in all.
+    Finder ringDay(int n) => find.byWidgetPredicate(
+      (w) =>
+          w is Semantics &&
+          (w.properties.label?.startsWith('День $n из 27') ?? false),
+    );
+    expect(ringDay(11), findsOneWidget);
 
     await tester.drag(find.byType(PageView), const Offset(-600, 0));
     await tester.pumpAndSettle();
-    // The pick moved to the same weekday a week on, and the block says so.
-    expect(
-      find.text(DateFormat.MMMMd('ru_RU').format(nextWeek)),
-      findsOneWidget,
-    );
+    // The pick moved to the same weekday a week on, and "Сегодня" is the way back.
+    expect(ringDay(18), findsOneWidget);
     expect(find.text('Сегодня'), findsOneWidget);
 
     await tester.tap(find.text('Сегодня'));
     await tester.pumpAndSettle();
-    expect(find.text(DateFormat.MMMMd('ru_RU').format(today)), findsOneWidget);
+    expect(ringDay(11), findsOneWidget);
     expect(find.text('Сегодня'), findsNothing);
 
-    final lastWeek = DateTime(today.year, today.month, today.day - 7);
     await tester.drag(find.byType(PageView), const Offset(600, 0));
     await tester.pumpAndSettle();
-    expect(
-      find.text(DateFormat.MMMMd('ru_RU').format(lastWeek)),
-      findsOneWidget,
-    );
+    expect(ringDay(4), findsOneWidget);
   });
 
   testWidgets('the picked day shows what was marked on it', (tester) async {
@@ -251,23 +351,38 @@ void main() {
     );
     await pump(tester);
 
-    // Today is picked: all of it is there.
+    // Today is picked: all of it is there, as chips under the buttons...
     for (final text in [
-      'Обильные',
+      'Месячные · обильные',
       'Радостное',
       'Вздутие',
-      'Тягучие',
-      'С защитой',
+      'Выделения · тягучие',
+      'Секс · с защитой',
       'Устала',
     ]) {
       expect(find.text(text), findsOneWidget, reason: text);
     }
+    // ...and a tick on each of the four buttons whose group is marked.
+    expect(find.byIcon(LucideIcons.check), findsNWidgets(4));
 
     // Another day, with nothing on it.
     await tester.tap(stripDay(yesterday));
     await tester.pumpAndSettle();
-    expect(find.text('Пока ничего не отмечено'), findsOneWidget);
-    expect(find.text('Обильные'), findsNothing);
+    expect(find.text('Месячные · обильные'), findsNothing);
+    expect(find.text('Устала'), findsNothing);
+    expect(find.byIcon(LucideIcons.check), findsNothing);
+  });
+
+  testWidgets('a button is ticked only for its own group', (tester) async {
+    await db.cycleDao.saveDay(today, mood: 2);
+    await pump(tester);
+
+    expect(find.byIcon(LucideIcons.check), findsOneWidget);
+    expect(find.text('Энергичное'), findsOneWidget);
+    // The ring card holds the ring, the forecast and the marks together.
+    expect(find.text('БЫСТРО ОТМЕТИТЬ'), findsOneWidget);
+    expect(find.text('Овуляция'), findsWidgets);
+    expect(find.text('Заметка'), findsNothing);
   });
 
   testWidgets('the tags on the ring and in the cards fit their text', (
@@ -289,7 +404,34 @@ void main() {
 
     // Day 11 of the cycle is a fertile one.
     fits(find.text('Фертильные дни'));
-    fits(find.textContaining('через').first);
+  });
+
+  testWidgets('the forecasts are two blocks with a hairline between them', (
+    tester,
+  ) async {
+    await pump(tester);
+    final ovulation = find.textContaining('Овуляция · ');
+    final period = find.textContaining('Месячные · ≈ ');
+    expect(ovulation, findsOneWidget);
+    expect(period, findsOneWidget);
+
+    // Side by side: one line, the ovulation on the left.
+    final o = tester.getRect(ovulation);
+    final m = tester.getRect(period);
+    expect(m.top, o.top);
+    expect(m.left, greaterThan(o.right));
+    // With a vertical hairline between them, and the days to each in large type.
+    final divider = tester.getRect(
+      find.descendant(
+        of: find.byType(IntrinsicHeight),
+        matching: find.byType(VerticalDivider),
+      ),
+    );
+    expect(divider.left, greaterThan(o.right - 1));
+    expect(divider.right, lessThan(m.left + 1));
+    expect(find.textContaining('через'), findsNWidgets(2));
+    expect(find.text('Ожидается 5 дней'), findsOneWidget);
+    expect(find.textContaining('Фертильное окно '), findsWidgets);
   });
 
   testWidgets('the list ends clear of the bar', (tester) async {

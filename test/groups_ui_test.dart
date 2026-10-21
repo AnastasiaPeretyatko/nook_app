@@ -7,14 +7,25 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
+import 'package:todo_app/settings/group_settings.dart';
+import 'package:todo_app/widgets/member_avatar.dart';
 import 'package:todo_app/pages/create_task_page.dart';
 import 'package:todo_app/utils/task_audience.dart';
 import 'package:todo_app/widgets/habits/task_actions_sheet.dart';
 import 'package:todo_app/widgets/home/task_timeline.dart';
-import 'package:todo_app/widgets/member_avatar.dart';
 
 /// Group tasks on the screens: whose a task is, what the timeline draws for one
 /// handed to someone else, what the sheet lets you do, and the form's pickers.
+/// The per-group "show all" set, given by the test instead of read from prefs.
+class _ShowAll extends GroupsShowAllNotifier {
+  _ShowAll(this._initial);
+
+  final Set<String> _initial;
+
+  @override
+  Set<String> build() => _initial;
+}
+
 void main() {
   const me = 'a';
   const husband = 'b';
@@ -120,25 +131,47 @@ void main() {
   });
 
   group('the timeline', () {
-    Widget timeline(List<Task> tasks, {List<GroupMark> marks = const []}) =>
-        app(
-          Scaffold(body: TaskTimeline(selectedDay: today)),
-          overrides: [
-            rootTasksProvider.overrideWith((ref) => Stream.value(tasks)),
-            allTasksProvider.overrideWith((ref) => Stream.value(tasks)),
-            logsForDateProvider.overrideWith(
-              (ref, date) => Stream.value(const <TaskLog>[]),
-            ),
-            groupMembersProvider.overrideWith((ref) => Stream.value(members)),
-            groupMarksProvider.overrideWith((ref) => Stream.value(marks)),
-          ],
-        );
+    Widget timeline(
+      List<Task> tasks, {
+      List<GroupMark> marks = const [],
+      Set<String> showAll = const {},
+    }) => app(
+      Scaffold(body: TaskTimeline(selectedDay: today)),
+      overrides: [
+        groupsShowAllProvider.overrideWith(() => _ShowAll(showAll)),
+        rootTasksProvider.overrideWith((ref) => Stream.value(tasks)),
+        allTasksProvider.overrideWith((ref) => Stream.value(tasks)),
+        logsForDateProvider.overrideWith(
+          (ref, date) => Stream.value(const <TaskLog>[]),
+        ),
+        groupMembersProvider.overrideWith((ref) => Stream.value(members)),
+        groupMarksProvider.overrideWith((ref) => Stream.value(marks)),
+      ],
+    );
 
-    testWidgets('a task I handed over shows whom and that it waits', (
+    testWidgets('a task I handed over is hidden until the group shows all', (
       tester,
     ) async {
       await tester.pumpWidget(
-        timeline([task(assignee: husband, time: 23 * 60 + 58)]),
+        timeline([
+          task(assignee: husband, time: 23 * 60 + 58),
+          task(id: 2, title: 'Общая', time: 700),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Купить хлеб'), findsNothing);
+      expect(find.text('Общая'), findsOneWidget);
+    });
+
+    testWidgets('…and with "show all" it shows whom and that it waits', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        timeline(
+          [task(assignee: husband, time: 23 * 60 + 58)],
+          showAll: {'g1'},
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -152,6 +185,7 @@ void main() {
       await tester.pumpWidget(
         timeline(
           [task(assignee: husband, time: 23 * 60 + 58)],
+          showAll: {'g1'},
           marks: [
             GroupMark(
               taskId: 1,
@@ -176,7 +210,25 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Чужая'), findsNothing);
       expect(find.text('Общая'), findsOneWidget);
-      expect(find.text('Для всех · 0 из 3'), findsOneWidget);
+      expect(find.text('Для всех · ждёт'), findsOneWidget);
+    });
+
+    testWidgets('a task for everyone says who closed it', (tester) async {
+      await tester.pumpWidget(
+        timeline(
+          [task(time: 700)],
+          marks: [
+            GroupMark(
+              taskId: 1,
+              userUid: husband,
+              date: today,
+              completed: true,
+            ),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Для всех · выполнено: Миша'), findsOneWidget);
     });
   });
 
@@ -208,7 +260,7 @@ void main() {
       await tester.pumpWidget(sheet(task(assignee: husband), owner: true));
       await tester.pumpAndSettle();
       expect(find.text('Изменить'), findsOneWidget);
-      expect(find.text('Выполнить'), findsNothing);
+      expect(find.text('Выполнено'), findsNothing);
       expect(find.text('Семья · для: Миша · ждёт'), findsOneWidget);
     });
 
@@ -218,7 +270,7 @@ void main() {
       expect(find.text('Изменить'), findsNothing);
       expect(find.text('Удалить'), findsNothing);
       // For everyone, so mine to tick all the same.
-      expect(find.text('Выполнить'), findsOneWidget);
+      expect(find.text('Выполнено'), findsOneWidget);
     });
   });
 

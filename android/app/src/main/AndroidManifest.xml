@@ -124,6 +124,39 @@
                 android:resource="@xml/today_widget_info"/>
         </receiver>
 
+        <!-- The two habit widgets: one habit with its week, and today's habits
+             as a row of circles. Same filter as above; see NookWidgetProvider.kt. -->
+        <receiver
+            android:name=".HabitWeekWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_habit_week_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+                <action android:name="android.intent.action.DATE_CHANGED"/>
+                <action android:name="android.intent.action.TIME_SET"/>
+                <action android:name="android.intent.action.TIMEZONE_CHANGED"/>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/habit_week_widget_info"/>
+        </receiver>
+        <receiver
+            android:name=".HabitStripWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_habit_strip_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+                <action android:name="android.intent.action.DATE_CHANGED"/>
+                <action android:name="android.intent.action.TIME_SET"/>
+                <action android:name="android.intent.action.TIMEZONE_CHANGED"/>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/habit_strip_widget_info"/>
+        </receiver>
+
         <!-- Where a tick made on the widget is answered: this starts the
              background Dart isolate that writes it to the database, so the mark
              is stamped and queued for sync exactly as the app's own screens

@@ -1,5 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:todo_app/settings/theme_provider.dart';
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -227,36 +228,47 @@ void main() {
         lessThan(tester.getTopLeft(find.text('НЕ СЕГОДНЯ')).dy),
       );
     });
+  });
 
-    testWidgets('the week strip says which days were fully done', (
-      tester,
-    ) async {
-      final handle = tester.ensureSemantics();
-      await tester.pumpWidget(
-        _screen([_habit(1, 'Зарядка')], [_done(1, _today)]),
-      );
+  group('with no habits at all', () {
+    testWidgets('invites a first one, with ready-made starts', (tester) async {
+      await tester.pumpWidget(_screen(const [], const []));
       await tester.pumpAndSettle();
 
-      expect(
-        find.bySemanticsLabel(RegExp('${_today.day}, всё выполнено')),
-        findsOneWidget,
-      );
-      handle.dispose();
+      expect(find.text('Пока нет привычек'), findsOneWidget);
+      for (final name in ['Вода', 'Зарядка', 'Чтение', 'Медитация']) {
+        expect(find.text(name), findsOneWidget);
+      }
+      expect(find.text('Создать привычку'), findsOneWidget);
     });
 
-    testWidgets('the week strip starts on Sunday when the settings say so', (
+    testWidgets('a ready-made start opens the form with its name, repeating', (
       tester,
     ) async {
-      await _prefs.setInt('week_start_day', DateTime.sunday);
-      addTearDown(() => _prefs.remove('week_start_day'));
-      await tester.pumpWidget(_screen([_habit(1, 'Зарядка')], const []));
+      final db = AppDatabase.forExecutor(NativeDatabase.memory());
+      addTearDown(db.close);
+      await tester.pumpWidget(
+        _app(
+          const HabitsToday(),
+          overrides: [
+            databaseProvider.overrideWithValue(db),
+            rootTasksProvider.overrideWith((ref) => Stream.value(const [])),
+            logsBetweenProvider.overrideWith(
+              (ref, range) => Stream.value(const []),
+            ),
+            allLogsProvider.overrideWith((ref) => Stream.value(const [])),
+            openSessionsProvider.overrideWith((ref) => Stream.value(const [])),
+          ],
+        ),
+      );
       await tester.pumpAndSettle();
 
-      final names = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-      final xs = [
-        for (final n in names) tester.getTopLeft(find.text(n).first).dx,
-      ];
-      expect(xs, [...xs]..sort(), reason: 'left to right, Sunday first');
+      await tester.tap(find.text('Вода'));
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(TextField, 'Вода'), findsOneWidget);
+      // And repetition is switched on: its choices are on the form.
+      expect(find.text('Каждый день', skipOffstage: false), findsOneWidget);
     });
   });
 }

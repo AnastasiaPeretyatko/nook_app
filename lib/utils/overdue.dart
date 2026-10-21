@@ -2,11 +2,10 @@ import 'package:todo_app/database/app_database.dart';
 
 /// Whether [task] is a one-off task whose day has gone by with it still unticked.
 ///
-/// Derived and never stored, exactly like [isTaskArchived] in
-/// `task_archive.dart`, and split out here for the same reason: the number is
-/// now read in two places — the "Просроченные" section of the tasks tab and the
-/// badge on the nav bar — and two places counting for themselves is two places
-/// that can disagree.
+/// Derived and never stored, and split out here because the number is read in
+/// two places — the "Просроченные" section of the tasks tab and the badge on the
+/// nav bar — and two places counting for themselves is two places that can
+/// disagree.
 ///
 /// What is **not** overdue:
 ///
@@ -19,10 +18,8 @@ import 'package:todo_app/database/app_database.dart';
 ///   both would count the same work twice;
 /// * a task with no date — that is the backlog ("Без даты"); a task nobody ever
 ///   put a day on cannot have missed one;
-/// * a ticked one — a task completed after its day archives the moment it is
-///   ticked ([isTaskArchived]), so it is gone from the tab rather than late in
-///   it. Checked here anyway: this rule is asked directly, by a caller that has
-///   not run the archive rule first;
+/// * a ticked one — a task completed after its day moves to "Выполненные" the
+///   moment it is ticked, so it is not late in the tab;
 /// * today's, and everything still ahead.
 ///
 /// [completed] is the tick for the day the task logs against — its start date —

@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/groups/groups_repository.dart';
 import 'package:todo_app/pages/groups_page.dart';
+import 'package:todo_app/settings/theme_provider.dart';
 import 'package:todo_app/sync/providers.dart';
 
 /// Only what the join sheet calls; anything else is a bug in the test.
@@ -56,9 +58,12 @@ void main() {
     bool syncActive = true,
     _FakeRepo? repo,
   }) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
           databaseProvider.overrideWithValue(db),
           myUidProvider.overrideWithValue(signedIn),
           syncActiveProvider.overrideWithValue(syncActive),

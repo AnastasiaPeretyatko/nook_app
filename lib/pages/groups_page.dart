@@ -8,7 +8,9 @@ import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/groups/groups_repository.dart';
 import 'package:todo_app/pages/create_task_page.dart';
 import 'package:todo_app/pages/account_page.dart';
+import 'package:todo_app/settings/group_settings.dart';
 import 'package:todo_app/sync/providers.dart';
+import 'package:todo_app/sync/sync_controller.dart';
 import 'package:todo_app/utils/recurrence.dart';
 import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/utils/surfaces.dart';
@@ -553,6 +555,9 @@ class _GroupPageState extends ConsumerState<GroupPage> {
     }
 
     final isOwner = group.ownerUid == me;
+    final showAllOnDay = ref.watch(
+      groupsShowAllProvider.select((s) => s.contains(groupUid)),
+    );
     final members = [
       for (final m
           in ref.watch(groupMembersProvider).valueOrNull ??
@@ -580,11 +585,10 @@ class _GroupPageState extends ConsumerState<GroupPage> {
       doneByMe: doneByMe(t),
       marks: marks,
     );
-    // Finished for the group: its assignee has done it, or — for everyone —
-    // every member has.
-    bool finished(Task t) => t.assigneeUid == null
-        ? members.isNotEmpty && doneBy(t).length >= members.length
-        : doneBy(t).contains(t.assigneeUid);
+    // Finished for the group: its assignee has done it, or — for everyone — any
+    // member has (`myLogs` already counts their ticks, see [withSharedTicks]).
+    bool finished(Task t) =>
+        t.assigneeUid == null ? doneByMe(t) : doneBy(t).contains(t.assigneeUid);
 
     final now = DateTime.now();
     final monday = DateTime(now.year, now.month, now.day - (now.weekday - 1));
@@ -614,137 +618,169 @@ class _GroupPageState extends ConsumerState<GroupPage> {
       body: SafeArea(
         child: Stack(
           children: [
-            ListView(
-              padding: const EdgeInsets.only(bottom: 112),
-              children: [
-                BackHeader(
-                  title: 'Группа',
-                  trailing: repo == null
-                      ? null
-                      : RoundIconButton(
-                          icon: LucideIcons.ellipsis,
-                          tooltip: 'Настройки группы',
-                          onPressed: () =>
-                              _showMenu(context, repo, group, isOwner),
-                        ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        group.name,
-                        style: TextStyle(
-                          fontSize: 30,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: -0.6,
-                          height: 1.2,
-                          color: palette.textPrimary,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        thisWeek.isEmpty
-                            ? 'На этой неделе задач нет'
-                            : 'На этой неделе выполнено $weekDone из '
-                                  '${thisWeek.length} '
-                                  '${_plural(thisWeek.length, 'задачи', 'задач', 'задач')}',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: palette.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                _MembersCard(
-                  members: members,
-                  me: me,
-                  countFor: countFor,
-                  onInvite: isOwner && repo != null
-                      ? () => _invite(context, repo)
-                      : null,
-                  onMember: isOwner && repo != null
-                      ? (m) =>
-                            m.userUid == me ? null : _remove(context, repo, m)
-                      : null,
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
-                  child: Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      _FilterChip(
-                        label: 'Все',
-                        selected: _filter == null,
-                        onTap: () => setState(() => _filter = null),
-                      ),
-                      if (me != null)
-                        _FilterChip(
-                          label: 'Мои',
-                          selected: _filter == me,
-                          onTap: () => setState(() => _filter = me),
-                        ),
-                      for (final m in members)
-                        if (m.userUid != me)
-                          _FilterChip(
-                            label: memberName(m),
-                            selected: _filter == m.userUid,
-                            onTap: () => setState(() => _filter = m.userUid),
+            // Pull down to fetch the group now: a member who has just joined, or
+            // has just published their name, shows up without waiting for the
+            // next scheduled sync.
+            RefreshIndicator(
+              onRefresh: () => ref.read(syncControllerProvider).syncNow(),
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.only(bottom: 112),
+                children: [
+                  BackHeader(
+                    title: 'Группа',
+                    trailing: repo == null
+                        ? null
+                        : RoundIconButton(
+                            icon: LucideIcons.ellipsis,
+                            tooltip: 'Настройки группы',
+                            onPressed: () =>
+                                _showMenu(context, repo, group, isOwner),
                           ),
-                    ],
                   ),
-                ),
-                Container(
-                  margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  decoration: _cardDecoration(theme),
-                  child: shown.isEmpty
-                      ? const _Hint(
-                          'Задач пока нет. Нажмите «+» и создайте первую.',
-                        )
-                      : Column(
-                          children: [
-                            for (final (i, task) in shown.indexed) ...[
-                              if (i > 0)
-                                Divider(
-                                  height: 1,
-                                  thickness: 1,
-                                  color: palette.divider,
-                                ),
-                              _GroupTaskRow(
-                                task: task,
-                                assignee: byUid[task.assigneeUid],
-                                // My own state for what is mine, the assignee's
-                                // for what is not.
-                                done:
-                                    task.assigneeUid == null ||
-                                        task.assigneeUid == me
-                                    ? doneByMe(task)
-                                    : doneBy(task).contains(task.assigneeUid),
-                                doneCount: doneBy(task).length,
-                                memberCount: members.length,
-                                canTick: isMyTask(task, me),
-                                onTick: () => ref
-                                    .read(tasksDaoProvider)
-                                    .toggleCompletion(
-                                      task.id,
-                                      taskAnchorDate(task),
-                                    ),
-                                onTap: () => showTaskActionsSheet(
-                                  context,
-                                  task: task,
-                                  completed: doneByMe(task),
-                                  completionDate: taskAnchorDate(task),
-                                ),
-                              ),
-                            ],
-                          ],
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          group.name,
+                          style: TextStyle(
+                            fontSize: 30,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: -0.6,
+                            height: 1.2,
+                            color: palette.textPrimary,
+                          ),
                         ),
-                ),
-              ],
+                        const SizedBox(height: 4),
+                        Text(
+                          thisWeek.isEmpty
+                              ? 'На этой неделе задач нет'
+                              : 'На этой неделе выполнено $weekDone из '
+                                    '${thisWeek.length} '
+                                    '${_plural(thisWeek.length, 'задачи', 'задач', 'задач')}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: palette.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _MembersCard(
+                    members: members,
+                    me: me,
+                    countFor: countFor,
+                    onInvite: isOwner && repo != null
+                        ? () => _invite(context, repo)
+                        : null,
+                    onMember: isOwner && repo != null
+                        ? (m) =>
+                              m.userUid == me ? null : _remove(context, repo, m)
+                        : null,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 18),
+                    child: RowsCard(
+                      children: [
+                        ToggleRow(
+                          label: 'Все задачи на таймлайне',
+                          sub: showAllOnDay
+                              ? 'В таймлайне и календаре — все задачи группы'
+                              : 'Только назначенные на вас и на всех',
+                          value: showAllOnDay,
+                          onChanged: (v) => ref
+                              .read(groupsShowAllProvider.notifier)
+                              .setShowAll(groupUid, v),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        _FilterChip(
+                          label: 'Все',
+                          selected: _filter == null,
+                          onTap: () => setState(() => _filter = null),
+                        ),
+                        if (me != null)
+                          _FilterChip(
+                            label: 'Мои',
+                            selected: _filter == me,
+                            onTap: () => setState(() => _filter = me),
+                          ),
+                        for (final m in members)
+                          if (m.userUid != me)
+                            _FilterChip(
+                              label: memberName(m),
+                              selected: _filter == m.userUid,
+                              onTap: () => setState(() => _filter = m.userUid),
+                            ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    decoration: _cardDecoration(theme),
+                    child: shown.isEmpty
+                        ? const _Hint(
+                            'Задач пока нет. Нажмите «+» и создайте первую.',
+                          )
+                        : Column(
+                            children: [
+                              for (final (i, task) in shown.indexed) ...[
+                                if (i > 0)
+                                  Divider(
+                                    height: 1,
+                                    thickness: 1,
+                                    color: palette.divider,
+                                  ),
+                                _GroupTaskRow(
+                                  task: task,
+                                  assignee: byUid[task.assigneeUid],
+                                  // My own state for what is mine, the assignee's
+                                  // for what is not.
+                                  done:
+                                      task.assigneeUid == null ||
+                                          task.assigneeUid == me
+                                      ? doneByMe(task)
+                                      : doneBy(task).contains(task.assigneeUid),
+                                  sharedStatus: task.assigneeUid == null
+                                      ? sharedTaskStatus(
+                                          task,
+                                          taskAnchorDate(task),
+                                          me: me,
+                                          done: doneByMe(task),
+                                          marks: marks,
+                                          members: members,
+                                        )
+                                      : null,
+                                  canTick: isMyTask(task, me),
+                                  onTick: () => ref
+                                      .read(tasksDaoProvider)
+                                      .toggleCompletion(
+                                        task.id,
+                                        taskAnchorDate(task),
+                                      ),
+                                  onTap: () => showTaskActionsSheet(
+                                    context,
+                                    task: task,
+                                    completed: doneByMe(task),
+                                    completionDate: taskAnchorDate(task),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                  ),
+                ],
+              ),
             ),
             Positioned(
               right: 24,
@@ -1057,8 +1093,7 @@ class _GroupTaskRow extends StatelessWidget {
     required this.task,
     required this.assignee,
     required this.done,
-    required this.doneCount,
-    required this.memberCount,
+    required this.sharedStatus,
     required this.canTick,
     required this.onTick,
     required this.onTap,
@@ -1069,8 +1104,9 @@ class _GroupTaskRow extends StatelessWidget {
 
   /// The ring: my own tick for a task that is mine, the assignee's otherwise.
   final bool done;
-  final int doneCount;
-  final int memberCount;
+
+  /// "ждёт" / "выполнено: Миша" for a task for everyone; null for the others.
+  final String? sharedStatus;
 
   /// Only a task that is mine can be ticked from here.
   final bool canTick;
@@ -1090,8 +1126,7 @@ class _GroupTaskRow extends StatelessWidget {
       minContrast: 3,
     );
     final when =
-        _whenLine(task) +
-        (everyone && memberCount > 0 ? ' · $doneCount из $memberCount' : '');
+        _whenLine(task) + (sharedStatus != null ? ' · $sharedStatus' : '');
 
     return InkWell(
       onTap: onTap,

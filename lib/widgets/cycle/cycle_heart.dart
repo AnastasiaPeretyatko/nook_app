@@ -8,10 +8,14 @@ import 'package:todo_app/widgets/cycle/cycle_colors.dart';
 /// [sex] is the stored value of `cycle_days.sex`: 0 none, 1 protected,
 /// 2 unprotected.
 class CycleHeart extends StatelessWidget {
-  const CycleHeart({super.key, required this.sex, this.size = 12});
+  const CycleHeart({super.key, required this.sex, this.size = 12, this.rim});
 
   final int? sex;
   final double size;
+
+  /// A rim around the heart in this colour — the card's own, so a heart sitting
+  /// on the edge of a coloured day does not run into it.
+  final Color? rim;
 
   /// Whether a day with this mark shows a heart at all.
   static bool shows(int? sex) => sex == 1 || sex == 2;
@@ -27,6 +31,7 @@ class CycleHeart extends StatelessWidget {
           fill: sex == 1 ? heartColor : null,
           stroke: heartColor,
           strokeWidth: 2.2,
+          rim: rim,
         ),
       ),
     );
@@ -36,11 +41,19 @@ class CycleHeart extends StatelessWidget {
 /// The design's heart (24x24 grid): solid when [fill] is given, outlined when
 /// [stroke] is.
 class CycleHeartPainter extends CustomPainter {
-  const CycleHeartPainter({this.fill, this.stroke, this.strokeWidth = 1.8});
+  const CycleHeartPainter({
+    this.fill,
+    this.stroke,
+    this.strokeWidth = 1.8,
+    this.rim,
+  });
 
   final Color? fill;
   final Color? stroke;
   final double strokeWidth;
+
+  /// The rim, drawn first and wider than the heart's own line.
+  final Color? rim;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -53,6 +66,16 @@ class CycleHeartPainter extends CustomPainter {
       ..arcToPoint(const Offset(19.5, 10.3), radius: const Radius.circular(4.3))
       ..cubicTo(19.5, 15.9, 12, 20.5, 12, 20.5)
       ..close();
+    if (rim != null) {
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = rim!
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = strokeWidth + 5
+          ..strokeJoin = StrokeJoin.round,
+      );
+    }
     if (fill != null) canvas.drawPath(path, Paint()..color = fill!);
     if (stroke != null) {
       canvas.drawPath(
@@ -68,5 +91,5 @@ class CycleHeartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(CycleHeartPainter old) =>
-      old.fill != fill || old.stroke != stroke;
+      old.fill != fill || old.stroke != stroke || old.rim != rim;
 }

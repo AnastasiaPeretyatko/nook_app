@@ -277,7 +277,7 @@ TodayWidgetPayload buildTodayWidgetPayload({
     final scheduled = [
       for (final task in candidates)
         if (isTaskScheduledOn(task, day)) task,
-    ]..sort(_byTimeThenTitle);
+    ]..sort(byTimeThenTitle);
 
     days.add(
       WidgetDay(
@@ -315,7 +315,7 @@ WidgetTask _rowFor(Task task, {required bool done}) {
 
 /// Clock order, and the timeless tasks after all of them, by title — the order
 /// the timeline and its untimed strip read in, flattened into one column.
-int _byTimeThenTitle(Task a, Task b) {
+int byTimeThenTitle(Task a, Task b) {
   final ta = a.scheduledTimeMinutes;
   final tb = b.scheduledTimeMinutes;
   if (ta != null && tb != null) {

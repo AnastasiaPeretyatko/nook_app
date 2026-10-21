@@ -5,14 +5,15 @@ import 'package:todo_app/pages/settings_page.dart';
 import 'package:todo_app/widgets/habits/habits_today.dart';
 import 'package:todo_app/widgets/habits/habits_week.dart';
 import 'package:todo_app/widgets/segmented_switch.dart';
+import 'package:todo_app/widgets/swipe_to_switch.dart';
 import 'package:todo_app/widgets/page_header.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
 /// The "Привычки" tab. Settings live behind the profile button here rather than
 /// on a tab of their own (DESIGN.md §6, "Навигация").
 ///
-/// Two views under a switch: "Сегодня" (the week's strip and today's list) and
-/// "Неделя" (how the week went). The choice is the page's own state, and the
+/// Two views under a switch, which a sideways swipe also steps through:
+/// "Сегодня" (today's list) and "Неделя" (how the week went). The choice is the page's own state, and the
 /// page stays mounted behind the bottom bar, so it survives a visit elsewhere.
 class HabitsPage extends StatefulWidget {
   const HabitsPage({super.key});
@@ -65,7 +66,11 @@ class _HabitsPageState extends State<HabitsPage> {
               ),
             ),
             Expanded(
-              child: _view == 0 ? const HabitsToday() : const HabitsWeek(),
+              child: SwipeToSwitch(
+                onStep: (step) =>
+                    setState(() => _view = (_view + step).clamp(0, 1)),
+                child: _view == 0 ? const HabitsToday() : const HabitsWeek(),
+              ),
             ),
           ],
         ),

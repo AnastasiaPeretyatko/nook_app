@@ -1,10 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
+import 'package:todo_app/home_widget/habits_payload.dart';
 import 'package:todo_app/home_widget/home_widget_bridge.dart';
 import 'package:todo_app/home_widget/today_payload.dart';
 import 'package:todo_app/home_widget/widget_actions.dart';
 import 'package:todo_app/home_widget/widget_theme.dart';
+import 'package:todo_app/settings/analytics_settings.dart';
 import 'package:todo_app/settings/theme_provider.dart';
 
 final homeWidgetBridgeProvider = Provider<HomeWidgetBridge>((ref) {
@@ -52,6 +54,26 @@ final todayWidgetPayloadProvider = Provider<String>((ref) {
     light: theme.light,
     dark: theme.dark,
     mode: theme.mode,
+  ).encode();
+});
+
+/// The same for the two habit widgets. Needs every log, not a window of them:
+/// a streak reaches back to the habit's first day.
+final habitsWidgetPayloadProvider = Provider<String>((ref) {
+  final theme = widgetThemeFor(
+    accent: ref.watch(appColorProvider),
+    mode: ref.watch(themeModeProvider),
+  );
+  return buildHabitsWidgetPayload(
+    tasks: ref.watch(rootTasksProvider).valueOrNull ?? const <Task>[],
+    logs: ref.watch(allLogsProvider).valueOrNull ?? const <TaskLog>[],
+    now: DateTime.now(),
+    light: theme.light,
+    dark: theme.dark,
+    mode: theme.mode,
+    weekStart: ref.watch(weekStartProvider),
+    graceMinutes: ref.watch(lateGraceMinutesProvider),
+    todayStaysOpen: ref.watch(todayStaysOpenProvider),
   ).encode();
 });
 

@@ -12,6 +12,7 @@ import 'package:todo_app/settings/analytics_settings.dart';
 import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/utils/habit_labels.dart';
 import 'package:todo_app/utils/last_done.dart';
+import 'package:todo_app/utils/recurrence.dart';
 import 'package:todo_app/utils/task_colors.dart';
 import 'package:todo_app/utils/task_icons.dart';
 import 'package:todo_app/utils/task_palette.dart';
@@ -19,8 +20,10 @@ import 'package:todo_app/widgets/color_picker_row.dart';
 import 'package:todo_app/widgets/habits/habit_actions_sheet.dart';
 import 'package:todo_app/widgets/habits/habit_history_stats.dart';
 import 'package:todo_app/widgets/habits/habit_week_stats.dart';
+import 'package:todo_app/widgets/habits/habits_week.dart' show DashedBox;
 import 'package:todo_app/widgets/page_header.dart';
 import 'package:todo_app/widgets/segmented_switch.dart';
+import 'package:todo_app/widgets/swipe_to_switch.dart';
 
 /// A habit's page (`HabitDetail.dc.html`): its streaks, how often it is done, a
 /// calendar of the days, and at what time of day it really gets done.
@@ -83,71 +86,75 @@ class _HabitDetailPageState extends ConsumerState<HabitDetailPage> {
     return Scaffold(
       backgroundColor: p.background,
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.only(bottom: 32),
-          children: [
-            BackHeader(
-              title: 'Привычка',
-              trailing: RoundIconButton(
-                icon: LucideIcons.pencil,
-                tooltip: 'Редактировать',
-                onPressed: () => showCreateTaskSheet(
-                  context,
-                  mode: TaskFormMode.edit,
-                  task: task,
+        child: SwipeToSwitch(
+          onStep: (step) =>
+              setState(() => _picked = (period + step).clamp(0, young ? 1 : 2)),
+          child: ListView(
+            padding: const EdgeInsets.only(bottom: 32),
+            children: [
+              BackHeader(
+                title: 'Привычка',
+                trailing: RoundIconButton(
+                  icon: LucideIcons.pencil,
+                  tooltip: 'Редактировать',
+                  onPressed: () => showCreateTaskSheet(
+                    context,
+                    mode: TaskFormMode.edit,
+                    task: task,
+                  ),
                 ),
               ),
-            ),
-            _Title(task: task, look: look),
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: SegmentedSwitch(
-                // A habit of less than four weeks has no "all time": it would be
-                // the month again.
-                labels: ['Месяц', 'Год', if (!young) 'Всё время'],
-                selected: period,
-                onChanged: (i) => setState(() => _picked = i),
-              ),
-            ),
-            if (period == 2)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-                child: Text(
-                  _sinceText(history),
-                  style: TextStyle(fontSize: 12, color: p.textSecondary),
-                ),
-              ),
-            const SizedBox(height: 12),
-            _Headline(history: history, today: today, period: period),
-            const SizedBox(height: 12),
-            switch (period) {
-              0 => _MonthCalendar(
-                history: history,
-                today: today,
-                look: look,
-                young: young,
-              ),
-              1 => _YearCalendars(history: history, today: today, look: look),
-              _ => _AllTime(
-                history: history,
-                look: look,
-                byWeek: span == _Span.weeks,
-              ),
-            },
-            if (task.scheduledTimeMinutes != null) ...[
+              _Title(task: task, look: look),
               const SizedBox(height: 12),
-              _TimeCard(
-                history: history,
-                today: today,
-                period: period,
-                byWeek: span == _Span.weeks,
-                look: look,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: SegmentedSwitch(
+                  // A habit of less than four weeks has no "all time": it would be
+                  // the month again.
+                  labels: ['Месяц', 'Год', if (!young) 'Всё время'],
+                  selected: period,
+                  onChanged: (i) => setState(() => _picked = i),
+                ),
               ),
+              if (period == 2)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                  child: Text(
+                    _sinceText(history),
+                    style: TextStyle(fontSize: 12, color: p.textSecondary),
+                  ),
+                ),
+              const SizedBox(height: 12),
+              _Headline(history: history, today: today, period: period),
+              const SizedBox(height: 12),
+              switch (period) {
+                0 => _MonthCalendar(
+                  history: history,
+                  today: today,
+                  look: look,
+                  young: young,
+                ),
+                1 => _YearCalendars(history: history, today: today, look: look),
+                _ => _AllTime(
+                  history: history,
+                  look: look,
+                  byWeek: span == _Span.weeks,
+                ),
+              },
+              if (task.scheduledTimeMinutes != null) ...[
+                const SizedBox(height: 12),
+                _TimeCard(
+                  history: history,
+                  today: today,
+                  period: period,
+                  byWeek: span == _Span.weeks,
+                  look: look,
+                ),
+              ],
+              const SizedBox(height: 12),
+              _Actions(task: task),
             ],
-            const SizedBox(height: 12),
-            _Actions(task: task),
-          ],
+          ),
         ),
       ),
     );
@@ -542,7 +549,17 @@ class _MonthCalendar extends ConsumerWidget {
                   day: DateTime(today.year, today.month, d),
                   cell:
                       cells[DateTime(today.year, today.month, d)] ??
-                      (DateTime(today.year, today.month, d).isAfter(today)
+                      // Days ahead are in no cell map: only the ones the rule
+                      // lands on get the dashed outline.
+                      (isTaskScheduledOn(
+                                history.task,
+                                DateTime(today.year, today.month, d),
+                              ) &&
+                              DateTime(
+                                today.year,
+                                today.month,
+                                d,
+                              ).isAfter(today)
                           ? WeekCell.future
                           : WeekCell.off),
                   look: look,
@@ -608,7 +625,7 @@ class _DayCell extends StatelessWidget {
       case WeekCell.off || WeekCell.future:
         break;
     }
-    return Container(
+    final box = Container(
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: fill,
@@ -626,6 +643,13 @@ class _DayCell extends StatelessWidget {
         ),
       ),
     );
+    // A day ahead that the rule lands on: a pale dashed outline.
+    return cell == WeekCell.future
+        ? CustomPaint(
+            foregroundPainter: DashedBox(color: p.outline, radius: 10),
+            child: box,
+          )
+        : box;
   }
 }
 

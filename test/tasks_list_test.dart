@@ -263,7 +263,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Нет задач'), findsOneWidget);
+      expect(find.text('На сегодня всё чисто'), findsOneWidget);
     });
   });
 
@@ -344,6 +344,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Зарядка'), findsNothing);
-    expect(find.text('Нет задач'), findsOneWidget);
+    expect(find.text('На сегодня всё чисто'), findsOneWidget);
   });
 }

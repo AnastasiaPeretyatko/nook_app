@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:todo_app/settings/theme_provider.dart';
 
 /// The day a week starts on, as [DateTime.weekday]: Monday or Sunday. It shapes
@@ -13,16 +14,30 @@ class WeekStartNotifier extends Notifier<int> {
   static const _prefsKey = 'week_start_day';
 
   @override
-  int build() {
-    final stored = ref.watch(sharedPreferencesProvider).getInt(_prefsKey);
-    return stored == DateTime.sunday ? DateTime.sunday : DateTime.monday;
-  }
+  int build() =>
+      analyticsFromPrefs(ref.watch(sharedPreferencesProvider)).weekStart;
 
   Future<void> setDay(int weekday) async {
     if (weekday == state) return;
     state = weekday;
     await ref.read(sharedPreferencesProvider).setInt(_prefsKey, weekday);
   }
+}
+
+/// The three settings above, read straight from the store — for the widget's
+/// background isolate, which has no providers. The notifiers decode through this
+/// too, so the two cannot disagree about a stored value.
+({int weekStart, int graceMinutes, bool todayStaysOpen}) analyticsFromPrefs(
+  SharedPreferences prefs,
+) {
+  final grace = prefs.getInt(LateGraceMinutesNotifier._prefsKey);
+  return (
+    weekStart: prefs.getInt(WeekStartNotifier._prefsKey) == DateTime.sunday
+        ? DateTime.sunday
+        : DateTime.monday,
+    graceMinutes: lateGraceOptions.contains(grace) ? grace! : 15,
+    todayStaysOpen: prefs.getBool(TodayStaysOpenNotifier._prefsKey) ?? true,
+  );
 }
 
 String weekStartLabel(int weekday) =>
@@ -50,10 +65,8 @@ class LateGraceMinutesNotifier extends Notifier<int> {
   static const _prefsKey = 'late_grace_minutes';
 
   @override
-  int build() {
-    final stored = ref.watch(sharedPreferencesProvider).getInt(_prefsKey);
-    return lateGraceOptions.contains(stored) ? stored! : 15;
-  }
+  int build() =>
+      analyticsFromPrefs(ref.watch(sharedPreferencesProvider)).graceMinutes;
 
   Future<void> setMinutes(int minutes) async {
     if (minutes == state) return;
@@ -74,7 +87,7 @@ class TodayStaysOpenNotifier extends Notifier<bool> {
 
   @override
   bool build() =>
-      ref.watch(sharedPreferencesProvider).getBool(_prefsKey) ?? true;
+      analyticsFromPrefs(ref.watch(sharedPreferencesProvider)).todayStaysOpen;
 
   Future<void> setEnabled(bool enabled) async {
     if (enabled == state) return;

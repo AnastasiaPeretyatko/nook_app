@@ -591,7 +591,7 @@ class _Square extends StatelessWidget {
       WeekCell.off => box(mark: '·', markColor: p.outline),
       WeekCell.future => CustomPaint(
         size: const Size.square(size),
-        painter: _DashedBox(color: p.outline, radius: 8),
+        painter: DashedBox(color: p.outline, radius: 8),
       ),
       WeekCell.pending => box(border: Border.all(color: accent, width: 1.5)),
     };
@@ -599,8 +599,8 @@ class _Square extends StatelessWidget {
 }
 
 /// A dashed rounded outline — a day still ahead.
-class _DashedBox extends CustomPainter {
-  const _DashedBox({required this.color, required this.radius});
+class DashedBox extends CustomPainter {
+  const DashedBox({required this.color, required this.radius});
 
   final Color color;
   final double radius;
@@ -626,7 +626,7 @@ class _DashedBox extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_DashedBox old) =>
+  bool shouldRepaint(DashedBox old) =>
       old.color != color || old.radius != radius;
 }
 

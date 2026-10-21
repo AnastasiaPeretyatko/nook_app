@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -148,6 +149,62 @@ void main() {
     });
   });
 
+  testWidgets('the setup screen saves the date and the lengths on "Начать"', (
+    tester,
+  ) async {
+    final db = AppDatabase.forExecutor(NativeDatabase.memory());
+    addTearDown(db.close);
+    SharedPreferences.setMockInitialValues({});
+    await initializeDateFormatting('ru_RU');
+    final prefs = await SharedPreferences.getInstance();
+    final container = ProviderContainer(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        databaseProvider.overrideWithValue(db),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(
+          locale: Locale('ru', 'RU'),
+          localizationsDelegates: [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: [Locale('ru', 'RU')],
+          home: CyclePage(),
+        ),
+      ),
+    );
+
+    // "Начать" waits for a date.
+    await tester.tap(find.text('Начать'));
+    await tester.pump();
+    expect(container.read(aboutSettingsProvider).lastStart, isNull);
+
+    await tester.tap(find.text('Выбрать'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('ОК'));
+    await tester.pumpAndSettle();
+    expect(find.text('Выбрать'), findsNothing);
+
+    // The cycle length steps as it is tapped, and survives the start.
+    await tester.tap(find.text('+').first);
+    await tester.pump();
+    expect(find.text('28 дн.'), findsOneWidget);
+
+    await tester.tap(find.text('Начать'));
+    await tester.pump();
+
+    final about = container.read(aboutSettingsProvider);
+    expect(about.lastStart, isNotNull);
+    expect(about.cycleLength, 28);
+    expect(find.text('Настроим цикл'), findsNothing);
+  });
+
   testWidgets('the cycle page draws the forecast, and asks for a date first', (
     tester,
   ) async {
@@ -174,6 +231,14 @@ void main() {
         child: const MaterialApp(home: CyclePage()),
       ),
     );
+    // No start date yet: the setup screen is all there is.
+    expect(find.text('Настроим цикл'), findsOneWidget);
+    expect(find.text('Овуляция'), findsNothing);
+
+    // "Пропустить" lets the page through, still asking for the date.
+    await tester.tap(find.text('Пропустить, заполню позже'));
+    await tester.pump();
+    expect(find.text('Настроим цикл'), findsNothing);
     expect(find.textContaining('Укажите, когда начались'), findsOneWidget);
     expect(find.text('Овуляция'), findsNothing);
 

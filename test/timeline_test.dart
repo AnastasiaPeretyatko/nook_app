@@ -164,6 +164,17 @@ void main() {
       expect(find.text('В ТЕЧЕНИЕ ДНЯ'), findsNothing);
     });
 
+    testWidgets(
+      'a day with nothing at all says it is free, and offers a task',
+      (tester) async {
+        await _pump(tester, const []);
+
+        expect(find.text('дел нет · весь день свободен'), findsOneWidget);
+        expect(find.text('День пока свободен'), findsOneWidget);
+        expect(find.text('Добавить задачу'), findsOneWidget);
+      },
+    );
+
     testWidgets('stays on a day with nothing on the clock', (tester) async {
       await _pump(tester, [_task(1, 'Позвонить маме')]);
       expect(find.text('Позвонить маме'), findsOneWidget);

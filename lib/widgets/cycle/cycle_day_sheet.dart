@@ -605,7 +605,8 @@ class _Chip extends StatelessWidget {
         child: Container(
           height: 44,
           padding: const EdgeInsets.symmetric(horizontal: 14),
-          alignment: Alignment.center,
+          // No `alignment:` here — in a Wrap it makes the chip as wide as the
+          // whole line, and the chips stand in a column instead of side by side.
           decoration: BoxDecoration(
             color: p.surface,
             borderRadius: BorderRadius.circular(14),
@@ -614,13 +615,18 @@ class _Chip extends StatelessWidget {
               width: selected ? 2 : 1,
             ),
           ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: p.textPrimary,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: p.textPrimary,
+                ),
+              ),
+            ],
           ),
         ),
       ),

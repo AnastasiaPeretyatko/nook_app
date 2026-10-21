@@ -61,12 +61,28 @@ Future<void> _pump(WidgetTester tester, List<Task> tasks) async {
 void main() {
   setUpAll(() => initializeDateFormatting('ru_RU', null));
 
-  testWidgets('opens on today, the week strip under the switch', (
-    tester,
-  ) async {
+  testWidgets('opens on today', (tester) async {
     await _pump(tester, [_habit(1, 'Зарядка')]);
     expect(find.text('Сегодня'), findsWidgets);
     expect(find.text('Зарядка'), findsOneWidget);
+    expect(find.text('ПО ПРИВЫЧКАМ'), findsNothing);
+  });
+
+  testWidgets('a sideways swipe moves between "Сегодня" and "Неделя"', (
+    tester,
+  ) async {
+    await _pump(tester, [_habit(1, 'Зарядка')]);
+
+    await tester.fling(find.text('Зарядка'), const Offset(-400, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(find.text('ПО ПРИВЫЧКАМ'), findsOneWidget);
+
+    // Nowhere further left; and right goes back.
+    await tester.fling(find.text('Зарядка'), const Offset(-400, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(find.text('ПО ПРИВЫЧКАМ'), findsOneWidget);
+    await tester.fling(find.text('Зарядка'), const Offset(400, 0), 1000);
+    await tester.pumpAndSettle();
     expect(find.text('ПО ПРИВЫЧКАМ'), findsNothing);
   });
 

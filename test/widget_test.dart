@@ -11,6 +11,7 @@ import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/main.dart';
 import 'package:todo_app/settings/app_version.dart';
 import 'package:todo_app/settings/theme_provider.dart';
+import 'package:todo_app/sync/providers.dart';
 import 'package:todo_app/widgets/app_bottom_nav_bar.dart';
 
 /// Does the app boot?
@@ -139,6 +140,37 @@ void main() {
     expect(badged.map((item) => item.label), ['Задачи']);
     expect(badged.single.badgeCount, 1);
     expect(find.text('1'), findsWidgets);
+  });
+
+  testWidgets('a failed sync says so at the bottom, with a retry', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
+          supabaseReadyProvider.overrideWithValue(false),
+        ],
+        child: const MyApp(),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+
+    final status = ProviderScope.containerOf(
+      tester.element(find.byType(MainScreen)),
+    ).read(syncStatusProvider.notifier);
+    status.reportRunning();
+    status.reportFailure(offline: true);
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('Не удалось синхронизировать'), findsOneWidget);
+    expect(find.text('Нет подключения к интернету'), findsOneWidget);
+    expect(find.text('Повторить'), findsOneWidget);
+
+    // The toast goes by itself; no timer may be left behind.
+    await tester.pump(const Duration(seconds: 9));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Не удалось синхронизировать'), findsNothing);
   });
 
   testWidgets('every tab opens', (tester) async {

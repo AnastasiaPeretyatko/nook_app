@@ -6,6 +6,7 @@ import 'package:fleather/fleather.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
@@ -14,10 +15,10 @@ import 'package:todo_app/utils/note_images.dart';
 import 'package:todo_app/widgets/diary/note_body_view.dart';
 import 'package:todo_app/widgets/diary/note_label_chips.dart';
 import 'package:todo_app/widgets/diary/note_label_sheets.dart';
-import 'package:todo_app/widgets/diary/tool_pill.dart';
 import 'package:todo_app/utils/surfaces.dart';
+import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/utils/task_colors.dart';
-import 'package:todo_app/widgets/form_header.dart';
+import 'package:todo_app/utils/task_palette.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
 /// The note editor, opened by the nav bar's centre button while the diary is on
@@ -97,12 +98,14 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
   /// written there and then.
   final _tagIds = <int>{};
 
-  /// Which of the toolbar's second rows is open, if any. One at a time: two
-  /// stacked rows would push the editor halfway up the screen.
-  _ToolbarPanel _panel = _ToolbarPanel.none;
+  /// Pinned to the top of the diary — the header chip. A draft like the rest:
+  /// written when the note is saved.
+  bool _pinned = false;
 
-  /// True while a note that already exists is being edited.
-  bool get _isEdit => widget.entry != null;
+  /// The cover slot is off for now (`JournalEdit.dc.html` has none). The code
+  /// stays, so bringing it back is flipping this; a note that already has a
+  /// cover keeps it on save.
+  static const bool _showCover = false;
 
   @override
   void initState() {
@@ -112,6 +115,7 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
     if (entry == null) return;
 
     _titleController.text = entry.title;
+    _pinned = entry.isFavorite;
     final cover = entry.coverImage;
     if (cover != null) _cover = _FormImage.stored(cover);
     _attachments.addAll(decodeImageNames(entry.images).map(_FormImage.stored));
@@ -229,6 +233,15 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
 
   void _removeCover() => setState(() => _cover = null);
 
+  /// Puts the cursor at the very end of the text and brings the keyboard up —
+  /// what a tap on the empty part of the page means.
+  void _focusBodyEnd() {
+    _body.updateSelection(
+      TextSelection.collapsed(offset: _body.document.length - 1),
+    );
+    _bodyFocus.requestFocus();
+  }
+
   /// Attaches pictures to the note. They land after the text, in the order
   /// picked — the note's own gallery, not characters in its document.
   Future<void> _attachImages() async {
@@ -289,6 +302,7 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
             body: Value(jsonEncode(operations)),
             coverImage: Value(coverName),
             images: Value(encodeImageNames(names)),
+            isFavorite: Value(_pinned),
           ),
         );
         await _saveLabels(dao, id);
@@ -303,6 +317,7 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
             body: Value(jsonEncode(operations)),
             coverImage: Value(coverName),
             images: Value(encodeImageNames(names)),
+            isFavorite: Value(_pinned),
           ),
         );
         await _saveLabels(dao, entry.id);
@@ -368,80 +383,250 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
         if (_tagIds.contains(tag.id)) tag,
     ];
 
+    final palette = AppPalette.of(theme);
+    final touched = widget.entry?.createdAt ?? DateTime.now();
+
     return Scaffold(
       backgroundColor: pageSurface(theme),
       body: SafeArea(
         child: Column(
           children: [
-            FormHeader(
-              title: _isEdit ? 'Редактирование' : 'Новая заметка',
-              onCancel: () => Navigator.of(context).pop(),
-              onSave: _save,
+            _NoteHeader(
+              onClose: () => Navigator.of(context).pop(),
+              onDone: _isSaving ? null : _save,
               isBusy: _isSaving,
             ),
             Expanded(
-              child: ListView(
+              child: CustomScrollView(
                 controller: _scroll,
-                padding: const EdgeInsets.fromLTRB(_inset, 8, _inset, 24),
-                children: [
-                  _CoverPicker(
-                    coverPath: _cover?.pathIn(imagesDirectory),
-                    onTap: _pickCover,
-                    onRemove: _removeCover,
-                  ),
-                  const SizedBox(height: 20),
-                  // No card, no underline: the title is written straight onto
-                  // the page, and its own size is what marks it as the title.
-                  // Nothing is focused on open either — the cover is the first
-                  // thing on screen, and a keyboard would swallow it.
-                  _NoteField(
-                    controller: _titleController,
-                    hint: 'Заголовок заметки',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(_inset, 16, _inset, 0),
+                    sliver: SliverToBoxAdapter(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Pin, what the note is about, and when it was made.
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              _PinChip(
+                                pinned: _pinned,
+                                onTap: () => setState(() => _pinned = !_pinned),
+                              ),
+                              NoteLabelsRow(
+                                moods: moods,
+                                tags: tags,
+                                onEditMood: _pickMood,
+                                onEditTags: _pickTags,
+                                surface: pageSurface(theme),
+                              ),
+                              Text(
+                                DateFormat(
+                                  'd MMM, HH:mm',
+                                  'ru_RU',
+                                ).format(touched),
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: palette.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          if (_showCover) ...[
+                            _CoverPicker(
+                              coverPath: _cover?.pathIn(imagesDirectory),
+                              onTap: _pickCover,
+                              onRemove: _removeCover,
+                            ),
+                            const SizedBox(height: 20),
+                          ],
+                          // No card, no underline: the title is written straight onto
+                          // the page, and its own size is what marks it as the title.
+                          _NoteField(
+                            controller: _titleController,
+                            hint: 'Заголовок заметки',
+                            // Enter moves on to the text, keyboard and all.
+                            onEditingComplete: _bodyFocus.requestFocus,
+                            style: TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: -0.56,
+                              height: 1.15,
+                              color: palette.textPrimary,
+                            ),
+                          ),
+                          Divider(
+                            height: 32,
+                            thickness: 1,
+                            color: theme.colorScheme.outlineVariant,
+                          ),
+                          _NoteBody(
+                            controller: _body,
+                            focusNode: _bodyFocus,
+                            scrollController: _scroll,
+                          ),
+                          if (_attachments.isNotEmpty)
+                            _AttachmentsStrip(
+                              paths: [
+                                for (final image in _attachments)
+                                  image.pathIn(imagesDirectory),
+                              ],
+                              onRemove: _detachImage,
+                            ),
+                        ],
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  // Under the title and above the hairline: what the note is
-                  // *about* belongs to its heading, not to its text.
-                  NoteLabelsRow(
-                    moods: moods,
-                    tags: tags,
-                    onEditMood: _pickMood,
-                    onEditTags: _pickTags,
-                    surface: pageSurface(theme),
-                  ),
-                  Divider(
-                    height: 32,
-                    thickness: 1,
-                    color: theme.colorScheme.outlineVariant,
-                  ),
-                  _NoteBody(
-                    controller: _body,
-                    focusNode: _bodyFocus,
-                    scrollController: _scroll,
-                  ),
-                  if (_attachments.isNotEmpty)
-                    _AttachmentsStrip(
-                      paths: [
-                        for (final image in _attachments)
-                          image.pathIn(imagesDirectory),
-                      ],
-                      onRemove: _detachImage,
+                  // Whatever is left of the screen under the text is the note's
+                  // too: a tap there puts the cursor at the end. A sibling of the
+                  // editor and not a wrapper around it, so the editor keeps its
+                  // own taps — a tap on a word lands on that word.
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _focusBodyEnd,
+                      child: const SizedBox(height: 120),
                     ),
+                  ),
                 ],
               ),
             ),
             _NoteToolbar(
               controller: _body,
-              panel: _panel,
-              onTogglePanel: (panel) => setState(
-                () => _panel = _panel == panel ? _ToolbarPanel.none : panel,
-              ),
               onInsertImage: _attachImages,
-              onAddTag: _pickTags,
+              onHideKeyboard: () =>
+                  FocusManager.instance.primaryFocus?.unfocus(),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// "Запись": a round close on the left, the title, a round accent tick on the
+/// right (`JournalEdit.dc.html`). Closing throws the draft away, as before.
+class _NoteHeader extends StatelessWidget {
+  const _NoteHeader({
+    required this.onClose,
+    required this.onDone,
+    required this.isBusy,
+  });
+
+  final VoidCallback onClose;
+  final VoidCallback? onDone;
+  final bool isBusy;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final p = AppPalette.of(theme);
+    final accent = theme.colorScheme.primary;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Row(
+        children: [
+          Tooltip(
+            message: 'Закрыть без сохранения',
+            child: Material(
+              color: p.surface,
+              shape: CircleBorder(side: BorderSide(color: p.border)),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: onClose,
+                child: SizedBox.square(
+                  dimension: 44,
+                  child: Icon(LucideIcons.x, size: 18, color: p.textPrimary),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              'Запись',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                color: p.textPrimary,
+              ),
+            ),
+          ),
+          Tooltip(
+            message: 'Готово',
+            child: Material(
+              color: accent,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: onDone,
+                child: SizedBox.square(
+                  dimension: 44,
+                  child: isBusy
+                      ? Padding(
+                          padding: const EdgeInsets.all(13),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.4,
+                            color: theme.colorScheme.onPrimary,
+                          ),
+                        )
+                      : Icon(
+                          LucideIcons.check,
+                          size: 20,
+                          color: theme.colorScheme.onPrimary,
+                        ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "Закреплена" — dark when the note is pinned, outlined when it is not.
+class _PinChip extends StatelessWidget {
+  const _PinChip({required this.pinned, required this.onTap});
+
+  final bool pinned;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(Theme.of(context));
+    final ink = pinned ? p.background : p.textPrimary;
+    return Material(
+      color: pinned ? p.textPrimary : p.surface,
+      shape: StadiumBorder(
+        side: BorderSide(color: pinned ? p.textPrimary : p.border),
+      ),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Container(
+          height: 36,
+          padding: const EdgeInsets.fromLTRB(10, 0, 12, 0),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(LucideIcons.pin, size: 14, color: ink),
+              const SizedBox(width: 6),
+              Text(
+                pinned ? 'Закреплена' : 'Закрепить',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: ink,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -484,17 +669,23 @@ class _NoteField extends StatelessWidget {
     required this.controller,
     required this.hint,
     required this.style,
+    this.onEditingComplete,
   });
 
   final TextEditingController controller;
   final String hint;
   final TextStyle? style;
 
+  /// Enter on the keyboard. Replaces the field's own "close the keyboard".
+  final VoidCallback? onEditingComplete;
+
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
       maxLines: 1,
+      textInputAction: TextInputAction.next,
+      onEditingComplete: onEditingComplete,
       textCapitalization: TextCapitalization.sentences,
       style: style,
       decoration: InputDecoration(
@@ -803,8 +994,7 @@ class _Attachment extends StatelessWidget {
 ///
 /// It is laid out non-scrollable inside the page's own list — an editor that
 /// scrolls itself would fight that list for the drag. It has no placeholder of
-/// its own either, so the hint is drawn behind it while the document is empty,
-/// and a minimum height gives the empty note an area to tap.
+/// its own either, so the hint is drawn behind it while the document is empty.
 class _NoteBody extends StatelessWidget {
   const _NoteBody({
     required this.controller,
@@ -818,8 +1008,6 @@ class _NoteBody extends StatelessWidget {
   /// The page's scroll, not one of the editor's own — see
   /// [_CreateNotePageState._scroll].
   final ScrollController scrollController;
-
-  static const double _minHeight = 220;
 
   @override
   Widget build(BuildContext context) {
@@ -837,71 +1025,54 @@ class _NoteBody extends StatelessWidget {
             document.toPlainText().trim().isEmpty &&
             !document.toDelta().toList().any((op) => op.isNotPlain);
 
-        return GestureDetector(
-          // Translucent, not opaque: a tap below the last line still has to
-          // reach the editor's own gesture handling.
-          behavior: HitTestBehavior.translucent,
-          onTap: focusNode.requestFocus,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: _minHeight),
-            child: Stack(
-              children: [
-                if (empty)
-                  Text(
-                    'Начните писать свою заметку...',
-                    style: theme.textTheme.bodyLarge?.copyWith(color: labelInk),
-                  ),
-                CheckboxTheme(
-                  data: noteCheckboxTheme(context),
-                  child: FleatherTheme(
-                    data: noteEditorTheme(context),
-                    child: FleatherEditor(
-                      controller: controller,
-                      focusNode: focusNode,
-                      scrollable: false,
-                      scrollController: scrollController,
-                      padding: EdgeInsets.zero,
-                    ),
-                  ),
+        // No tap handler of its own: the editor answers taps on the text, and
+        // the page's filler under it answers the rest.
+        return Stack(
+          children: [
+            if (empty)
+              Text(
+                'Начните писать свою заметку...',
+                style: theme.textTheme.bodyLarge?.copyWith(color: labelInk),
+              ),
+            CheckboxTheme(
+              data: noteCheckboxTheme(context),
+              child: FleatherTheme(
+                data: noteEditorTheme(context),
+                child: FleatherEditor(
+                  controller: controller,
+                  focusNode: focusNode,
+                  scrollable: false,
+                  scrollController: scrollController,
+                  padding: EdgeInsets.zero,
                 ),
-              ],
+              ),
             ),
-          ),
+          ],
         );
       },
     );
   }
 }
 
-/// Which second row of the toolbar is showing.
-enum _ToolbarPanel { none, styles, lists }
-
-/// The formatting bar.
+/// The formatting bar of `JournalEdit.dc.html`: check-list, bullets, heading,
+/// bold, undo, and a chevron that puts the keyboard away. A picture button
+/// stands before the chevron — attachments have no other way in.
 ///
 /// Last child of the page's column, which is what puts it where it belongs: the
 /// `Scaffold` shrinks its body by the keyboard's height, so the bar sits on the
 /// screen's bottom edge while the keyboard is down and rides on top of it while
-/// it is up. No plugin is involved.
-///
-/// "Aa" opens a second row of text styles above it, and the list button opens
-/// the choice between bullets, numbers and checkboxes. An inline row rather than
-/// a popup menu on purpose: a menu is a route, and pushing one takes the focus
-/// off the editor, which closes the keyboard and drops the selection. For the
-/// same reason the buttons themselves cannot take focus.
+/// it is up. The buttons cannot take focus, or a tap would close the keyboard
+/// and drop the selection it is about to format.
 class _NoteToolbar extends StatelessWidget {
   const _NoteToolbar({
     required this.controller,
-    required this.panel,
-    required this.onTogglePanel,
     required this.onInsertImage,
-    required this.onAddTag,
+    required this.onHideKeyboard,
   });
 
   final FleatherController controller;
-  final _ToolbarPanel panel;
-  final ValueChanged<_ToolbarPanel> onTogglePanel;
   final VoidCallback onInsertImage;
-  final VoidCallback onAddTag;
+  final VoidCallback onHideKeyboard;
 
   bool _isOn(ParchmentAttribute attribute) =>
       controller.getSelectionStyle().containsSame(attribute);
@@ -912,107 +1083,81 @@ class _NoteToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bullets = ParchmentAttribute.block.bulletList;
-    final numbers = ParchmentAttribute.block.numberList;
-    final checks = ParchmentAttribute.block.checkList;
+    final theme = Theme.of(context);
+    final p = AppPalette.of(theme);
+    final dark = theme.brightness == Brightness.dark;
+    final violet = taskPalette.firstWhere((s) => s.key == 'violet');
+    final onFill = dark ? violet.darkFill : violet.light;
+    final onInk = dark ? violet.darkInk : violet.strong;
+
+    Widget tool(
+      String label,
+      IconData icon,
+      VoidCallback onTap, {
+      bool on = false,
+    }) => Tooltip(
+      message: label,
+      child: Material(
+        color: on ? onFill : Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: onTap,
+          // The editor keeps the focus.
+          canRequestFocus: false,
+          borderRadius: BorderRadius.circular(12),
+          child: SizedBox.square(
+            dimension: 44,
+            child: Icon(icon, size: 20, color: on ? onInk : p.textPrimary),
+          ),
+        ),
+      ),
+    );
 
     // Rebuilt on every controller change: a button's on/off state is read from
-    // the style at the cursor, which moves with every keystroke and tap — so
-    // every such read has to happen inside this builder, not above it.
+    // the style at the cursor, which moves with every keystroke and tap.
     return AnimatedBuilder(
       animation: controller,
-      builder: (context, _) => Padding(
-        padding: const EdgeInsets.fromLTRB(
-          _CreateNotePageState._inset,
-          0,
-          _CreateNotePageState._inset,
-          8,
+      builder: (context, _) => Container(
+        height: 52,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: p.surface,
+          border: Border(top: BorderSide(color: p.border)),
         ),
-        child: Column(
+        child: Row(
           children: [
-            if (panel == _ToolbarPanel.lists) ...[
-              ToolPill(
-                children: [
-                  ToolButton(
-                    icon: LucideIcons.list,
-                    active: _isOn(bullets),
-                    onTap: () => _toggle(bullets),
-                  ),
-                  ToolButton(
-                    icon: LucideIcons.list_ordered,
-                    active: _isOn(numbers),
-                    onTap: () => _toggle(numbers),
-                  ),
-                  ToolButton(
-                    icon: LucideIcons.list_checks,
-                    active: _isOn(checks),
-                    onTap: () => _toggle(checks),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-            ],
-            if (panel == _ToolbarPanel.styles) ...[
-              ToolPill(
-                children: [
-                  ToolButton(
-                    icon: LucideIcons.bold,
-                    active: _isOn(ParchmentAttribute.bold),
-                    onTap: () => _toggle(ParchmentAttribute.bold),
-                  ),
-                  ToolButton(
-                    icon: LucideIcons.italic,
-                    active: _isOn(ParchmentAttribute.italic),
-                    onTap: () => _toggle(ParchmentAttribute.italic),
-                  ),
-                  ToolButton(
-                    icon: LucideIcons.underline,
-                    active: _isOn(ParchmentAttribute.underline),
-                    onTap: () => _toggle(ParchmentAttribute.underline),
-                  ),
-                  ToolButton(
-                    icon: LucideIcons.strikethrough,
-                    active: _isOn(ParchmentAttribute.strikethrough),
-                    onTap: () => _toggle(ParchmentAttribute.strikethrough),
-                  ),
-                  ToolButton(
-                    label: 'H1',
-                    active: _isOn(ParchmentAttribute.heading.level1),
-                    onTap: () => _toggle(ParchmentAttribute.heading.level1),
-                  ),
-                  ToolButton(
-                    label: 'H2',
-                    active: _isOn(ParchmentAttribute.heading.level2),
-                    onTap: () => _toggle(ParchmentAttribute.heading.level2),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-            ],
-            ToolPill(
-              children: [
-                ToolButton(
-                  label: 'Aa',
-                  active: panel == _ToolbarPanel.styles,
-                  onTap: () => onTogglePanel(_ToolbarPanel.styles),
-                ),
-                // Opens the choice of list rather than toggling one: it also
-                // reads as active while the cursor sits inside a list, so the
-                // button says both "there is a choice here" and "you are in
-                // one".
-                ToolButton(
-                  icon: LucideIcons.list,
-                  active:
-                      panel == _ToolbarPanel.lists ||
-                      _isOn(bullets) ||
-                      _isOn(numbers) ||
-                      _isOn(checks),
-                  onTap: () => onTogglePanel(_ToolbarPanel.lists),
-                ),
-                ToolButton(icon: LucideIcons.image, onTap: onInsertImage),
-                ToolButton(icon: LucideIcons.tag, onTap: onAddTag),
-              ],
+            tool(
+              'Чек-лист',
+              LucideIcons.list_checks,
+              () => _toggle(ParchmentAttribute.block.checkList),
+              on: _isOn(ParchmentAttribute.block.checkList),
             ),
+            tool(
+              'Маркированный список',
+              LucideIcons.list,
+              () => _toggle(ParchmentAttribute.block.bulletList),
+              on: _isOn(ParchmentAttribute.block.bulletList),
+            ),
+            tool(
+              'Заголовок',
+              LucideIcons.heading_1,
+              () => _toggle(ParchmentAttribute.heading.level1),
+              on: _isOn(ParchmentAttribute.heading.level1),
+            ),
+            tool(
+              'Жирный',
+              LucideIcons.bold,
+              () => _toggle(ParchmentAttribute.bold),
+              on: _isOn(ParchmentAttribute.bold),
+            ),
+            tool(
+              'Отменить',
+              LucideIcons.undo_2,
+              controller.canUndo ? controller.undo : () {},
+            ),
+            const Spacer(),
+            tool('Добавить картинку', LucideIcons.image, onInsertImage),
+            tool('Скрыть клавиатуру', LucideIcons.chevron_down, onHideKeyboard),
           ],
         ),
       ),

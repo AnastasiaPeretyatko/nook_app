@@ -5,7 +5,6 @@ import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/utils/last_done.dart';
 import 'package:todo_app/utils/overdue.dart';
 import 'package:todo_app/utils/recurrence.dart';
-import 'package:todo_app/utils/task_archive.dart';
 
 /// Any moment at all: these tests never read a log's edit time.
 final _stamp = DateTime(2026, 1, 1);
@@ -158,18 +157,6 @@ void main() {
         isTaskOverdue(
           _task(mode: TrackingMode.checkbox),
           completed: false,
-          today: _today,
-        ),
-        isTrue,
-      );
-    });
-
-    test('and ticking it never archives it', () {
-      expect(isTaskArchived(_task(), completed: true, today: _today), isFalse);
-      expect(
-        isTaskArchived(
-          _task(mode: TrackingMode.checkbox),
-          completed: true,
           today: _today,
         ),
         isTrue,

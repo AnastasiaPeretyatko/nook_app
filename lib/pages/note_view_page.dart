@@ -1,57 +1,44 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:todo_app/widgets/app_dialogs.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/pages/create_note_page.dart';
+import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/utils/note_delta.dart';
 import 'package:todo_app/utils/note_images.dart';
 import 'package:todo_app/utils/surfaces.dart';
+import 'package:todo_app/widgets/app_dialogs.dart';
 import 'package:todo_app/widgets/diary/note_body_view.dart';
 import 'package:todo_app/widgets/diary/note_gallery.dart';
 import 'package:todo_app/widgets/diary/note_label_chips.dart';
-import 'package:todo_app/widgets/diary/tool_pill.dart';
-import 'package:flutter_lucide/flutter_lucide.dart';
+import 'package:todo_app/widgets/page_header.dart';
 
-/// A saved note, read.
+/// A saved note, read (`JournalRead.dc.html`).
 ///
 /// A pushed route like the archive, so it covers the bottom navigation bar and
-/// its own back arrow is the only way out.
+/// its own back arrow is the only way out. Along the top: back, pin and "Ещё"
+/// (copy the text, archive, delete); then the date, the title, the labels, the
+/// check-list's progress and the text; the round pencil at the bottom edge opens
+/// the editor.
 ///
-/// **Only when the note has a cover.** Without one there is no picture to show
-/// and no sheet to pull over it: the text opens flat, top to bottom, on the page
-/// tone, with the two buttons drawn as plain icons instead of scrim discs. Half
-/// a screen of stand-in picture is worse than no picture at all.
-///
-/// With a cover it takes the upper half of the screen and the content the lower
-/// one, riding over the picture by [_overlap] with the same rounded top corners
-/// the day schedule uses — but no drag handle.
-///
-/// A long note needs more than half a screen, so the content is a sheet that
-/// pulls up: the same gesture that scrolls the text first grows the sheet, until
-/// only [_strip] of the picture is left showing at the top — enough to read as
-/// "the text has covered the image" and to keep the two buttons up there on the
-/// picture they belong to. It never goes lower than where it starts.
+/// **No cover.** The mock-up has none, and the editor does not offer one for now,
+/// so a note's cover picture is simply not shown here. The file and the column
+/// stay; the old cover-and-sheet layout is in git (commit 18e8172).
 class NoteViewPage extends ConsumerWidget {
   const NoteViewPage({super.key, required this.entryId});
 
   final int entryId;
 
-  /// How far the content climbs over the cover at rest.
-  static const double _overlap = 28;
-  static const double _radius = 28;
-
-  /// The band of the picture the sheet may never cover.
-  static const double _strip = 72;
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final p = AppPalette.of(theme);
     final entryAsync = ref.watch(diaryEntryProvider(entryId));
     final imagesDirectory = ref.watch(noteImagesDirectoryProvider).valueOrNull;
     final entry = entryAsync.valueOrNull;
@@ -69,160 +56,110 @@ class NoteViewPage extends ConsumerWidget {
       );
     }
 
-    // Whether the note *has* a cover, not whether its file is still there: a
-    // name that no longer resolves is a picture that went missing, and the
-    // screen it was laid out for is the honest place to show that.
-    if (entry.coverImage == null) {
-      return Scaffold(
-        backgroundColor: pageSurface(theme),
-        body: Column(
-          children: [
-            _TopActions(entry: entry, onCover: false),
-            Expanded(
-              child: _Content(
-                entry: entry,
-                imagesDirectory: imagesDirectory,
-                onBodyChanged: (body) =>
-                    ref.read(diaryDaoProvider).setBody(entry.id, body),
-                surface: pageSurface(theme),
-                // Nothing to be raised above, so no corners and no second tone:
-                // the page *is* the note.
-                radius: 0,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
+    // The lavender wash at the top is the light theme's; on the dark page it
+    // would be a bright band, so there the page is plain.
+    final wash = theme.brightness == Brightness.light;
 
-    final cover = noteImagePath(imagesDirectory, entry.coverImage);
-
-    // Fractions of the space actually handed to the body, which is not the same
-    // as the screen: `DraggableScrollableSheet` measures itself against its
-    // parent, so the seam would drift by the status bar's height if this came
-    // from `MediaQuery`.
     return Scaffold(
       backgroundColor: pageSurface(theme),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final available = constraints.maxHeight;
-          final coverHeight = available / 2;
-          final atRest = (coverHeight + _overlap) / available;
-          final pulledUp = (available - _strip) / available;
-
-          // The stack has to be told to fill: `Scaffold` hands its body loose
-          // constraints, so a stack left to itself takes the height of its
-          // tallest unpositioned child — the cover — and everything measured
-          // from the bottom edge then measures against half a screen.
-          return SizedBox.expand(
-            child: Stack(
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: wash
+              ? LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    const Color(0xFFE3DEF8),
+                    const Color(0xFFEEEBFA),
+                    pageSurface(theme),
+                  ],
+                  stops: const [0, 0.16, 0.34],
+                )
+              : null,
+        ),
+        child: Stack(
+          children: [
+            Column(
               children: [
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: coverHeight,
-                  child: _Cover(path: cover),
-                ),
-                Positioned.fill(
-                  child: DraggableScrollableSheet(
-                    initialChildSize: atRest,
-                    minChildSize: atRest,
-                    maxChildSize: pulledUp,
-                    // Settles at one of the two ends instead of stopping
-                    // wherever the finger left it.
-                    snap: true,
-                    builder: (context, scrollController) => _Content(
+                _TopActions(entry: entry),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(
+                      24,
+                      22,
+                      24,
+                      // Room for the pencil, which floats over the end of the text.
+                      120 + MediaQuery.paddingOf(context).bottom,
+                    ),
+                    child: _Article(
                       entry: entry,
                       imagesDirectory: imagesDirectory,
                       onBodyChanged: (body) =>
                           ref.read(diaryDaoProvider).setBody(entry.id, body),
-                      surface: raisedSurface(theme),
-                      radius: _radius,
-                      scrollController: scrollController,
                     ),
                   ),
                 ),
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: _TopActions(entry: entry),
-                ),
               ],
             ),
-          );
-        },
+            Positioned(
+              right: 24,
+              bottom: 32 + MediaQuery.paddingOf(context).bottom,
+              child: _EditButton(
+                background: p.textPrimary,
+                glyph: p.background,
+                // Nothing is passed back: the entry is streamed, so the screen
+                // redraws itself the moment the edit is written.
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => CreateNotePage(entry: entry),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-/// The picture behind the content, or a stand-in for a note that has none: half
-/// the screen cannot simply be left blank.
-class _Cover extends StatelessWidget {
-  const _Cover({required this.path});
-
-  final String? path;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final placeholder = Container(
-      alignment: Alignment.center,
-      color: insetSurface(theme),
-      child: Icon(LucideIcons.image, size: 44, color: labelInk),
-    );
-
-    final source = path;
-
-    return SizedBox.expand(
-      child: source == null
-          ? placeholder
-          : Image.file(
-              File(source),
-              fit: BoxFit.cover,
-              errorBuilder: (context, _, _) => placeholder,
-            ),
-    );
-  }
-}
-
-/// Back, and the note's own menu.
-///
-/// On a cover both ride on a scrim disc — no colour of the theme can be trusted
-/// to contrast with an arbitrary photograph. On the page tone, where a note has
-/// no cover, a black disc would be a blot: there they are plain icons.
+/// Back, pin and the note's menu.
 class _TopActions extends ConsumerWidget {
-  const _TopActions({required this.entry, this.onCover = true});
+  const _TopActions({required this.entry});
 
   final DiaryEntry entry;
-  final bool onCover;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final archived = entry.status == DiaryEntryStatus.archived;
+    final accent = Theme.of(context).colorScheme.primary;
 
     // Top inset only: the row sits at the top of a column, and a bottom inset
     // here is empty space pushing the note down by the height of the home bar.
     return SafeArea(
       bottom: false,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
         child: Row(
           children: [
-            _button(
-              context,
+            RoundIconButton(
               icon: LucideIcons.arrow_left,
               tooltip: 'Назад',
-              onTap: () => Navigator.of(context).pop(),
+              onPressed: () => Navigator.of(context).pop(),
             ),
             const Spacer(),
-            _button(
-              context,
+            RoundIconButton(
+              icon: LucideIcons.pin,
+              tooltip: entry.isFavorite ? 'Открепить' : 'Закрепить',
+              iconColor: entry.isFavorite ? accent : null,
+              onPressed: () => ref
+                  .read(diaryDaoProvider)
+                  .setFavorite(entry.id, !entry.isFavorite),
+            ),
+            const SizedBox(width: 8),
+            RoundIconButton(
               icon: LucideIcons.ellipsis,
               tooltip: 'Ещё',
-              onTap: () => _showMenu(context, ref, archived: archived),
+              onPressed: () => _showMenu(context, ref),
             ),
           ],
         ),
@@ -230,119 +167,93 @@ class _TopActions extends ConsumerWidget {
     );
   }
 
-  Widget _button(
-    BuildContext context, {
-    required IconData icon,
-    required String tooltip,
-    required VoidCallback onTap,
-  }) {
-    if (onCover) {
-      return _ScrimButton(icon: icon, tooltip: tooltip, onTap: onTap);
+  Future<void> _showMenu(BuildContext context, WidgetRef ref) async {
+    final archived = entry.status == DiaryEntryStatus.archived;
+    final action = await showActionsSheet<_NoteAction>(
+      context,
+      actions: [
+        const SheetAction(
+          icon: LucideIcons.copy,
+          label: 'Скопировать текст',
+          value: _NoteAction.copy,
+        ),
+        SheetAction(
+          icon: archived ? LucideIcons.archive_restore : LucideIcons.archive,
+          label: archived ? 'Вернуть из архива' : 'В архив',
+          value: _NoteAction.archive,
+        ),
+        const SheetAction(
+          icon: LucideIcons.trash_2,
+          label: 'Удалить',
+          value: _NoteAction.delete,
+          destructive: true,
+        ),
+      ],
+    );
+    if (!context.mounted) return;
+
+    switch (action) {
+      case _NoteAction.copy:
+        _copy(context);
+      case _NoteAction.archive:
+        await ref
+            .read(diaryDaoProvider)
+            .setStatus(
+              entry.id,
+              archived ? DiaryEntryStatus.normal : DiaryEntryStatus.archived,
+            );
+      case _NoteAction.delete:
+        await _delete(context, ref);
+      case null:
+        break;
     }
-    return IconButton(
-      tooltip: tooltip,
-      onPressed: onTap,
-      icon: Icon(
-        icon,
-        size: 22,
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-      ),
-    );
   }
 
-  /// The one action that lives nowhere else: putting the note away, and taking
-  /// it back. Favourite and delete are on the bar below.
-  Future<void> _showMenu(
-    BuildContext context,
-    WidgetRef ref, {
-    required bool archived,
-  }) async {
-    final put = await showModalBottomSheet<bool>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-          // A `Material` and not a painted `Container`: a `ListTile` puts its
-          // own fill and its ink on the nearest `Material` above it, so a colour
-          // painted in between hides both — the framework asserts as much, and
-          // the tap was landing without a flicker of feedback.
-          child: Material(
-            color: raisedSurface(Theme.of(sheetContext)),
-            borderRadius: BorderRadius.circular(28),
-            clipBehavior: Clip.antiAlias,
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: ListTile(
-                onTap: () => Navigator.of(sheetContext).pop(true),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                leading: Icon(
-                  archived ? LucideIcons.archive_restore : LucideIcons.archive,
-                ),
-                title: Text(archived ? 'Вернуть из архива' : 'В архив'),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    if (put != true) return;
+  /// Sharing proper needs a plugin the project does not have, so this puts the
+  /// note's text on the clipboard — the part of sharing that can be done with
+  /// what is here.
+  void _copy(BuildContext context) {
+    final body = entry.body.trim();
+    final text = body.isEmpty
+        ? entry.title
+        : '${entry.title}\n\n${deltaPlainText(jsonDecode(body) as List)}';
+    Clipboard.setData(ClipboardData(text: text.trim()));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Текст заметки скопирован')));
+  }
 
-    await ref
-        .read(diaryDaoProvider)
-        .setStatus(
-          entry.id,
-          archived ? DiaryEntryStatus.normal : DiaryEntryStatus.archived,
-        );
+  /// Deletes the note and the files it owns — its cover and everything attached.
+  /// Nothing else refers to them, so leaving them behind would be a leak nobody
+  /// can find later.
+  Future<void> _delete(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showConfirmDialog(
+      context,
+      icon: DialogIcons.delete,
+      title: 'Удалить заметку?',
+      body: 'Вместе с ней удалятся её изображения.',
+      action: 'Удалить',
+    );
+    if (confirmed != true) return;
+
+    await deleteNoteImages([
+      ?entry.coverImage,
+      ...decodeImageNames(entry.images),
+    ]);
+    await ref.read(diaryDaoProvider).deleteEntry(entry.id);
+    if (context.mounted) Navigator.of(context).pop();
   }
 }
 
-class _ScrimButton extends StatelessWidget {
-  const _ScrimButton({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-  });
+enum _NoteAction { copy, archive, delete }
 
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.black.withValues(alpha: 0.45),
-        shape: const CircleBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Icon(icon, size: 22, color: Colors.white),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The lower part: what the note says, and what can be done to it.
-///
-/// Its height is the sheet's and changes as the sheet is pulled up; the action
-/// bar stays at the bottom of it either way, which is the bottom of the screen.
-class _Content extends StatelessWidget {
-  const _Content({
+/// The page itself: when the note was written and last touched, its title, the
+/// labels, the check-list's progress and the text.
+class _Article extends StatelessWidget {
+  const _Article({
     required this.entry,
     required this.imagesDirectory,
     required this.onBodyChanged,
-    required this.surface,
-    required this.radius,
-    this.scrollController,
   });
 
   final DiaryEntry entry;
@@ -352,86 +263,167 @@ class _Content extends StatelessWidget {
   /// a check-box being ticked.
   final ValueChanged<String> onBodyChanged;
 
-  /// The tone under the text: raised, when it is a sheet lying on the cover;
-  /// the page itself, when it is the whole screen.
-  final Color surface;
-
-  final double radius;
-
-  /// The sheet's own controller. The text has to scroll through it, or the drag
-  /// that grows the sheet and the drag that scrolls the text become two
-  /// different gestures. Null where there is no sheet — then the scroll view
-  /// keeps its own.
-  final ScrollController? scrollController;
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final p = AppPalette.of(theme);
     final titled = entry.title.trim().isNotEmpty;
     final attached = decodeImageNames(entry.images);
+    final day = toBeginningOfSentenceCase(
+      DateFormat('EEEE, d MMMM', 'ru_RU').format(entry.createdAt),
+    );
+    final touched = DateFormat('HH:mm').format(entry.updatedAt);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(radius)),
-      ),
-      child: Column(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              controller: scrollController,
-              padding: const EdgeInsets.fromLTRB(20, 22, 20, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    titled ? entry.title : 'Без названия',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: titled ? theme.colorScheme.onSurface : labelInk,
-                    ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '$day · изменено в $touched',
+          style: theme.textTheme.bodySmall?.copyWith(color: p.textSecondary),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          titled ? entry.title : 'Без названия',
+          style: theme.textTheme.headlineSmall?.copyWith(
+            fontSize: 30,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.6,
+            height: 1.15,
+            color: titled ? p.textPrimary : labelInk,
+          ),
+        ),
+        // The note's mood and tags, drawn exactly as the form draws them but
+        // with nothing to tap: this screen reads a note, and the labels are
+        // changed where the rest of it is — the pencil.
+        _Labels(entryId: entry.id, surface: pageSurface(theme)),
+        _ChecklistProgress(body: entry.body),
+        const SizedBox(height: 18),
+        NoteBodyView(body: entry.body, onChanged: onBodyChanged),
+        if (attached.isNotEmpty) ...[
+          const SizedBox(height: 18),
+          _AttachmentsPreview(
+            names: attached,
+            imagesDirectory: imagesDirectory,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// "ЧЕК-ЛИСТ  3 из 7" and a thin bar — only for a note that has check-boxes.
+///
+/// Counted from the stored text, so it moves the moment a box is ticked (the
+/// note is streamed back after the write).
+class _ChecklistProgress extends StatelessWidget {
+  const _ChecklistProgress({required this.body});
+
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    final (done, total) = _count();
+    if (total == 0) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    final p = AppPalette.of(theme);
+    final label = '$done из $total';
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 18),
+      child: Semantics(
+        label: 'Чек-лист: $label',
+        excludeSemantics: true,
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'ЧЕК-ЛИСТ',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 1,
+                    color: p.textSecondary,
                   ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Icon(LucideIcons.clock, size: 14, color: labelInk),
-                      const SizedBox(width: 6),
-                      Text(
-                        DateFormat(
-                          'd MMMM, HH:mm',
-                          'ru_RU',
-                        ).format(entry.updatedAt),
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: labelInk,
-                        ),
-                      ),
-                    ],
+                ),
+                Text(
+                  label,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: p.textSecondary,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
-                  // The note's mood and tags, drawn exactly as the form draws
-                  // them but with nothing to tap: this screen reads a note, and
-                  // the labels are changed where the rest of it is — the pencil.
-                  _Labels(entryId: entry.id, surface: surface),
-                  // Splits what the note is *about* from the note itself, the
-                  // same hairline the editor draws under its title.
-                  Divider(
-                    height: 28,
-                    thickness: 1,
-                    color: theme.colorScheme.outlineVariant,
-                  ),
-                  NoteBodyView(body: entry.body, onChanged: onBodyChanged),
-                  if (attached.isNotEmpty) ...[
-                    const SizedBox(height: 18),
-                    _AttachmentsPreview(
-                      names: attached,
-                      imagesDirectory: imagesDirectory,
-                    ),
-                  ],
-                ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: LinearProgressIndicator(
+                value: done / total,
+                minHeight: 4,
+                backgroundColor: p.border,
+                color: theme.colorScheme.primary,
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// A body that is empty, or not the JSON it should be, simply has no list.
+  (int, int) _count() {
+    if (body.trim().isEmpty) return (0, 0);
+    try {
+      return checklistProgress(jsonDecode(body) as List);
+    } on Object {
+      return (0, 0);
+    }
+  }
+}
+
+/// The round pencil at the bottom edge — the same dark rounded square as the
+/// "+" of the other tabs.
+class _EditButton extends StatelessWidget {
+  const _EditButton({
+    required this.background,
+    required this.glyph,
+    required this.onTap,
+  });
+
+  final Color background;
+  final Color glyph;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final shape = BorderRadius.circular(20);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: shape,
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x2E1B2230),
+            offset: Offset(0, 8),
+            blurRadius: 24,
           ),
-          _ActionBar(entry: entry),
         ],
+      ),
+      child: Material(
+        color: background,
+        borderRadius: shape,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Tooltip(
+            message: 'Редактировать',
+            child: SizedBox.square(
+              dimension: 56,
+              child: Icon(LucideIcons.pencil, size: 21, color: glyph),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -575,93 +567,5 @@ class _Tile extends StatelessWidget {
         errorBuilder: (context, _, _) => placeholder,
       ),
     );
-  }
-}
-
-/// Four actions along the bottom of the sheet, in the same washed strip the
-/// editor's toolbar uses — the tools under a note being read look like the tools
-/// under a note being written because they are the same widget.
-class _ActionBar extends ConsumerWidget {
-  const _ActionBar({required this.entry});
-
-  final DiaryEntry entry;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-        child: ToolPill(
-          children: [
-            ToolButton(
-              icon: LucideIcons.share,
-              tooltip: 'Скопировать текст',
-              onTap: () => _copy(context),
-            ),
-            ToolButton(
-              icon: entry.isFavorite ? LucideIcons.pin_off : LucideIcons.pin,
-              tooltip: entry.isFavorite ? 'Открепить' : 'Закрепить',
-              active: entry.isFavorite,
-              onTap: () => ref
-                  .read(diaryDaoProvider)
-                  .setFavorite(entry.id, !entry.isFavorite),
-            ),
-            // Opens the note form on this note. Nothing is passed back: the
-            // entry is streamed, so the screen redraws itself the moment the
-            // edit is written.
-            ToolButton(
-              icon: LucideIcons.pencil,
-              tooltip: 'Редактировать',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => CreateNotePage(entry: entry),
-                ),
-              ),
-            ),
-            ToolButton(
-              icon: LucideIcons.trash_2,
-              tooltip: 'Удалить',
-              onTap: () => _delete(context, ref),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Sharing proper needs a plugin the project does not have, so this puts the
-  /// note's text on the clipboard — the part of sharing that can be done with
-  /// what is here.
-  void _copy(BuildContext context) {
-    final body = entry.body.trim();
-    final text = body.isEmpty
-        ? entry.title
-        : '${entry.title}\n\n${deltaPlainText(jsonDecode(body) as List)}';
-    Clipboard.setData(ClipboardData(text: text.trim()));
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Текст заметки скопирован')));
-  }
-
-  /// Deletes the note and the files it owns — its cover and everything attached.
-  /// Nothing else refers to them, so leaving them behind would be a leak nobody
-  /// can find later.
-  Future<void> _delete(BuildContext context, WidgetRef ref) async {
-    final confirmed = await showConfirmDialog(
-      context,
-      icon: DialogIcons.delete,
-      title: 'Удалить заметку?',
-      body: 'Вместе с ней удалятся её изображения.',
-      action: 'Удалить',
-    );
-    if (confirmed != true) return;
-
-    await deleteNoteImages([
-      ?entry.coverImage,
-      ...decodeImageNames(entry.images),
-    ]);
-    await ref.read(diaryDaoProvider).deleteEntry(entry.id);
-    if (context.mounted) Navigator.of(context).pop();
   }
 }

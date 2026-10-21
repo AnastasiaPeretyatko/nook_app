@@ -42,10 +42,10 @@ class TaskCalendar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final p = AppPalette.of(theme);
-    // Mine plus the tasks I handed to someone — both are on the day screen.
+    // Mine, plus the other members' tasks of the groups set to show everything.
     final tasks = [
       ...?ref.watch(rootTasksProvider).valueOrNull,
-      ...ref.watch(delegatedTasksProvider),
+      ...ref.watch(othersGroupTasksProvider),
     ];
     // Habits are dots too unless the user has turned them off — see
     // [showHabitsInCalendarProvider]. Off, a repeating task leaves the month

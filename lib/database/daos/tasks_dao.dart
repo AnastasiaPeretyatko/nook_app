@@ -37,6 +37,24 @@ part 'tasks_dao.g.dart';
 /// closed one is a row nothing reads: every lasting trace of a run is folded
 /// into that day's log by [_closeRun] before the session is closed. Restore the
 /// logs and every screen in the app draws what it drew.
+/// Everything [TasksDao.deleteTaskCascade] removed, kept so that
+/// [TasksDao.restoreDeleted] can put it back: the task, its subtasks, and the
+/// logs, other members' marks and timer runs of either.
+class DeletedTask {
+  const DeletedTask({
+    required this.tasks,
+    required this.logs,
+    required this.marks,
+    required this.sessions,
+  });
+
+  /// The task and its direct subtasks, the parent first.
+  final List<Task> tasks;
+  final List<TaskLog> logs;
+  final List<GroupMark> marks;
+  final List<TaskSession> sessions;
+}
+
 @DriftAccessor(
   tables: [
     Tasks,
@@ -186,6 +204,29 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
     return Value(DateTime.now());
   }
 
+  /// Moves a one-off task to [day] — "На завтра". Only the start date changes
+  /// (and so the task is marked unsent), but its subtasks log their ticks against
+  /// the parent's start date, so the ones ticked there are re-ticked on the new
+  /// day and unticked on the old, the way the task form's save does it. The old
+  /// mark is set to not-done rather than deleted: a deleted log would be brought
+  /// back by the next sync.
+  Future<void> moveTaskToDay(Task task, DateTime day) => transaction(() async {
+    final from = dayOf(task.startDate ?? task.createdAt);
+    final to = dayOf(day);
+    await updateTaskById(
+      task.id,
+      TasksCompanion(startDate: Value(to), updatedAt: Value(DateTime.now())),
+    );
+    if (from == to) return;
+    for (final subtask in await getSubtasks(task.id)) {
+      final log = await getLogForDate(subtask.id, from);
+      if (log?.completed ?? false) {
+        await setLog(subtask.id, to, completed: true);
+        await setLog(subtask.id, from, completed: false);
+      }
+    }
+  });
+
   /// Moves a task in or out of the archive. Only the status is written, so the
   /// logs, sessions and subtasks of an archived habit all survive to be
   /// restored — unlike [deleteTaskCascade], which is the destructive one.
@@ -209,14 +250,65 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
   /// about the children from a note about the parent. The logs need none — the
   /// only statement in the app that deletes one is right here, by task, and on
   /// the server a foreign key says the same thing.
-  Future<void> deleteTaskCascade(int id) async {
-    await transaction(() async {
-      final removed = await _deleteCascade(id);
-      for (final uid in removed) {
-        await _writeTombstone(uid);
-      }
-    });
-  }
+  ///
+  /// Returns what was removed, for [restoreDeleted]; null when there was no such
+  /// task.
+  Future<DeletedTask?> deleteTaskCascade(int id) => transaction(() async {
+    final family =
+        await (select(tasks)
+              ..where((t) => t.id.equals(id) | t.parentId.equals(id))
+              ..orderBy([(t) => OrderingTerm.asc(t.parentId)]))
+            .get();
+    if (family.isEmpty) return null;
+    final ids = [for (final t in family) t.id];
+    final deleted = DeletedTask(
+      tasks: family,
+      logs: await (select(taskLogs)..where((l) => l.taskId.isIn(ids))).get(),
+      marks: await (select(groupMarks)..where((m) => m.taskId.isIn(ids))).get(),
+      sessions: await (select(
+        taskSessions,
+      )..where((s) => s.taskId.isIn(ids))).get(),
+    );
+    for (final uid in await _deleteCascade(id)) {
+      await _writeTombstone(uid);
+    }
+    return deleted;
+  });
+
+  /// Undoes [deleteTaskCascade]: the rows come back with the **ids** they had,
+  /// but as new tasks to the server — each gets a fresh uid, and the tombstones
+  /// of the old ones stay.
+  ///
+  /// Not the old uids, although that looks like the honest undo. By the time the
+  /// user taps "Отменить" the deletion may already have reached the server
+  /// (`deleted_at` set there), and a deletion **wins** in [pullAction]: the
+  /// restored task would be deleted again by the next pull, a second after it
+  /// reappeared. A fresh uid has no such history, and the old tombstone, sent or
+  /// not, settles the old identity the same way on every device.
+  ///
+  /// Every restored task and log is dirty and the tasks are stamped now, so they
+  /// are sent as the news they are.
+  Future<void> restoreDeleted(DeletedTask deleted) => transaction(() async {
+    final now = DateTime.now();
+    for (final t in deleted.tasks) {
+      await into(tasks).insert(
+        t.copyWith(uid: Value(_uuid.v4()), dirty: true, updatedAt: now),
+        mode: InsertMode.insertOrReplace,
+      );
+    }
+    for (final l in deleted.logs) {
+      await into(taskLogs).insert(
+        l.copyWith(dirty: true, updatedAt: now),
+        mode: InsertMode.insertOrReplace,
+      );
+    }
+    for (final m in deleted.marks) {
+      await into(groupMarks).insert(m, mode: InsertMode.insertOrReplace);
+    }
+    for (final s in deleted.sessions) {
+      await into(taskSessions).insert(s, mode: InsertMode.insertOrReplace);
+    }
+  });
 
   /// Takes the task, its direct subtasks and every log and session of either
   /// out of the database, and reports the uids of the rows that went.
@@ -509,6 +601,11 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
     return transaction(() async {
       final day = dayOf(date);
       final existing = await getLogForDate(taskId, day);
+      // A group task "for everyone" is shared: once another member has ticked
+      // it, it is done for all and this account has nothing to tick.
+      if (!(existing?.completed ?? false) && await _doneByOthers(taskId, day)) {
+        return;
+      }
       if (existing == null) {
         await into(taskLogs).insert(
           TaskLogsCompanion.insert(
@@ -530,6 +627,17 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
         );
       }
     });
+  }
+
+  Future<bool> _doneByOthers(int taskId, DateTime day) async {
+    final task = await getTaskById(taskId);
+    if (task == null || task.groupUid == null || task.assigneeUid != null) {
+      return false;
+    }
+    final marks = await (select(
+      groupMarks,
+    )..where((m) => m.taskId.equals(taskId) & m.completed.equals(true))).get();
+    return marks.any((m) => dayOf(m.date) == day);
   }
 
   // ---------------------------------------------------------------------------

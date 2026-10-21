@@ -7,12 +7,14 @@ import 'package:intl/intl.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/pages/cycle_calendar_page.dart';
+import 'package:todo_app/widgets/cycle/cycle_setup.dart';
 import 'package:todo_app/pages/habits_page.dart' show todayCaption;
 import 'package:todo_app/pages/settings_page.dart';
 import 'package:todo_app/settings/about_settings.dart';
 import 'package:todo_app/settings/analytics_settings.dart';
 import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/utils/cycle.dart';
+import 'package:todo_app/utils/cycle_marks.dart';
 import 'package:todo_app/utils/cycle_stats.dart';
 import 'package:todo_app/utils/last_done.dart' show pluralRu;
 import 'package:todo_app/utils/week.dart';
@@ -21,6 +23,7 @@ import 'package:todo_app/widgets/cycle/cycle_colors.dart';
 import 'package:todo_app/widgets/cycle/cycle_day_info.dart';
 import 'package:todo_app/widgets/cycle/cycle_day_sheet.dart';
 import 'package:todo_app/widgets/cycle/cycle_heart.dart';
+import 'package:todo_app/widgets/habits/habits_week.dart' show DashedBox;
 import 'package:todo_app/widgets/page_header.dart';
 import 'package:todo_app/widgets/settings/about_section.dart'
     show pickCycleStart;
@@ -56,6 +59,10 @@ class _CyclePageState extends ConsumerState<CyclePage> {
   /// — kept as null rather than as a date so the page still follows the clock
   /// past midnight when nothing was chosen.
   DateTime? _selected;
+
+  /// "Пропустить, заполню позже" on the setup screen. Per launch, on purpose:
+  /// without a start date there is no forecast, so it asks again next time.
+  bool _skippedSetup = false;
 
   /// The strip's page 0 is the week of today, so any other week is a plain
   /// offset from it, in either direction, with no limit that has to be chosen.
@@ -99,6 +106,9 @@ class _CyclePageState extends ConsumerState<CyclePage> {
   @override
   Widget build(BuildContext context) {
     final about = ref.watch(aboutSettingsProvider);
+    if (about.lastStart == null && !_skippedSetup) {
+      return CycleSetup(onSkip: () => setState(() => _skippedSetup = true));
+    }
     final model = about.model;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -170,22 +180,15 @@ class _CyclePageState extends ConsumerState<CyclePage> {
             _RingCard(
               model: model,
               day: day,
-              enabled: canMark,
-              onMark: () => mark(),
-            ),
-            const _SectionTitle('Быстро отметить'),
-            _QuickMarks(enabled: canMark, onTap: mark),
-            _DayInfoCard(
-              day: day,
               today: today,
-              model: model,
               row: cycleDayRow(days, day),
+              enabled: canMark,
+              onQuick: mark,
               onToday: _backToToday,
             ),
             if (model != null) _Stats(about: about, stats: stats),
             if (model != null) ...[
               const SizedBox(height: 12),
-              _Forecast(model: model, today: today),
               _FertileWindow(model: model, today: today),
             ],
             Padding(
@@ -208,46 +211,35 @@ class _CyclePageState extends ConsumerState<CyclePage> {
   }
 }
 
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle(this.title);
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = AppPalette.of(Theme.of(context));
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 22, 24, 10),
-      child: Text(
-        title.toUpperCase(),
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w500,
-          letterSpacing: 1.04,
-          color: p.textSecondary,
-        ),
-      ),
-    );
-  }
-}
-
-/// The white card under the week: the ring, its legend and the one main action
-/// of the tab, "+ Отметить" (a 52px bar in the text colour) — for the day the
-/// ring shows, which is today until another is picked in the week.
+/// The one white card under the week: the ring and its legend, when the next
+/// ovulation and period are due, and below a divider the quick marks of the
+/// picked day with what was marked on it as chips. The full sheet (with the
+/// discharge and the note) is not on this tab — it is "Отметить день" in the
+/// calendar.
 class _RingCard extends StatelessWidget {
   const _RingCard({
     required this.model,
     required this.day,
+    required this.today,
+    required this.row,
     required this.enabled,
-    required this.onMark,
+    required this.onQuick,
+    required this.onToday,
   });
 
   final CycleModel? model;
 
   /// The day the ring shows — the one chosen in the week, today by default.
   final DateTime day;
+  final DateTime today;
+
+  /// What was marked on [day], if anything.
+  final CycleDay? row;
   final bool enabled;
-  final VoidCallback onMark;
+  final ValueChanged<CycleSection> onQuick;
+
+  /// Back to today, offered while another day is picked.
+  final VoidCallback onToday;
 
   @override
   Widget build(BuildContext context) {
@@ -262,6 +254,7 @@ class _RingCard extends StatelessWidget {
         border: Border.all(color: p.border),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (model == null)
             Padding(
@@ -278,7 +271,9 @@ class _RingCard extends StatelessWidget {
               ),
             )
           else ...[
-            _Ring(model: model, day: day),
+            Center(
+              child: _Ring(model: model, day: day),
+            ),
             const SizedBox(height: 18),
             Wrap(
               spacing: 14,
@@ -311,35 +306,32 @@ class _RingCard extends StatelessWidget {
                   ),
               ],
             ),
+            const SizedBox(height: 18),
+            _Forecast(model: model, today: today),
           ],
-          const SizedBox(height: 18),
-          Material(
-            color: enabled ? p.textPrimary : p.textTertiary,
-            borderRadius: BorderRadius.circular(16),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: enabled ? onMark : null,
-              child: SizedBox(
-                height: 52,
-                width: double.infinity,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(LucideIcons.plus, size: 18, color: p.background),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Отметить',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: p.background,
-                      ),
-                    ),
-                  ],
+          const SizedBox(height: 16),
+          Divider(height: 1, thickness: 1, color: p.divider),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'БЫСТРО ОТМЕТИТЬ',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 1.04,
+                    color: p.textSecondary,
+                  ),
                 ),
               ),
-            ),
+              if (day != today)
+                TextButton(onPressed: onToday, child: const Text('Сегодня')),
+            ],
           ),
+          const SizedBox(height: 12),
+          _QuickMarks(row: row, enabled: enabled, onTap: onQuick),
+          _MarkChips(row: row),
         ],
       ),
     );
@@ -453,42 +445,44 @@ class _WeekDay extends StatelessWidget {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
-        child: Container(
-          height: 68,
-          decoration: BoxDecoration(
-            color: isSelected ? p.textPrimary : null,
-            borderRadius: BorderRadius.circular(14),
-            // Today, when it is not the picked day, keeps a hairline so it can
-            // still be found.
-            border: isToday && !isSelected
-                ? Border.all(color: p.borderStrong)
-                : null,
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                DateFormat.E('ru_RU').format(day),
-                style: TextStyle(
-                  fontSize: 11,
-                  color: fg.withValues(alpha: 0.7),
+        child: CustomPaint(
+          // Today, when it is not the picked day, keeps a dashed outline so it
+          // can still be found.
+          foregroundPainter: isToday && !isSelected
+              ? DashedBox(color: p.outline, radius: 14)
+              : null,
+          child: Container(
+            height: 68,
+            decoration: BoxDecoration(
+              color: isSelected ? p.textPrimary : null,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  DateFormat.E('ru_RU').format(day),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: fg.withValues(alpha: 0.7),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '${day.day}',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: isSelected || isToday
-                      ? FontWeight.w600
-                      : FontWeight.w500,
-                  color: isFuture && !isSelected ? p.textTertiary : fg,
+                const SizedBox(height: 6),
+                Text(
+                  '${day.day}',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: isSelected || isToday
+                        ? FontWeight.w600
+                        : FontWeight.w500,
+                    color: isFuture && !isSelected ? p.textTertiary : fg,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 6),
-              // The slot is kept when empty, so a heart does not move the number.
-              CycleHeart(sex: sex),
-            ],
+                const SizedBox(height: 6),
+                // The slot is kept when empty, so a heart does not move the number.
+                CycleHeart(sex: sex),
+              ],
+            ),
           ),
         ),
       ),
@@ -499,7 +493,8 @@ class _WeekDay extends StatelessWidget {
 /// The ring of the cycle (`Cycle.dc.html`): one dot per day on a circle, day 1
 /// at the top and clockwise. Phase days are bigger, ovulation biggest; the days
 /// already lived are paler. Today is a white dot with a blue rim and its number
-/// in a blue badge beside it; 1, 7, 14 and 21 are numbered on the inside.
+/// in a blue badge outside the ring, in line with the dot; 1, 7, 14 and 21 are
+/// numbered on the inside.
 class _Ring extends StatelessWidget {
   const _Ring({required this.model, required this.day});
 
@@ -557,8 +552,9 @@ class _Ring extends StatelessWidget {
     };
 
     final ring = todayDay == null ? null : at(todayDay, _radius);
-    final badge = todayDay == null ? null : at(todayDay, _radius + 2);
-
+    final outward = todayDay == null
+        ? null
+        : (at(todayDay, 1) - const Offset(_size / 2, _size / 2));
     return Semantics(
       label: todayDay == null
           ? 'Кольцо цикла'
@@ -567,6 +563,9 @@ class _Ring extends StatelessWidget {
         width: _size,
         height: _size,
         child: Stack(
+          // Today's number sits beside its dot, which on the right and the lower
+          // edge is outside the 272px square; the default would cut it off.
+          clipBehavior: Clip.none,
           children: [
             for (var d = 1; d <= length; d++) dot(d),
             for (final n in const [1, 7, 14, 21])
@@ -586,7 +585,7 @@ class _Ring extends StatelessWidget {
                     ),
                   ),
                 ),
-            if (ring != null && badge != null) ...[
+            if (ring != null && outward != null) ...[
               Positioned(
                 left: ring.dx - 12,
                 top: ring.dy - 12,
@@ -600,31 +599,32 @@ class _Ring extends StatelessWidget {
                   ),
                 ),
               ),
-              Positioned(
-                left: badge.dx + 10,
-                top: badge.dy + 6,
-                child: Container(
-                  height: 22,
-                  constraints: const BoxConstraints(minWidth: 22),
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                  decoration: BoxDecoration(
-                    color: todayBlue,
-                    borderRadius: BorderRadius.circular(11),
-                  ),
-                  // Not `alignment:` — that makes a Container take all the room it
-                  // is offered, and in a Stack that is the whole ring.
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '$todayDay',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
+              Positioned.fill(
+                child: CustomSingleChildLayout(
+                  delegate: _OutwardBadge(dot: ring, outward: outward),
+                  child: Container(
+                    height: 22,
+                    constraints: const BoxConstraints(minWidth: 22),
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    decoration: BoxDecoration(
+                      color: todayBlue,
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    // Not `alignment:` — that makes a Container take all the room
+                    // it is offered, and here that is the whole ring.
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '$todayDay',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -701,48 +701,88 @@ class _Ring extends StatelessWidget {
   }
 }
 
-/// Two cards: the next ovulation and the next period.
+/// Puts today's number outside the ring, on the line from the centre through
+/// today's [dot], clear of the dot's rim. How far out depends on the pill's own
+/// size and on the direction: a wide pill has to stand further off at three
+/// o'clock, a short one only its height away at twelve — so the number never
+/// lies over the neighbouring dots.
+class _OutwardBadge extends SingleChildLayoutDelegate {
+  const _OutwardBadge({required this.dot, required this.outward});
+
+  /// The centre of today's dot, and the unit-ish direction away from the ring's
+  /// centre through it.
+  final Offset dot;
+  final Offset outward;
+
+  /// The dot's marker (12 radius, with its rim) and a little air.
+  static const _clear = 14.0;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) =>
+      constraints.loosen();
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    final direction = outward / outward.distance;
+    final reach =
+        direction.dx.abs() * childSize.width / 2 +
+        direction.dy.abs() * childSize.height / 2;
+    final centre = dot + direction * (_clear + reach);
+    return centre - Offset(childSize.width / 2, childSize.height / 2);
+  }
+
+  @override
+  bool shouldRelayout(_OutwardBadge old) =>
+      old.dot != dot || old.outward != outward;
+}
+
+/// The next ovulation and the next period side by side, on the card itself — no
+/// plate of their own, a hairline between them. Each is a coloured dot and its
+/// date, the days to it in large type, and a line of detail.
 class _Forecast extends StatelessWidget {
   const _Forecast({required this.model, required this.today});
 
   final CycleModel model;
   final DateTime today;
 
+  /// "18 окт": the short month, without the full stop the locale puts after it.
+  static String _short(DateTime d) =>
+      '${d.day} ${DateFormat.MMM('ru_RU').format(d).replaceAll('.', '')}';
+
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(Theme.of(context));
     final ovulation = model.nextOvulation(today);
     final period = model.nextPeriodStart(today);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              child: _ForecastCard(
-                title: 'Овуляция',
-                icon: LucideIcons.circle_dot,
-                fill: _ovulationFill,
-                ink: _ovulationInk,
-                when: _inDays(today, ovulation),
-                detail:
-                    '${DateFormat.MMMMd('ru_RU').format(ovulation)} · '
-                    'день ${model.ovulationDay}',
-              ),
+    final window = model.fertileWindow(today);
+    // "13–19 окт", or both months when the window straddles two.
+    final range = window.start.month == window.end.month
+        ? '${window.start.day}–${_short(window.end)}'
+        : '${_short(window.start)} – ${_short(window.end)}';
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: _ForecastCard(
+              dot: ovulationColor,
+              title: 'Овуляция · ${_short(ovulation)}',
+              when: _inDays(today, ovulation),
+              detail: 'Фертильное окно $range',
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _ForecastCard(
-                title: 'Месячные',
-                icon: LucideIcons.droplet,
-                fill: _periodFill,
-                ink: _periodInk,
-                when: _inDays(today, period),
-                detail: '≈ ${DateFormat.MMMMd('ru_RU').format(period)}',
-              ),
+          ),
+          VerticalDivider(width: 21, thickness: 1, color: p.divider),
+          Expanded(
+            child: _ForecastCard(
+              dot: periodColor,
+              title: 'Месячные · ≈ ${_short(period)}',
+              when: _inDays(today, period),
+              detail:
+                  'Ожидается ${model.periodLength} '
+                  '${pluralRu(model.periodLength, 'день', 'дня', 'дней')}',
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -756,56 +796,59 @@ class _Forecast extends StatelessWidget {
 
 class _ForecastCard extends StatelessWidget {
   const _ForecastCard({
+    required this.dot,
     required this.title,
-    required this.icon,
-    required this.fill,
-    required this.ink,
     required this.when,
     required this.detail,
   });
 
+  final Color dot;
   final String title;
-  final IconData icon;
-  final Color fill;
-  final Color ink;
   final String when;
   final String detail;
 
   @override
   Widget build(BuildContext context) {
     final p = AppPalette.of(Theme.of(context));
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: p.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: p.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              _IconDisc(icon: icon, fill: fill, ink: ink),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: p.textPrimary,
-                  ),
-                ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 13, color: p.textSecondary),
               ),
-            ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          when,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.3,
+            color: p.textPrimary,
           ),
-          const SizedBox(height: 10),
-          _Badge(text: when, fill: fill, ink: ink, fontSize: 15),
-          const SizedBox(height: 10),
-          Text(detail, style: TextStyle(fontSize: 12, color: p.textSecondary)),
-        ],
-      ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          detail,
+          style: TextStyle(fontSize: 12, height: 1.3, color: p.textSecondary),
+        ),
+      ],
     );
   }
 }
@@ -934,132 +977,205 @@ class _FertileWindow extends StatelessWidget {
   }
 }
 
-/// Five round buttons, each opening the sheet with just that group of choices —
-/// the same ones as in "Отметить". (The mock-up's "Лекарства" is not here:
-/// medicines are not kept for now.)
+/// Four round buttons, each opening the sheet with just that group of choices —
+/// the same ones as in "Отметить". A button whose group is already marked on the
+/// day wears a small black disc with a white tick in its top right corner. (The
+/// note and the discharge are in the full sheet only; "Лекарства" of the mock-up
+/// is not kept at all.)
 class _QuickMarks extends StatelessWidget {
-  const _QuickMarks({required this.enabled, required this.onTap});
+  const _QuickMarks({
+    required this.row,
+    required this.enabled,
+    required this.onTap,
+  });
 
+  final CycleDay? row;
   final bool enabled;
   final ValueChanged<CycleSection> onTap;
 
   @override
   Widget build(BuildContext context) {
     final p = AppPalette.of(Theme.of(context));
-    const items = [
+    final r = row;
+    final items = [
       (
         'Месячные',
         CycleSection.flow,
         LucideIcons.droplet,
-        Color(0xFFF3DDE6),
-        Color(0xFF924C68),
+        const Color(0xFFF3DDE6),
+        const Color(0xFF924C68),
+        r != null && r.flow > 0,
       ),
       (
         'Секс',
         CycleSection.sex,
         LucideIcons.heart,
-        Color(0xFFF9DDE6),
+        const Color(0xFFF9DDE6),
         heartColor,
+        r?.sex != null,
       ),
       (
         'Настроение',
         CycleSection.mood,
         LucideIcons.face_slightly_smiling,
-        Color(0xFFD9F0E6),
-        Color(0xFF2B6E53),
+        const Color(0xFFD9F0E6),
+        const Color(0xFF2B6E53),
+        r?.mood != null,
       ),
       (
         'Симптомы',
         CycleSection.symptoms,
         LucideIcons.activity,
-        Color(0xFFE3DEF8),
-        Color(0xFF5D4DB0),
-      ),
-      (
-        'Заметка',
-        CycleSection.note,
-        LucideIcons.notebook_pen,
-        Color(0xFFEEF1F5),
-        Color(0xFF4A5262),
+        const Color(0xFFE3DEF8),
+        const Color(0xFF5D4DB0),
+        r != null && parseSymptoms(r.symptoms).isNotEmpty,
       ),
     ];
     return Opacity(
       opacity: enabled ? 1 : 0.4,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(
-          children: [
-            for (final (label, section, icon, fill, ink) in items)
-              Expanded(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: enabled ? () => onTap(section) : null,
-                  child: Column(
-                    children: [
-                      Container(
-                        width: 56,
-                        height: 56,
-                        decoration: BoxDecoration(
-                          color: fill,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(icon, size: 22, color: ink),
+      child: Row(
+        children: [
+          for (final (label, section, icon, fill, ink, marked) in items)
+            Expanded(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: enabled ? () => onTap(section) : null,
+                child: Column(
+                  children: [
+                    SizedBox(
+                      width: 56,
+                      height: 56,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Container(
+                            width: 56,
+                            height: 56,
+                            decoration: BoxDecoration(
+                              color: fill,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(icon, size: 22, color: ink),
+                          ),
+                          if (marked)
+                            Positioned(
+                              top: -2,
+                              right: -2,
+                              child: Container(
+                                width: 20,
+                                height: 20,
+                                decoration: BoxDecoration(
+                                  color: p.textPrimary,
+                                  shape: BoxShape.circle,
+                                  // The card's own colour, so the disc reads as
+                                  // its own object over the button's edge.
+                                  border: Border.all(
+                                    color: p.surface,
+                                    width: 2,
+                                  ),
+                                ),
+                                child: Icon(
+                                  LucideIcons.check,
+                                  size: 11,
+                                  color: p.background,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        label,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 11, color: p.textPrimary),
-                      ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 11, color: p.textPrimary),
+                    ),
+                  ],
                 ),
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }
 }
 
-/// What the picked day is and what was marked on it — a card under the quick
-/// marks. With another day than today picked, "Сегодня" is a way back.
-class _DayInfoCard extends StatelessWidget {
-  const _DayInfoCard({
-    required this.day,
-    required this.today,
-    required this.model,
-    required this.row,
-    required this.onToday,
-  });
+/// What was marked on the day, as chips under the buttons: the flow, sex, mood,
+/// each symptom, the discharge and the note. Nothing at all while nothing is.
+class _MarkChips extends StatelessWidget {
+  const _MarkChips({required this.row});
 
-  final DateTime day;
-  final DateTime today;
-  final CycleModel? model;
   final CycleDay? row;
-  final VoidCallback onToday;
 
   @override
   Widget build(BuildContext context) {
     final p = AppPalette.of(Theme.of(context));
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 22, 16, 0),
-      padding: const EdgeInsets.all(16),
+    final r = row;
+    if (r == null) return const SizedBox.shrink();
+
+    Widget chip(String text, {Widget? leading}) => Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: p.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: p.border),
+        color: p.chip,
+        borderRadius: BorderRadius.circular(12),
       ),
-      child: CycleDayInfo(
-        day: day,
-        model: model,
-        row: row,
-        trailing: day == today
-            ? null
-            : TextButton(onPressed: onToday, child: const Text('Сегодня')),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (leading != null) ...[leading, const SizedBox(width: 6)],
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, color: p.textPrimary),
+            ),
+          ),
+        ],
       ),
     );
+
+    final symptoms = [
+      for (final s in parseSymptoms(r.symptoms))
+        if (s < cycleSymptoms.length) s,
+    ]..sort();
+    final note = r.note?.trim() ?? '';
+    final chips = <Widget>[
+      if (r.flow > 0 && r.flow < cycleFlows.length)
+        chip('Месячные · ${cycleFlows[r.flow].toLowerCase()}'),
+      if (r.sex case final sex? when sex < cycleSex.length)
+        chip(
+          sex == 0 ? 'Секса не было' : 'Секс · ${cycleSex[sex].toLowerCase()}',
+          leading: CycleHeart.shows(sex)
+              ? CycleHeart(sex: sex, size: 12)
+              : null,
+        ),
+      if (r.mood case final m? when m < cycleMoods.length)
+        chip(
+          cycleMoods[m],
+          leading: Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: cycleMoodColors[m],
+              shape: BoxShape.circle,
+            ),
+          ),
+        ),
+      for (final s in symptoms) chip(cycleSymptoms[s]),
+      if (r.discharge case final d? when d < cycleDischarges.length)
+        chip('Выделения · ${cycleDischarges[d].toLowerCase()}'),
+      if (note.isNotEmpty) chip(note, leading: _noteIcon(p)),
+    ];
+    if (chips.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Wrap(spacing: 6, runSpacing: 6, children: chips),
+    );
   }
+
+  static Widget _noteIcon(AppPalette p) =>
+      Icon(LucideIcons.notebook_pen, size: 12, color: p.textSecondary);
 }
 
 /// "27 Средний цикл", "5 Дней месячных", "±1 д. Разброс циклов" — worked out

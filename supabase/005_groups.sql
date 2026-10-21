@@ -24,8 +24,10 @@
 --   * `tasks.user_id` is the **author** — the client never sends it, the
 --     default stamps the writer, and a trigger keeps it from changing after.
 --   * Only the group's **owner** and the task's **author** edit or delete it.
---   * `assignee_id` null means "for everyone": each member ticks it for
---     themselves, which is why a mark is now keyed by its user too.
+--   * `assignee_id` null means "for everyone": one shared task, closed for all
+--     by the first member's tick. Each member still writes only their own mark
+--     (which is why a mark is keyed by its user too); the phones read "done" as
+--     "any member's mark is ticked", so the server needs no rule for it.
 --   * A task's group is fixed at creation. Moving a task out of a group would
 --     leave a copy on every other member's phone forever: the row stops being
 --     visible to them, and an invisible row is indistinguishable from one that

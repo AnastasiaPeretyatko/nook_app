@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:todo_app/auth/supabase_init.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/settings/sync_settings.dart';
 import 'package:todo_app/sync/providers.dart';
+import 'package:todo_app/sync/realtime_listener.dart';
 import 'package:todo_app/sync/sync_service.dart';
 
 /// Decides *when* the diary is synced. [SyncService] decides how.
@@ -21,8 +23,13 @@ import 'package:todo_app/sync/sync_service.dart';
 ///   keystroke is one send rather than forty.
 /// * The app came back to the foreground, which is the moment a phone that has
 ///   been in a pocket all morning is most likely to have missed something.
-/// * A quiet timer, because the other device's changes announce themselves to
-///   nobody. Deliberately slow: this is a diary, not a chat.
+/// * The server saying a watched row changed ([RealtimeListener]) — how a tick
+///   by another member of a group reaches this phone within a second or two.
+///   Only while the app is in front: Android drops the connection in the
+///   background, and coming back syncs anyway.
+/// * A quiet timer, because not every change announces itself (no connection,
+///   or the app was in the background). Deliberately slow: this is a diary, not
+///   a chat.
 /// * Sync being switched on, or an account appearing.
 ///
 /// Over-calling is cheap by design — `SyncService.sync` returns immediately
@@ -36,6 +43,13 @@ class SyncController {
 
   Timer? _debounce;
   Timer? _heartbeat;
+  RealtimeListener? _realtime;
+
+  /// Set by a failed run: no automatic run until the app is opened again, or the
+  /// user asks ("Повторить", "Синхронизировать сейчас") and it works. Held in
+  /// memory on purpose — a restart is the "next opening" — so a phone that is
+  /// offline is told once, not at every timer tick.
+  bool _pausedAfterError = false;
 
   /// Long enough that a note being written is not sent on every letter, short
   /// enough that closing the app straight after a save still catches it.
@@ -51,13 +65,32 @@ class SyncController {
     // Once immediately: the app has just been opened, or sync has just been
     // switched on, and both are moments where something is probably waiting.
     unawaited(_run(automatic: true));
+    startRealtime();
   }
 
   void stop() {
+    stopRealtime();
     _debounce?.cancel();
     _debounce = null;
     _heartbeat?.cancel();
     _heartbeat = null;
+  }
+
+  /// Opens the server's channel of changes. Does nothing when there is no
+  /// Supabase client (offline start, tests) or syncing is not active.
+  void startRealtime() {
+    stopRealtime();
+    final client = _ref.read(supabaseClientProvider);
+    if (client == null || !_ref.read(syncActiveProvider)) return;
+    _realtime = RealtimeListener(
+      client,
+      onSignal: () => unawaited(_run(automatic: true)),
+    )..start();
+  }
+
+  void stopRealtime() {
+    _realtime?.stop();
+    _realtime = null;
   }
 
   /// Something changed locally. Sends it, once the changes stop coming.
@@ -79,6 +112,9 @@ class SyncController {
   Future<SyncOutcome> _run({required bool automatic}) async {
     if (!_ref.read(syncActiveProvider)) return SyncOutcome.skipped;
     if (automatic) {
+      // Before anything touches the status: a skipped run reports idle, which
+      // would wipe the error the screens are showing.
+      if (_pausedAfterError) return SyncOutcome.skipped;
       if (!_ref.read(syncAutoProvider)) return SyncOutcome.skipped;
       if (_ref.read(syncWifiOnlyProvider) &&
           !await _ref.read(onWifiProvider)()) {
@@ -102,10 +138,13 @@ class SyncController {
               .read(syncWatermarkProvider.notifier)
               .set(service.watermark);
         }
+        _pausedAfterError = false;
         await status.reportSuccess(DateTime.now());
       case SyncOutcome.offline:
+        _pausedAfterError = true;
         status.reportFailure(offline: true, detail: service.lastError);
       case SyncOutcome.failed:
+        _pausedAfterError = true;
         status.reportFailure(offline: false, detail: service.lastError);
       case SyncOutcome.skipped:
         // Never attempted — a run already going, or a recent failure still
@@ -188,8 +227,12 @@ class _SyncScopeState extends ConsumerState<SyncScope>
     // Coming back is the one moment worth asking unprompted: the phone may
     // have been away for hours, and nothing on the other device could have
     // told it so.
+    final controller = ref.read(syncControllerProvider);
     if (state == AppLifecycleState.resumed) {
-      unawaited(ref.read(syncControllerProvider).syncIfAuto());
+      unawaited(controller.syncIfAuto());
+      controller.startRealtime();
+    } else if (state == AppLifecycleState.paused) {
+      controller.stopRealtime();
     }
   }
 

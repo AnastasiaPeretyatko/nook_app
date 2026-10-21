@@ -186,7 +186,14 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // One list, top to bottom: both habits, then the value task.
+      // Top to bottom: both habits, then a block of its own for the value task
+      // — which is not counted among today's.
+      expect(find.text('ЗНАЧЕНИЯ'), findsOneWidget);
+      expect(find.text('0 из 2'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('ЗНАЧЕНИЯ')).dy,
+        lessThan(tester.getTopLeft(find.text('Белье')).dy),
+      );
       final value = tester.getTopLeft(find.text('Белье')).dy;
       expect(value, greaterThan(tester.getTopLeft(find.text('Зарядка')).dy));
       expect(value, greaterThan(tester.getTopLeft(find.text('Вода')).dy));

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One habit circle and its name under it. The whole item is the tap target. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/hs_item"
+    android:layout_width="52dp"
+    android:layout_height="match_parent"
+    android:gravity="center"
+    android:orientation="vertical">
+
+    <FrameLayout
+        android:layout_width="32dp"
+        android:layout_height="32dp">
+
+        <ImageView
+            android:id="@+id/item_ring"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@null"
+            android:src="@drawable/widget_check_ring" />
+
+        <ImageView
+            android:id="@+id/item_fill"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@null"
+            android:src="@drawable/widget_check_fill"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/item_mark"
+            android:layout_width="15dp"
+            android:layout_height="15dp"
+            android:layout_gravity="center"
+            android:contentDescription="@null"
+            android:src="@drawable/widget_ic_check"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/item_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:fontFamily="@font/onest_semibold"
+            android:includeFontPadding="false"
+            android:textSize="10sp"
+            android:visibility="gone" />
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/item_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:ellipsize="end"
+        android:fontFamily="@font/onest_medium"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:paddingLeft="2dp"
+        android:paddingRight="2dp"
+        android:textSize="10sp" />
+</LinearLayout>

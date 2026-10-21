@@ -5,39 +5,31 @@
      the app. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="44dp"
+    android:layout_height="32dp"
     android:gravity="center_vertical"
     android:orientation="horizontal">
-
-    <ImageView
-        android:id="@+id/row_bar"
-        android:layout_width="3dp"
-        android:layout_height="24dp"
-        android:contentDescription="@null"
-        android:scaleType="fitXY"
-        android:src="@drawable/widget_row_bar" />
 
     <!-- Deliberately wider than the circle it holds: this is the target a thumb
          has to hit on a home screen, where there is no second chance to correct
          a tap. -->
     <FrameLayout
         android:id="@+id/row_check"
-        android:layout_width="42dp"
+        android:layout_width="34dp"
         android:layout_height="match_parent">
 
         <ImageView
             android:id="@+id/row_check_ring"
-            android:layout_width="21dp"
-            android:layout_height="21dp"
-            android:layout_gravity="center"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_gravity="center_vertical"
             android:contentDescription="@null"
             android:src="@drawable/widget_check_ring" />
 
         <ImageView
             android:id="@+id/row_check_fill"
-            android:layout_width="21dp"
-            android:layout_height="21dp"
-            android:layout_gravity="center"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_gravity="center_vertical"
             android:contentDescription="@null"
             android:src="@drawable/widget_check_fill"
             android:visibility="gone" />
@@ -46,7 +38,8 @@
             android:id="@+id/row_check_mark"
             android:layout_width="13dp"
             android:layout_height="13dp"
-            android:layout_gravity="center"
+            android:layout_marginStart="4.5dp"
+            android:layout_gravity="center_vertical"
             android:contentDescription="@null"
             android:src="@drawable/widget_ic_check"
             android:visibility="gone" />
@@ -61,30 +54,31 @@
         android:orientation="horizontal">
 
         <TextView
-            android:id="@+id/row_time"
-            android:layout_width="44dp"
-            android:layout_height="wrap_content"
-            android:fontFamily="@font/nunito_semibold"
-            android:includeFontPadding="false"
-            android:textSize="12sp" />
-
-        <TextView
             android:id="@+id/row_title"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:ellipsize="end"
-            android:fontFamily="@font/nunito_semibold"
+            android:fontFamily="@font/onest_medium"
             android:includeFontPadding="false"
             android:maxLines="1"
             android:textSize="14sp" />
-    </LinearLayout>
 
-    <ImageView
-        android:id="@+id/row_dot"
-        android:layout_width="8dp"
-        android:layout_height="8dp"
-        android:layout_marginStart="6dp"
-        android:contentDescription="@null"
-        android:src="@drawable/widget_row_dot" />
+        <ImageView
+            android:id="@+id/row_dot"
+            android:layout_width="6dp"
+            android:layout_height="6dp"
+            android:layout_marginStart="8dp"
+            android:contentDescription="@null"
+            android:src="@drawable/widget_row_dot" />
+
+        <TextView
+            android:id="@+id/row_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:fontFamily="@font/onest_medium"
+            android:includeFontPadding="false"
+            android:textSize="12sp" />
+    </LinearLayout>
 </LinearLayout>

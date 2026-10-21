@@ -11,6 +11,7 @@ import 'package:todo_app/auth/supabase_init.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/pages/account_page.dart';
+import 'package:todo_app/pages/cycle_calendar_page.dart';
 import 'package:todo_app/pages/cycle_page.dart';
 import 'package:todo_app/settings/about_settings.dart';
 import 'package:todo_app/settings/sync_settings.dart';
@@ -135,15 +136,13 @@ void main() {
       final c = await container({'about_gender': 'female'});
       addTearDown(c.dispose);
       await c.read(aboutSettingsProvider.notifier).setLastStart(DateTime.now());
-      // A tall screen: the list builds only what is on it, and the button is
-      // under the ring.
+      // The full sheet lives in the calendar now: "Отметить день".
       tester.view.physicalSize = const Size(800, 2400);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
-      await pump(tester, c, const CyclePage());
+      await pump(tester, c, const CycleCalendarPage());
 
-      await tester.ensureVisible(find.text('Отметить'));
-      await tester.tap(find.text('Отметить'));
+      await tester.tap(find.text('Отметить день'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Обильные'));
       await tester.tap(find.text('Тревога'));
@@ -162,10 +161,10 @@ void main() {
       expect(saved.dirty, isTrue);
       // Medicines are gone from the sheet; sex comes right after the flow.
       expect(find.text('Лекарства'), findsNothing);
-      // The heart of a marked day shows on the week strip.
+      // The heart of a marked day shows in the month, not only in the legend.
       expect(
         find.descendant(
-          of: find.byType(PageView),
+          of: find.byType(CustomScrollView),
           matching: find.byWidgetPredicate(
             (w) => w is CycleHeart && w.sex == 1,
           ),

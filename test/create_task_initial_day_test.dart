@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:flutter_lucide/flutter_lucide.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -100,7 +99,7 @@ void main() {
     final tomorrow = today.add(const Duration(days: 1));
     expect(shownDay(tester), tomorrow, reason: 'the swipe changed no day');
 
-    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.tap(find.byTooltip('Новая задача'));
     await settleish(tester);
 
     expect(
@@ -131,7 +130,7 @@ void main() {
     );
     await settleish(tester);
 
-    await tester.tap(find.byIcon(LucideIcons.plus));
+    await tester.tap(find.byTooltip('Новая задача'));
     await settleish(tester);
 
     final form = tester.widget<CreateTaskPage>(find.byType(CreateTaskPage));

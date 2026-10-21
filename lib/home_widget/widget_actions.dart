@@ -3,9 +3,12 @@ import 'dart:ui' show DartPluginRegistrant;
 import 'package:flutter/widgets.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:todo_app/settings/analytics_settings.dart';
 import 'package:todo_app/settings/sync_settings.dart';
 import 'package:todo_app/utils/task_audience.dart';
+import 'package:todo_app/utils/tracking.dart';
 import 'package:todo_app/database/app_database.dart';
+import 'package:todo_app/home_widget/habits_payload.dart';
 import 'package:todo_app/home_widget/home_widget_bridge.dart';
 import 'package:todo_app/home_widget/today_payload.dart';
 import 'package:todo_app/home_widget/widget_theme.dart';
@@ -27,6 +30,9 @@ const widgetUriHost = 'widget';
 /// A row's checkbox: tick or untick that task for that day. Answered in the
 /// background, without opening the app.
 const widgetTogglePath = '/toggle';
+
+/// A counter habit's circle: add one for that day, like the timeline's tap.
+const widgetIncrementPath = '/increment';
 
 /// A row's body, and the header: open the app on today's schedule.
 const widgetOpenPath = '/open';
@@ -52,7 +58,7 @@ const widgetDayParam = 'day';
 /// [WidgetTapAction.unknown] covers a URI from a widget drawn by an older or
 /// newer build of the app — a home-screen widget outlives the version that put
 /// it there, so an unrecognised tap has to be an ordinary answer.
-enum WidgetTapAction { toggle, open, create, refresh, unknown }
+enum WidgetTapAction { toggle, increment, open, create, refresh, unknown }
 
 /// The action [uri] asks for, or [WidgetTapAction.unknown] for anything else,
 /// null included.
@@ -64,6 +70,7 @@ WidgetTapAction widgetTapActionOf(Uri? uri) {
   }
   return switch (uri.path) {
     widgetTogglePath => WidgetTapAction.toggle,
+    widgetIncrementPath => WidgetTapAction.increment,
     widgetOpenPath => WidgetTapAction.open,
     widgetCreatePath => WidgetTapAction.create,
     widgetRefreshPath => WidgetTapAction.refresh,
@@ -95,13 +102,17 @@ Future<void> onHomeWidgetTap(Uri? uri) async {
   final action = widgetTapActionOf(uri);
   // The other two are answered by opening the app, which Android does without
   // asking Dart anything. Nothing else has any business waking an isolate.
-  if (action != WidgetTapAction.toggle && action != WidgetTapAction.refresh) {
+  if (action != WidgetTapAction.toggle &&
+      action != WidgetTapAction.increment &&
+      action != WidgetTapAction.refresh) {
     return;
   }
 
   final taskId = int.tryParse(uri!.queryParameters[widgetTaskParam] ?? '');
   final day = DateTime.tryParse(uri.queryParameters[widgetDayParam] ?? '');
-  if (action == WidgetTapAction.toggle && (taskId == null || day == null)) {
+  final marks =
+      action == WidgetTapAction.toggle || action == WidgetTapAction.increment;
+  if (marks && (taskId == null || day == null)) {
     return;
   }
 
@@ -118,13 +129,21 @@ Future<void> onHomeWidgetTap(Uri? uri) async {
     // widget drawn before midnight and tapped after it would otherwise tick
     // yesterday — so a tap for any day but today is dropped, and the redraw
     // below replaces the stale rows with the ones that belong to the new day.
-    if (action == WidgetTapAction.toggle && _isSameDay(day!, now)) {
+    if (marks && _isSameDay(day!, now)) {
       // Foreign keys are off in this database, so a log can be written against
       // a task that is no longer there. The widget can easily be a few minutes
       // behind a deletion.
       final task = await database.tasksDao.getTaskById(taskId!);
       if (task != null) {
-        await database.tasksDao.toggleCompletion(taskId, day);
+        if (action == WidgetTapAction.increment) {
+          await database.tasksDao.incrementCounter(
+            taskId,
+            day,
+            counterTarget(task).toDouble(),
+          );
+        } else {
+          await database.tasksDao.toggleCompletion(taskId, day);
+        }
       }
     }
     await pushWidgetPayload(database);
@@ -151,13 +170,17 @@ Future<void> pushWidgetPayload(AppDatabase database) async {
     for (final task in await database.tasksDao.getRootTasks())
       if (isMyTask(task, me)) task,
   ];
-  final logs = await database.tasksDao.getLogsBetween(
-    today,
-    today.add(const Duration(days: todayWidgetHorizonDays)),
+  final end = today.add(const Duration(days: todayWidgetHorizonDays));
+  final logs = withSharedTicks(
+    await database.tasksDao.getLogsBetween(today, end),
+    tasks,
+    await database.tasksDao.watchGroupMarks().first,
+    includes: (day) => !day.isBefore(today) && day.isBefore(end),
   );
   final theme = widgetThemeFromPrefs(prefs);
 
-  await HomeWidgetBridge().push(
+  final bridge = HomeWidgetBridge();
+  await bridge.push(
     buildTodayWidgetPayload(
       tasks: tasks,
       logs: logs,
@@ -165,6 +188,22 @@ Future<void> pushWidgetPayload(AppDatabase database) async {
       light: theme.light,
       dark: theme.dark,
       mode: theme.mode,
+    ).encode(),
+  );
+
+  // Habits need their whole history for a streak, and no group ever shares one.
+  final analytics = analyticsFromPrefs(prefs);
+  await bridge.pushHabits(
+    buildHabitsWidgetPayload(
+      tasks: tasks,
+      logs: await database.tasksDao.getLogsBetween(DateTime(2000), end),
+      now: now,
+      light: theme.light,
+      dark: theme.dark,
+      mode: theme.mode,
+      weekStart: analytics.weekStart,
+      graceMinutes: analytics.graceMinutes,
+      todayStaysOpen: analytics.todayStaysOpen,
     ).encode(),
   );
 }
