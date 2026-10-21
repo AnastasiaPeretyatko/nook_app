@@ -18,7 +18,7 @@ const appName = 'Nook';
 /// schema 15, and it changes what signing in on a phone that already holds
 /// somebody else's tasks does. A device running 1.0.0 against the migrated
 /// server is not quite the same app.
-const appVersion = '2.0.0+4';
+const appVersion = '2.0.1+4';
 
 /// `2.0.0+2` as "2.0.0 (2)"; the bare version when there is no build number.
 String get appVersionLabel {
