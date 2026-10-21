@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One task on the widget. Inflated once per row and added into
+     @id/widget_rows, so each copy carries its own two click targets: the
+     checkbox, which ticks the task in the background, and the body, which opens
+     the app. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="32dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal">
+
+    <!-- Deliberately wider than the circle it holds: this is the target a thumb
+         has to hit on a home screen, where there is no second chance to correct
+         a tap. -->
+    <FrameLayout
+        android:id="@+id/row_check"
+        android:layout_width="34dp"
+        android:layout_height="match_parent">
+
+        <ImageView
+            android:id="@+id/row_check_ring"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_gravity="center_vertical"
+            android:contentDescription="@null"
+            android:src="@drawable/widget_check_ring" />
+
+        <ImageView
+            android:id="@+id/row_check_fill"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_gravity="center_vertical"
+            android:contentDescription="@null"
+            android:src="@drawable/widget_check_fill"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/row_check_mark"
+            android:layout_width="13dp"
+            android:layout_height="13dp"
+            android:layout_marginStart="4.5dp"
+            android:layout_gravity="center_vertical"
+            android:contentDescription="@null"
+            android:src="@drawable/widget_ic_check"
+            android:visibility="gone" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:id="@+id/row_body"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/row_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:fontFamily="@font/onest_medium"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textSize="14sp" />
+
+        <ImageView
+            android:id="@+id/row_dot"
+            android:layout_width="6dp"
+            android:layout_height="6dp"
+            android:layout_marginStart="8dp"
+            android:contentDescription="@null"
+            android:src="@drawable/widget_row_dot" />
+
+        <TextView
+            android:id="@+id/row_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:fontFamily="@font/onest_medium"
+            android:includeFontPadding="false"
+            android:textSize="12sp" />
+    </LinearLayout>
+</LinearLayout>

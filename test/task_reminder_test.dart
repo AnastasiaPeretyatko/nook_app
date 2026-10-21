@@ -2,6 +2,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/notifications/app_notifications.dart';
 import 'package:todo_app/notifications/task_reminder.dart';
+import 'package:todo_app/utils/recurrence.dart';
+
+/// Any moment at all: these tests never read a log's edit time. It exists
+/// because the sync needs one and the column is therefore not nullable.
+final _fixtureStamp = DateTime(2026, 1, 1);
 
 final _day = DateTime(2026, 5, 20); // a Wednesday
 DateTime _at(int hour, [int minute = 0]) => DateTime(2026, 5, 20, hour, minute);
@@ -20,6 +25,7 @@ Task _task({
   int? parentId,
   DateTime? startDate,
 }) => Task(
+  dirty: false,
   id: id,
   title: title,
   parentId: parentId,
@@ -39,7 +45,14 @@ TaskLog _log({
   int taskId = 1,
   DateTime? date,
   bool completed = true,
-}) => TaskLog(id: id, taskId: taskId, date: date ?? _day, completed: completed);
+}) => TaskLog(
+  dirty: false,
+  updatedAt: _fixtureStamp,
+  id: id,
+  taskId: taskId,
+  date: date ?? _day,
+  completed: completed,
+);
 
 List<TaskReminder> _reminders({
   List<Task>? tasks,
@@ -47,12 +60,14 @@ List<TaskReminder> _reminders({
   DateTime? now,
   int horizonDays = defaultReminderHorizonDays,
   int limit = maxScheduledReminders,
+  int leadMinutes = 0,
 }) => taskRemindersFor(
   tasks: tasks ?? [_task()],
   logs: logs,
   now: now ?? _now,
   horizonDays: horizonDays,
   limit: limit,
+  leadMinutes: leadMinutes,
 );
 
 void main() {
@@ -62,7 +77,7 @@ void main() {
 
       expect(reminders, hasLength(1));
       expect(reminders.single.taskId, 1);
-      expect(reminders.single.title, 'Read book');
+      expect(reminders.single.title, 'Read book в 10:00');
       expect(reminders.single.at, _at(10, 0));
       expect(reminders.single.day, _day);
     });
@@ -111,9 +126,9 @@ void main() {
     });
   });
 
-  group('the body carries the time', () {
-    test('a point in time is just that time', () {
-      expect(_reminders().single.body, '10:00');
+  group('the title carries the time', () {
+    test('a point in time is "name в time"', () {
+      expect(_reminders().single.title, 'Read book в 10:00');
     });
 
     test('a task with a duration reads as a range', () {
@@ -121,13 +136,150 @@ void main() {
         tasks: [_task(endTimeMinutes: 11 * 60 + 30)],
       );
 
-      expect(reminders.single.body, '10:00 – 11:30');
+      expect(reminders.single.title, 'Read book с 10:00 до 11:30');
     });
 
     test('an end that is not after the start is left out', () {
       final reminders = _reminders(tasks: [_task(endTimeMinutes: 10 * 60)]);
 
-      expect(reminders.single.body, '10:00');
+      expect(reminders.single.title, 'Read book в 10:00');
+    });
+
+    test('a one-off task has no second line', () {
+      expect(_reminders().single.body, isNull);
+    });
+  });
+
+  group('the streak line of a habit', () {
+    // A daily habit that started a week before `_day`, marked on the given
+    // number of days before it.
+    List<Task> habit() => [
+      _task(
+        repeatType: RepeatType.daily,
+        startDate: _day.subtract(const Duration(days: 7)),
+      ),
+    ];
+    List<TaskLog> marked(Iterable<int> daysBefore) => [
+      for (final n in daysBefore)
+        _log(
+          id: n,
+          date: _day.subtract(Duration(days: n)),
+        ),
+    ];
+
+    test('names the run of marked days before the occurrence', () {
+      final r = _reminders(tasks: habit(), logs: marked([1, 2, 3, 4]));
+      expect(r.first.body, 'Серия 4 дня — не прерывай её');
+    });
+
+    test('declines the word with the number', () {
+      expect(
+        _reminders(tasks: habit(), logs: marked([1, 2])).first.body,
+        'Серия 2 дня — не прерывай её',
+      );
+      expect(
+        _reminders(tasks: habit(), logs: marked([1, 2, 3, 4, 5])).first.body,
+        'Серия 5 дней — не прерывай её',
+      );
+    });
+
+    test('one marked day is not a streak, and a gap ends it', () {
+      expect(_reminders(tasks: habit(), logs: marked([1])).first.body, isNull);
+      expect(
+        _reminders(tasks: habit(), logs: marked([1, 2, 4, 5])).first.body,
+        'Серия 2 дня — не прерывай её',
+      );
+      expect(
+        _reminders(tasks: habit(), logs: marked([2, 3])).first.body,
+        isNull,
+      );
+    });
+
+    test('days the rule skips do not break it', () {
+      // Wednesdays only: the two before `_day` fall a week apart each.
+      final weekly = [
+        _task(
+          repeatType: RepeatType.weekly,
+          repeatDaysMask: daysToMask({DateTime.wednesday}),
+          startDate: _day.subtract(const Duration(days: 21)),
+        ),
+      ];
+      final r = _reminders(tasks: weekly, logs: marked([7, 14]));
+      expect(r.first.body, 'Серия 2 дня — не прерывай её');
+    });
+
+    test('a later day names no streak until the days before it are marked', () {
+      final r = _reminders(tasks: habit(), logs: marked([1, 2, 3]));
+      expect(r.first.day, _day);
+      // Tomorrow's depends on today, which is not marked yet.
+      expect(r[1].body, isNull);
+    });
+  });
+
+  group('the lead time', () {
+    test('moves the firing instant ahead of the task', () {
+      final reminders = _reminders(leadMinutes: 5);
+
+      expect(reminders.single.at, _at(9, 55));
+      // The occurrence itself has not moved: it is still the day's task at ten,
+      // which is what its id and its text are about.
+      expect(reminders.single.day, _day);
+    });
+
+    test('the title still names the task\'s own time', () {
+      expect(_reminders(leadMinutes: 5).single.title, 'Read book в 10:00');
+    });
+
+    test('a lead keeps the range of a task that has a duration', () {
+      final reminders = _reminders(
+        tasks: [_task(endTimeMinutes: 11 * 60 + 30)],
+        leadMinutes: 15,
+      );
+
+      expect(reminders.single.title, 'Read book с 10:00 до 11:30');
+    });
+
+    test('no lead reads exactly as it did before the setting existed', () {
+      expect(_reminders(leadMinutes: 0).single.title, 'Read book в 10:00');
+      expect(_reminders(leadMinutes: 0).single.at, _at(10, 0));
+    });
+
+    test('an early task is reminded of on the day before', () {
+      // 00:10 less half an hour is the previous evening, which is the point of
+      // asking to be warned in advance at all.
+      final reminders = _reminders(
+        tasks: [_task(scheduledTimeMinutes: 10, repeatType: RepeatType.daily)],
+        leadMinutes: 30,
+        horizonDays: 2,
+      );
+
+      expect(reminders.first.at, DateTime(2026, 5, 20, 23, 40));
+      expect(reminders.first.day, DateTime(2026, 5, 21));
+    });
+
+    test('a lead that has already elapsed drops the reminder', () {
+      // 09:03 less five minutes is 08:58, and it is 09:00. Not pulled forward
+      // to now: the list is recomputed on every edit and every tick, and a
+      // reminder pinned to this moment would fire again on each of them.
+      final reminders = _reminders(
+        tasks: [_task(scheduledTimeMinutes: 9 * 60 + 3)],
+        leadMinutes: 5,
+      );
+
+      expect(reminders, isEmpty);
+    });
+
+    test('the fingerprint changes with the lead', () {
+      // Otherwise the reminders scheduled under the old setting would be left
+      // alone as still-correct and keep firing at the old moment.
+      expect(
+        _reminders(leadMinutes: 0).single.fingerprint,
+        isNot(_reminders(leadMinutes: 5).single.fingerprint),
+      );
+    });
+
+    test('a negative lead is not a delay', () {
+      expect(_reminders(leadMinutes: -10).single.at, _at(10, 0));
     });
   });
 
@@ -189,7 +341,10 @@ void main() {
         ],
       );
 
-      expect(reminders.map((r) => r.title), ['Раньше', 'Позже']);
+      expect(reminders.map((r) => r.title), [
+        'Раньше в 11:00',
+        'Позже в 18:00',
+      ]);
     });
 
     test('the nearest ones win when there are too many', () {

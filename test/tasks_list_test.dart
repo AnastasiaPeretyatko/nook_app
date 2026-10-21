@@ -7,6 +7,10 @@ import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/widgets/habits/tasks_list.dart';
 
+/// Any moment at all: these tests never read a log's edit time. It exists
+/// because the sync needs one and the column is therefore not nullable.
+final _fixtureStamp = DateTime(2026, 1, 1);
+
 final _now = DateTime.now();
 final _today = DateTime(_now.year, _now.month, _now.day);
 
@@ -19,6 +23,7 @@ Task _task({
   RepeatType? repeatType,
   DateTime? startDate,
 }) => Task(
+  dirty: false,
   id: id,
   title: title,
   parentId: parentId,
@@ -32,22 +37,23 @@ Task _task({
   updatedAt: _today,
 );
 
-Widget _list(List<Task> tasks, {List<TaskLog> logs = const []}) => ProviderScope(
-  overrides: [
-    allTasksProvider.overrideWith((ref) => Stream.value(tasks)),
-    allLogsProvider.overrideWith((ref) => Stream.value(logs)),
-  ],
-  child: MaterialApp(
-    locale: const Locale('ru', 'RU'),
-    localizationsDelegates: const [
-      GlobalMaterialLocalizations.delegate,
-      GlobalWidgetsLocalizations.delegate,
-      GlobalCupertinoLocalizations.delegate,
-    ],
-    supportedLocales: const [Locale('ru', 'RU')],
-    home: const Scaffold(body: TasksList()),
-  ),
-);
+Widget _list(List<Task> tasks, {List<TaskLog> logs = const []}) =>
+    ProviderScope(
+      overrides: [
+        allTasksProvider.overrideWith((ref) => Stream.value(tasks)),
+        allLogsProvider.overrideWith((ref) => Stream.value(logs)),
+      ],
+      child: MaterialApp(
+        locale: const Locale('ru', 'RU'),
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: const [Locale('ru', 'RU')],
+        home: const Scaffold(body: TasksList()),
+      ),
+    );
 
 void main() {
   setUpAll(() async {
@@ -65,7 +71,16 @@ void main() {
             _task(id: 2, title: 'Коробки', parentId: 1),
             _task(id: 3, title: 'Машина', parentId: 1),
           ],
-          logs: [TaskLog(id: 1, taskId: 2, date: _today, completed: true)],
+          logs: [
+            TaskLog(
+              dirty: false,
+              updatedAt: _fixtureStamp,
+              id: 1,
+              taskId: 2,
+              date: _today,
+              completed: true,
+            ),
+          ],
         ),
       );
       await tester.pumpAndSettle();
@@ -96,8 +111,22 @@ void main() {
             _task(id: 3, title: 'Машина', parentId: 1),
           ],
           logs: [
-            TaskLog(id: 1, taskId: 2, date: _today, completed: true),
-            TaskLog(id: 2, taskId: 3, date: _today, completed: true),
+            TaskLog(
+              dirty: false,
+              updatedAt: _fixtureStamp,
+              id: 1,
+              taskId: 2,
+              date: _today,
+              completed: true,
+            ),
+            TaskLog(
+              dirty: false,
+              updatedAt: _fixtureStamp,
+              id: 2,
+              taskId: 3,
+              date: _today,
+              completed: true,
+            ),
           ],
         ),
       );
@@ -120,7 +149,16 @@ void main() {
             _task(id: 1, title: 'Переезд'),
             _task(id: 2, title: 'Коробки', parentId: 1),
           ],
-          logs: [TaskLog(id: 1, taskId: 2, date: _today, completed: false)],
+          logs: [
+            TaskLog(
+              dirty: false,
+              updatedAt: _fixtureStamp,
+              id: 1,
+              taskId: 2,
+              date: _today,
+              completed: false,
+            ),
+          ],
         ),
       );
       await tester.pumpAndSettle();
@@ -136,7 +174,16 @@ void main() {
             _task(id: 1, title: 'Переезд'),
             _task(id: 2, title: 'Коробки', parentId: 1),
           ],
-          logs: [TaskLog(id: 1, taskId: 2, date: yesterday, completed: true)],
+          logs: [
+            TaskLog(
+              dirty: false,
+              updatedAt: _fixtureStamp,
+              id: 1,
+              taskId: 2,
+              date: yesterday,
+              completed: true,
+            ),
+          ],
         ),
       );
       await tester.pumpAndSettle();
@@ -154,7 +201,16 @@ void main() {
             _task(id: 1, title: 'Переезд', startDate: tomorrow),
             _task(id: 2, title: 'Коробки', parentId: 1, startDate: tomorrow),
           ],
-          logs: [TaskLog(id: 1, taskId: 2, date: tomorrow, completed: true)],
+          logs: [
+            TaskLog(
+              dirty: false,
+              updatedAt: _fixtureStamp,
+              id: 1,
+              taskId: 2,
+              date: tomorrow,
+              completed: true,
+            ),
+          ],
         ),
       );
       await tester.pumpAndSettle();
@@ -194,8 +250,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Сегодня'), findsOneWidget);
+      expect(find.text('СЕГОДНЯ'), findsOneWidget);
       expect(find.text('1'), findsOneWidget);
+      expect(find.text('1 активная'), findsOneWidget);
     });
 
     testWidgets('a list holding only subtasks still shows the empty state', (
@@ -206,7 +263,74 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Нет задач'), findsOneWidget);
+      expect(find.text('На сегодня всё чисто'), findsOneWidget);
+    });
+  });
+
+  group('the two tabs', () {
+    TaskLog tick(int taskId, {DateTime? at}) => TaskLog(
+      dirty: false,
+      updatedAt: _fixtureStamp,
+      id: taskId,
+      taskId: taskId,
+      date: _today,
+      completed: true,
+      completedAt: at,
+    );
+
+    testWidgets('a ticked task leaves "Активные" for "Выполненные"', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _list(
+          [_task(id: 1, title: 'Купить хлеб'), _task(id: 2, title: 'Почта')],
+          logs: [
+            tick(1, at: _today.add(const Duration(hours: 14, minutes: 32))),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Почта'), findsOneWidget);
+      expect(find.text('Купить хлеб'), findsNothing);
+      expect(find.text('1 активная'), findsOneWidget);
+
+      await tester.tap(find.text('Выполненные'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Купить хлеб'), findsOneWidget);
+      expect(find.text('Почта'), findsNothing);
+      // The moment of the tick, recorded since v17.
+      expect(find.text('Сегодня · выполнено в 14:32'), findsOneWidget);
+    });
+
+    testWidgets('a tick from before v17 shows no time', (tester) async {
+      await tester.pumpWidget(
+        _list([_task(id: 1, title: 'Купить хлеб')], logs: [tick(1)]),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Выполненные'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Сегодня'), findsOneWidget);
+      expect(find.textContaining('выполнено в'), findsNothing);
+    });
+
+    testWidgets('an overdue task says when it was due, in red', (tester) async {
+      await tester.pumpWidget(
+        _list([
+          _task(
+            id: 1,
+            title: 'Оплатить интернет',
+            startDate: _today.subtract(const Duration(days: 1)),
+            scheduledTimeMinutes: 18 * 60,
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('ПРОСРОЧЕНО'), findsOneWidget);
+      expect(find.text('Вчера, 18:00'), findsOneWidget);
     });
   });
 
@@ -220,6 +344,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Зарядка'), findsNothing);
-    expect(find.text('Нет задач'), findsOneWidget);
+    expect(find.text('На сегодня всё чисто'), findsOneWidget);
   });
 }

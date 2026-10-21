@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todo_app/database/app_database.dart';
-import 'package:todo_app/widgets/habits/habits_grid.dart';
+import 'package:todo_app/widgets/habits/habits_today.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
+
+/// Any moment at all: these tests never read a log's edit time. It exists
+/// because the sync needs one and the column is therefore not nullable.
+final _fixtureStamp = DateTime(2026, 1, 1);
 
 final _now = DateTime.now();
 final _today = DateTime(_now.year, _now.month, _now.day);
-final _monday = _today.subtract(Duration(days: _today.weekday - 1 + 7));
-final _days = List.generate(14, (i) => _monday.add(Duration(days: i)));
 
 /// Ten minutes, the target every habit here is set to.
 const _targetMinutes = 10;
 
 Task _timerHabit() => Task(
+  dirty: false,
   id: 1,
   title: 'Медитация',
   status: TaskStatus.active,
@@ -26,17 +29,14 @@ Task _timerHabit() => Task(
 );
 
 TaskLog _log({required double seconds, bool completed = false}) => TaskLog(
+  dirty: false,
+  updatedAt: _fixtureStamp,
   id: 1,
   taskId: 1,
   date: _today,
   completed: completed,
   value: seconds,
 );
-
-/// Fraction of the plate the fill covers — how far the run has got.
-double _fillFraction(WidgetTester tester) => tester
-    .widget<FractionallySizedBox>(find.byType(FractionallySizedBox))
-    .widthFactor!;
 
 Future<void> _pumpCard(
   WidgetTester tester, {
@@ -54,10 +54,9 @@ Future<void> _pumpCard(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SizedBox(
-                width: 164,
-                child: HabitCard(
+                width: 390,
+                child: HabitRow(
                   task: _timerHabit(),
-                  days: _days,
                   today: _today,
                   completedDays: completedDays,
                   todayLog: todayLog,
@@ -82,15 +81,18 @@ void main() {
   testWidgets('an untouched timer invites a start', (tester) async {
     await _pumpCard(tester);
 
-    expect(find.text('Начать'), findsOneWidget);
-    expect(_fillFraction(tester), 0);
+    // The readout counts down: an untouched run has all of it left.
+    expect(find.text('10:00'), findsOneWidget);
+    expect(find.byTooltip('Запустить таймер'), findsOneWidget);
   });
 
-  testWidgets('a paused timer shows what is already banked', (tester) async {
+  testWidgets('a paused timer counts what is banked off the target', (
+    tester,
+  ) async {
     await _pumpCard(tester, todayLog: _log(seconds: 90));
 
-    expect(find.text('01:30'), findsOneWidget);
-    expect(find.byIcon(LucideIcons.pause), findsOneWidget);
+    expect(find.text('08:30'), findsOneWidget);
+    expect(find.byIcon(LucideIcons.play), findsOneWidget);
   });
 
   testWidgets('a running timer counts from when it started', (tester) async {
@@ -101,7 +103,8 @@ void main() {
       runningSince: DateTime.now().subtract(const Duration(seconds: 65)),
     );
 
-    expect(find.text('01:05'), findsOneWidget);
+    expect(find.text('08:55'), findsOneWidget);
+    expect(find.byIcon(LucideIcons.pause), findsOneWidget);
   });
 
   testWidgets('a run resumed after a break adds to what was banked', (
@@ -113,7 +116,7 @@ void main() {
       runningSince: DateTime.now().subtract(const Duration(seconds: 30)),
     );
 
-    expect(find.text('02:30'), findsOneWidget);
+    expect(find.text('07:30'), findsOneWidget);
   });
 
   testWidgets('a run that outlived the app picks up where the clock is', (
@@ -125,8 +128,7 @@ void main() {
       runningSince: DateTime.now().subtract(const Duration(minutes: 4)),
     );
 
-    expect(find.text('04:00'), findsOneWidget);
-    expect(_fillFraction(tester), closeTo(0.4, 0.01));
+    expect(find.text('06:00'), findsOneWidget);
   });
 
   testWidgets('a running timer does not leak its ticker', (tester) async {
@@ -146,7 +148,7 @@ void main() {
 
     // Nothing to advance: a paused readout cannot change on its own.
     await tester.pump(const Duration(seconds: 5));
-    expect(find.text('01:30'), findsOneWidget);
+    expect(find.text('08:30'), findsOneWidget);
   });
 
   testWidgets('a finished habit reads as done, not as a timer', (tester) async {
@@ -156,15 +158,15 @@ void main() {
       completedDays: {_today},
     );
 
-    expect(find.text('Выполнено'), findsOneWidget);
-    expect(_fillFraction(tester), 1);
+    expect(find.byTooltip('Выполнено'), findsOneWidget);
+    expect(find.byTooltip('Запустить таймер'), findsNothing);
   });
 
   testWidgets('tapping an idle timer asks to start it', (tester) async {
     var started = 0, stopped = 0;
     await _pumpCard(tester, onStart: () => started++, onStop: () => stopped++);
 
-    await tester.tap(find.text('Начать'));
+    await tester.tap(find.byTooltip('Запустить таймер'));
     await tester.pump();
 
     expect(started, 1);
@@ -180,7 +182,7 @@ void main() {
       onStop: () => stopped++,
     );
 
-    await tester.tap(find.text('00:05'));
+    await tester.tap(find.byTooltip('Остановить таймер'));
     await tester.pump();
 
     expect(started, 0);
@@ -197,7 +199,7 @@ void main() {
       onStop: () => stopped++,
     );
 
-    await tester.tap(find.text('Выполнено'));
+    await tester.tap(find.byTooltip('Выполнено'));
     await tester.pump();
 
     expect(started, 0);
@@ -234,8 +236,7 @@ void main() {
         runningSince: DateTime.now().subtract(const Duration(minutes: 15)),
       );
 
-      expect(find.text('10:00'), findsOneWidget);
-      expect(_fillFraction(tester), 1);
+      expect(find.text('00:00'), findsOneWidget);
     });
   });
 }

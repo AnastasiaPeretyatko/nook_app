@@ -1,3 +1,5 @@
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:todo_app/settings/theme_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -5,6 +7,10 @@ import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/utils/recurrence.dart';
 import 'package:todo_app/widgets/habits/habit_actions_sheet.dart';
+
+/// Any moment at all: these tests never read a log's edit time. It exists
+/// because the sync needs one and the column is therefore not nullable.
+final _fixtureStamp = DateTime(2026, 1, 1);
 
 final _now = DateTime.now();
 final _today = DateTime(_now.year, _now.month, _now.day);
@@ -17,6 +23,7 @@ Task _habit({
   RepeatType repeatType = RepeatType.daily,
   Set<int> weekdays = const {},
 }) => Task(
+  dirty: false,
   id: id,
   title: title,
   status: TaskStatus.active,
@@ -35,6 +42,8 @@ TaskLog _log({
   required int daysAgo,
   bool completed = true,
 }) => TaskLog(
+  dirty: false,
+  updatedAt: _fixtureStamp,
   id: id,
   taskId: taskId,
   date: _today.subtract(Duration(days: daysAgo)),
@@ -82,8 +91,13 @@ int _tappableDays(WidgetTester tester) => find
     .evaluate()
     .length;
 
+/// The week start, the lateness grace and the "today" switch are read from the
+/// store, so anything drawing a habit needs one.
+late SharedPreferences _prefs;
+
 Widget _sheet(Task task, List<TaskLog> logs) => ProviderScope(
   overrides: [
+    sharedPreferencesProvider.overrideWithValue(_prefs),
     logsBetweenProvider.overrideWith((ref, range) => Stream.value(logs)),
   ],
   child: MaterialApp(
@@ -92,6 +106,11 @@ Widget _sheet(Task task, List<TaskLog> logs) => ProviderScope(
 );
 
 void main() {
+  setUpAll(() async {
+    SharedPreferences.setMockInitialValues({});
+    _prefs = await SharedPreferences.getInstance();
+  });
+
   testWidgets('marks only the days logged for this habit', (tester) async {
     final logs = [
       // This habit: two completed days.

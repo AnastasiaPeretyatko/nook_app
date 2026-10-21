@@ -1,18 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:todo_app/widgets/home/schedule_drag_handle.dart';
 import 'package:todo_app/widgets/home/task_timeline.dart';
 
+/// The day under the calendar: [TaskTimeline] for [selectedDay], changed by a
+/// sideways swipe, the incoming day sliding in from the side the finger went.
 class DayScheduleSection extends StatefulWidget {
   const DayScheduleSection({
     super.key,
-    required this.onHandleDragUpdate,
-    required this.onHandleDragEnd,
     required this.onDayChange,
     required this.selectedDay,
   });
-
-  final GestureDragUpdateCallback onHandleDragUpdate;
-  final GestureDragEndCallback onHandleDragEnd;
 
   /// Called with +1 (swipe left → next day) or -1 (swipe right → previous day).
   final ValueChanged<int> onDayChange;
@@ -39,81 +35,49 @@ class _DayScheduleSectionState extends State<DayScheduleSection> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isLight = theme.brightness == Brightness.light;
-    // The sheet has to read as lifted above the calendar behind it. On white
-    // that is the shadow's job; in the dark theme a shadow on near-black is
-    // invisible, so the sheet takes the next surface up instead.
-    final sheetColor = isLight
-        ? theme.colorScheme.surface
-        : theme.colorScheme.surfaceContainerLow;
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: sheetColor,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isLight ? 0.08 : 0.5),
-            blurRadius: 14,
-            offset: const Offset(0, -3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          ScheduleDragHandle(
-            onDragUpdate: widget.onHandleDragUpdate,
-            onDragEnd: widget.onHandleDragEnd,
-          ),
-          Expanded(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onHorizontalDragEnd: (details) {
-                final velocity = details.primaryVelocity ?? 0;
-                if (velocity <= -DayScheduleSection._swipeVelocityThreshold) {
-                  widget.onDayChange(1);
-                } else if (velocity >=
-                    DayScheduleSection._swipeVelocityThreshold) {
-                  widget.onDayChange(-1);
-                }
-              },
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 260),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                transitionBuilder: (child, animation) {
-                  final key = (child.key as ValueKey<DateTime>).value;
-                  final isIncoming = key == widget.selectedDay;
-                  // Incoming enters from the swipe direction; outgoing leaves
-                  // toward the opposite side.
-                  final begin = isIncoming
-                      ? Offset(_direction.toDouble(), 0)
-                      : Offset(-_direction.toDouble(), 0);
-                  return FadeTransition(
-                    opacity: animation,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: begin,
-                        end: Offset.zero,
-                      ).animate(animation),
-                      child: child,
-                    ),
-                  );
-                },
-                layoutBuilder: (currentChild, previousChildren) => Stack(
-                  alignment: Alignment.topCenter,
-                  children: [...previousChildren, ?currentChild],
-                ),
-                child: KeyedSubtree(
-                  key: ValueKey<DateTime>(widget.selectedDay),
-                  child: TaskTimeline(selectedDay: widget.selectedDay),
-                ),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onHorizontalDragEnd: (details) {
+        final velocity = details.primaryVelocity ?? 0;
+        if (velocity <= -DayScheduleSection._swipeVelocityThreshold) {
+          widget.onDayChange(1);
+        } else if (velocity >= DayScheduleSection._swipeVelocityThreshold) {
+          widget.onDayChange(-1);
+        }
+      },
+      child: ClipRect(
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 260),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: (child, animation) {
+            final key = (child.key as ValueKey<DateTime>).value;
+            final isIncoming = key == widget.selectedDay;
+            // Incoming enters from the swipe direction; outgoing leaves toward
+            // the opposite side.
+            final begin = isIncoming
+                ? Offset(_direction.toDouble(), 0)
+                : Offset(-_direction.toDouble(), 0);
+            return FadeTransition(
+              opacity: animation,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: begin,
+                  end: Offset.zero,
+                ).animate(animation),
+                child: child,
               ),
-            ),
+            );
+          },
+          layoutBuilder: (currentChild, previousChildren) => Stack(
+            alignment: Alignment.topCenter,
+            children: [...previousChildren, ?currentChild],
           ),
-        ],
+          child: KeyedSubtree(
+            key: ValueKey<DateTime>(widget.selectedDay),
+            child: TaskTimeline(selectedDay: widget.selectedDay),
+          ),
+        ),
       ),
     );
   }

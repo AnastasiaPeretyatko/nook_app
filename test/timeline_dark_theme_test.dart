@@ -6,7 +6,6 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/main.dart';
-import 'package:todo_app/widgets/home/day_schedule_section.dart';
 import 'package:todo_app/widgets/home/task_timeline.dart';
 
 final _now = DateTime.now();
@@ -23,6 +22,7 @@ Task _task({
   int? end,
   int? colorValue,
 }) => Task(
+  dirty: false,
   id: id,
   title: title,
   status: TaskStatus.active,
@@ -59,9 +59,7 @@ Widget _darkTimeline({Widget? child}) => ProviderScope(
     ],
     supportedLocales: const [Locale('ru', 'RU')],
     theme: buildAppTheme(_accent, Brightness.dark),
-    home: Scaffold(
-      body: child ?? TaskTimeline(selectedDay: _today),
-    ),
+    home: Scaffold(body: child ?? TaskTimeline(selectedDay: _today)),
   ),
 );
 
@@ -72,62 +70,41 @@ double _contrast(Color a, Color b) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/// The sheet the timeline is drawn on, in the dark theme.
-Color _sheetColor(WidgetTester tester) {
-  // The sheet is the outermost decorated box of the section.
-  final box = tester.widget<DecoratedBox>(
-    find
-        .descendant(
-          of: find.byType(DayScheduleSection),
-          matching: find.byType(DecoratedBox),
-        )
-        .first,
-  );
-  return ((box.decoration as BoxDecoration).color)!;
-}
+/// Every flat colour the timeline paints a box with.
+Iterable<Color> _painted(WidgetTester tester) => [
+  for (final box in tester.widgetList<DecoratedBox>(find.byType(DecoratedBox)))
+    if (box.decoration case BoxDecoration(:final color?)) color,
+  for (final m in tester.widgetList<Material>(find.byType(Material))) ?m.color,
+];
 
 void main() {
   setUpAll(() async {
     await initializeDateFormatting('ru_RU', null);
   });
 
-  testWidgets('the sheet is not a white slab in the dark theme', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      _darkTimeline(
-        child: DayScheduleSection(
-          selectedDay: _today,
-          onHandleDragUpdate: (_) {},
-          onHandleDragEnd: (_) {},
-          onDayChange: (_) {},
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    final sheet = _sheetColor(tester);
-    expect(sheet, isNot(Colors.white));
-    // Lifted above the page behind it, which is the darkest surface.
-    expect(
-      sheet.computeLuminance(),
-      greaterThan(buildAppTheme(
-        _accent,
-        Brightness.dark,
-      ).colorScheme.surface.computeLuminance()),
-    );
-  });
-
-  testWidgets('every label on the timeline reads on the dark sheet', (
+  testWidgets('the cards are not white slabs in the dark theme', (
     tester,
   ) async {
     await tester.pumpWidget(_darkTimeline());
     await tester.pumpAndSettle();
 
-    final sheet = buildAppTheme(
-      _accent,
-      Brightness.dark,
-    ).colorScheme.surfaceContainerLow;
+    final theme = buildAppTheme(_accent, Brightness.dark);
+    expect(_painted(tester), isNot(contains(Colors.white)));
+    // The cards are the dark card tone, lifted above the page behind them.
+    expect(_painted(tester), contains(theme.colorScheme.surface));
+    expect(
+      theme.colorScheme.surface.computeLuminance(),
+      greaterThan(theme.scaffoldBackgroundColor.computeLuminance()),
+    );
+  });
+
+  testWidgets('every label on the timeline reads on the dark card', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_darkTimeline());
+    await tester.pumpAndSettle();
+
+    final sheet = buildAppTheme(_accent, Brightness.dark).colorScheme.surface;
 
     for (final text in tester.widgetList<Text>(find.byType(Text))) {
       final color = text.style?.color;
@@ -139,17 +116,5 @@ void main() {
         reason: '"${text.data}" is drawn in $color',
       );
     }
-  });
-
-  testWidgets('the hanging line follows the theme', (tester) async {
-    await tester.pumpWidget(_darkTimeline());
-    await tester.pumpAndSettle();
-
-    final context = tester.element(find.byType(TaskTimeline));
-    expect(
-      TaskTimeline.lineColorOf(context),
-      Theme.of(context).colorScheme.outlineVariant,
-    );
-    expect(TaskTimeline.lineColorOf(context), isNot(const Color(0xFFD9D9D9)));
   });
 }

@@ -4,11 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:todo_app/widgets/app_bottom_nav_bar.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/main.dart';
 import 'package:todo_app/settings/theme_provider.dart';
-import 'package:flutter_lucide/flutter_lucide.dart';
+
+/// Any moment at all: these tests never read a log's edit time. It exists
+/// because the sync needs one and the column is therefore not nullable.
+final _fixtureStamp = DateTime(2026, 1, 1);
 
 final _now = DateTime.now();
 final _today = DateTime(_now.year, _now.month, _now.day);
@@ -26,6 +30,7 @@ Task _task({
   String? iconKey,
 }) {
   return Task(
+    dirty: false,
     id: id,
     title: title,
     status: TaskStatus.active,
@@ -44,7 +49,7 @@ Task _task({
 }
 
 final _tasks = <Task>[
-  // Habits (repeat != null) -> HabitsGrid
+  // Habits (repeat != null) -> HabitsToday
   _task(id: 1, title: 'Зарядка', repeatType: RepeatType.daily),
   _task(
     id: 2,
@@ -106,10 +111,35 @@ final _tasks = <Task>[
 ];
 
 final _logs = <TaskLog>[
-  TaskLog(id: 1, taskId: 1, date: _today, completed: true),
-  TaskLog(id: 2, taskId: 3, date: _today, completed: false, value: 3),
-  TaskLog(id: 3, taskId: 2, date: _today, completed: false, value: 120),
   TaskLog(
+    dirty: false,
+    updatedAt: _fixtureStamp,
+    id: 1,
+    taskId: 1,
+    date: _today,
+    completed: true,
+  ),
+  TaskLog(
+    dirty: false,
+    updatedAt: _fixtureStamp,
+    id: 2,
+    taskId: 3,
+    date: _today,
+    completed: false,
+    value: 3,
+  ),
+  TaskLog(
+    dirty: false,
+    updatedAt: _fixtureStamp,
+    id: 3,
+    taskId: 2,
+    date: _today,
+    completed: false,
+    value: 120,
+  ),
+  TaskLog(
+    dirty: false,
+    updatedAt: _fixtureStamp,
     id: 4,
     taskId: 1,
     date: _today.subtract(const Duration(days: 3)),
@@ -149,15 +179,28 @@ void main() {
     _prefs = await SharedPreferences.getInstance();
   });
 
-  for (final size in const [
-    Size(1080, 2400),
-    Size(1080, 1920),
-    Size(720, 1280),
-    Size(1440, 3120),
+  // Physical size **and** its density, because layout depends on neither alone:
+  // what a widget is given is `physicalSize / devicePixelRatio`, and a pair that
+  // no device ships is a viewport nothing has to survive.
+  //
+  // 720x1280 used to sit here at 3.0, which is 240pt wide — narrower than any
+  // Android phone ever made, and the only size in the list that overflowed.
+  // A 720p phone runs at 2.0. Swept afterwards: everything from 320pt up lays
+  // out clean, and 320pt is the narrowest width that ships, so it is in the list
+  // now rather than being assumed.
+  for (final device in const [
+    (name: 'small 480p', size: Size(640, 960), dpr: 2.0), //     320 x 480
+    (name: '720p', size: Size(720, 1280), dpr: 2.0), //          360 x 640
+    (name: '1080p short', size: Size(1080, 1920), dpr: 3.0), //  360 x 640
+    (name: '1080p tall', size: Size(1080, 2400), dpr: 3.0), //   360 x 800
+    (name: '1440p', size: Size(1440, 3120), dpr: 3.0), //        480 x 1040
   ]) {
-    testWidgets('MainScreen with data lays out at $size', (tester) async {
+    final size = device.size;
+    testWidgets('MainScreen with data lays out on a ${device.name}', (
+      tester,
+    ) async {
       tester.view.physicalSize = size;
-      tester.view.devicePixelRatio = 3.0;
+      tester.view.devicePixelRatio = device.dpr;
       addTearDown(tester.view.reset);
 
       await tester.pumpWidget(_app());
@@ -170,13 +213,13 @@ void main() {
       );
 
       // Now visit every tab.
-      for (final label in const ['Привычки', 'Дневник', 'Settings']) {
-        final icon = {
-          'Привычки': LucideIcons.repeat,
-          'Дневник': LucideIcons.book_open,
-          'Settings': LucideIcons.settings,
-        }[label]!;
-        await tester.tap(find.byIcon(icon).last);
+      for (final label in const ['Привычки', 'Задачи', 'Дневник']) {
+        await tester.tap(
+          find.descendant(
+            of: find.byType(AppBottomNavBar),
+            matching: find.text(label),
+          ),
+        );
         await tester.pump(const Duration(milliseconds: 400));
         await tester.pump(const Duration(milliseconds: 400));
       }

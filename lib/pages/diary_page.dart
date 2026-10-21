@@ -2,20 +2,36 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_lucide/flutter_lucide.dart';
+import 'package:todo_app/pages/create_note_page.dart';
+import 'package:todo_app/widgets/empty_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/pages/note_view_page.dart';
+import 'package:todo_app/settings/diary_view.dart';
+import 'package:todo_app/theme/app_palette.dart';
+import 'package:todo_app/utils/diary_groups.dart';
 import 'package:todo_app/utils/note_delta.dart';
 import 'package:todo_app/utils/note_images.dart';
 import 'package:todo_app/utils/note_search.dart';
-import 'package:todo_app/settings/diary_view.dart';
-import 'package:todo_app/widgets/diary/note_label_chips.dart';
 import 'package:todo_app/utils/surfaces.dart';
 import 'package:todo_app/utils/task_colors.dart';
-import 'package:flutter_lucide/flutter_lucide.dart';
+import 'package:todo_app/utils/task_palette.dart';
+import 'package:todo_app/widgets/app_dialogs.dart';
+import 'package:todo_app/widgets/diary/note_label_chips.dart';
+import 'package:todo_app/widgets/list_card.dart';
+import 'package:todo_app/widgets/page_header.dart';
 
+/// The "Дневник" tab (`Journal.dc.html`): how many notes there are, a search box
+/// that is always there, the pinned notes as coloured tiles, then everything
+/// else in sections by date.
+///
+/// "Закреплённые" is the old "Избранное" under a new name — the same flag, said
+/// differently on screen. The tabs are gone: drafts sit in the list with a mark
+/// on them, and the archive is a page of its own behind the header's button,
+/// the way the habits screen keeps its archive.
 class DiaryPage extends ConsumerStatefulWidget {
   const DiaryPage({super.key});
 
@@ -23,72 +39,30 @@ class DiaryPage extends ConsumerStatefulWidget {
   ConsumerState<DiaryPage> createState() => _DiaryPageState();
 }
 
-/// What each tab keeps out of the one list of entries. Three of the four are a
-/// value of [DiaryEntryStatus]; "Избранное" is the flag instead, and it hides
-/// what has been put away — otherwise a star would drag an archived note back
-/// into view.
-enum _DiaryFilter { all, favorites, drafts, archive }
-
 class _DiaryPageState extends ConsumerState<DiaryPage> {
-  /// The tab bar's thumb and the page transition move together, so they share
-  /// one duration and curve.
-  static const _tabSwitch = Duration(milliseconds: 250);
-  static const _tabCurve = Curves.easeInOutCubic;
-
-  int _selectedTab = 0;
-  final _pages = PageController();
-
-  /// Whether the header has given itself over to the search box.
-  bool _searching = false;
   final _search = TextEditingController();
 
   /// What is being looked for, already cut into terms. Kept beside the
-  /// controller rather than derived on the fly in every list: four lists read it
-  /// on every keystroke, and cutting one string four times per letter is work
-  /// for nothing.
+  /// controller rather than derived in the list on every rebuild: cutting one
+  /// string per keystroke is enough.
   List<String> _terms = const [];
 
   @override
   void dispose() {
-    _pages.dispose();
     _search.dispose();
     super.dispose();
   }
 
-  /// The search box filters **within the open tab**, on top of its own rule,
-  /// rather than across the whole diary. The tabs keep meaning what they say —
-  /// and the query stays put while they are switched, so a note that is not in
-  /// "Все" is one swipe away rather than a search away.
   void _onQueryChanged(String query) =>
       setState(() => _terms = searchTerms(query));
 
-  void _closeSearch() {
-    FocusScope.of(context).unfocus();
-    setState(() {
-      _searching = false;
-      _search.clear();
-      _terms = const [];
-    });
-  }
-
-  /// A tap on the tab bar. The swipe reports itself through [_onPageChanged]
-  /// instead — animating there would fight the finger.
-  void _onTabTapped(int index) {
-    if (index == _selectedTab) return;
-    setState(() => _selectedTab = index);
-    _pages.animateToPage(index, duration: _tabSwitch, curve: _tabCurve);
-  }
-
-  void _onPageChanged(int index) {
-    // Also fires at the end of [_onTabTapped]'s animation, where the state is
-    // already there.
-    if (index == _selectedTab) return;
-    setState(() => _selectedTab = index);
-  }
-
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final mode = ref.watch(diaryViewModeProvider);
+    // Archived notes are not "записи" of the diary proper: they are put away.
+    final count = (ref.watch(diaryEntriesProvider).valueOrNull ?? const [])
+        .where((e) => e.status != DiaryEntryStatus.archived)
+        .length;
 
     return Scaffold(
       body: SafeArea(
@@ -96,81 +70,41 @@ class _DiaryPageState extends ConsumerState<DiaryPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
-              // The box takes the header's place rather than pushing it aside:
-              // while a search is on, the name of the screen is the least useful
-              // thing on it, and a row that grows would shift everything below.
-              child: _searching
-                  ? _SearchField(
-                      controller: _search,
-                      onChanged: _onQueryChanged,
-                      onClear: () {
-                        _search.clear();
-                        _onQueryChanged('');
-                      },
-                      onClose: _closeSearch,
-                    )
-                  : Row(
-                      children: [
-                        Icon(
-                          LucideIcons.book_open_text,
-                          size: 26,
-                          color: theme.colorScheme.onSurface,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'Дневник',
-                            style: theme.textTheme.headlineSmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: theme.colorScheme.onSurface,
-                            ),
-                          ),
-                        ),
-                        _HeaderButton(
-                          icon: LucideIcons.search,
-                          tooltip: 'Поиск',
-                          onPressed: _onSearchTapped,
-                        ),
-                        _HeaderButton(
-                          icon: LucideIcons.ellipsis_vertical,
-                          tooltip: 'Ещё',
-                          onPressed: _onMenuTapped,
-                        ),
-                      ],
+            PageHeader(
+              caption: diaryCountLabel(count),
+              title: 'Дневник',
+              actions: [
+                RoundIconButton(
+                  icon: LucideIcons.archive,
+                  tooltip: 'Архив',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const DiaryArchivePage(),
                     ),
+                  ),
+                ),
+                RoundIconButton(
+                  icon: mode == DiaryViewMode.grid
+                      ? LucideIcons.layout_grid
+                      : LucideIcons.layout_list,
+                  tooltip: mode == DiaryViewMode.grid
+                      ? 'Вид: плитки'
+                      : 'Вид: список',
+                  onPressed: _onViewTapped,
+                ),
+              ],
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
-              child: _DiaryTabBar(
-                tabs: _tabs,
-                selectedIndex: _selectedTab,
-                onChanged: _onTabTapped,
-              ),
-            ),
-            Expanded(
-              child: PageView(
-                controller: _pages,
-                onPageChanged: _onPageChanged,
-                children: [
-                  for (final filter in _DiaryFilter.values)
-                    _DiaryList(filter: filter, terms: _terms),
-                ],
-              ),
-            ),
+            _SearchBar(controller: _search, onChanged: _onQueryChanged),
+            Expanded(child: _DiaryList(terms: _terms)),
           ],
         ),
       ),
     );
   }
 
-  void _onSearchTapped() => setState(() => _searching = true);
-
-  /// The header's menu, which so far holds one decision: how the notes are
-  /// drawn. A sheet rather than a popup menu, like every other choice in the
-  /// app.
-  Future<void> _onMenuTapped() async {
+  /// How the notes are drawn: a sheet rather than a popup menu, like every other
+  /// choice in the app.
+  Future<void> _onViewTapped() async {
     final current = ref.read(diaryViewModeProvider);
     final chosen = await showModalBottomSheet<DiaryViewMode>(
       context: context,
@@ -182,27 +116,634 @@ class _DiaryPageState extends ConsumerState<DiaryPage> {
   }
 }
 
-const _tabs = ['Все', 'Избранное', 'Черновики', 'Архив'];
+/// The archive of notes, on a page of its own: what was put away, newest first.
+/// Tapping a note opens it; a long press offers to bring it back.
+class DiaryArchivePage extends ConsumerWidget {
+  const DiaryArchivePage({super.key});
 
-class _HeaderButton extends StatelessWidget {
-  const _HeaderButton({
-    required this.icon,
-    required this.tooltip,
-    required this.onPressed,
-  });
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final entries = ref.watch(diaryEntriesProvider);
+    final moods = ref.watch(moodsByEntryProvider).valueOrNull ?? const {};
+    final tags = ref.watch(tagsByEntryProvider).valueOrNull ?? const {};
 
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onPressed;
+    return Scaffold(
+      backgroundColor: pageSurface(theme),
+      body: SafeArea(
+        child: Column(
+          children: [
+            const BackHeader(title: 'Архив'),
+            Expanded(
+              child: entries.when(
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (error, _) => Center(child: Text('Ошибка: $error')),
+                data: (all) {
+                  final archived = all
+                      .where((e) => e.status == DiaryEntryStatus.archived)
+                      .toList();
+                  if (archived.isEmpty) {
+                    return Center(
+                      child: Text(
+                        'В архиве пусто',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: labelInk,
+                        ),
+                      ),
+                    );
+                  }
+                  return ListView(
+                    padding: const EdgeInsets.only(top: 16, bottom: 32),
+                    children: [
+                      RowsCard(
+                        dividerIndent: 16,
+                        children: [
+                          for (final entry in archived)
+                            _NoteRow(
+                              entry: entry,
+                              moods: moods[entry.id] ?? const [],
+                              tags: tags[entry.id] ?? const [],
+                              onTap: () => _open(context, entry),
+                              onLongPress: () =>
+                                  _noteActions(context, ref, entry),
+                            ),
+                        ],
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+void _open(BuildContext context, DiaryEntry entry) =>
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => NoteViewPage(entryId: entry.id)),
+    );
+
+/// The long press on a note: pin it, or put it away — or, in the archive, bring
+/// it back. The two things the tabs used to be for, one gesture away.
+Future<void> _noteActions(
+  BuildContext context,
+  WidgetRef ref,
+  DiaryEntry entry,
+) async {
+  final archived = entry.status == DiaryEntryStatus.archived;
+  final action = await showActionsSheet<String>(
+    context,
+    title: entry.title.trim().isEmpty ? 'Без названия' : entry.title,
+    actions: [
+      if (!archived)
+        SheetAction(
+          icon: entry.isFavorite ? LucideIcons.pin_off : LucideIcons.pin,
+          label: entry.isFavorite ? 'Открепить' : 'Закрепить',
+          value: 'pin',
+        ),
+      SheetAction(
+        icon: archived ? LucideIcons.archive_restore : LucideIcons.archive,
+        label: archived ? 'Вернуть из архива' : 'В архив',
+        value: 'archive',
+      ),
+    ],
+  );
+  final dao = ref.read(diaryDaoProvider);
+  switch (action) {
+    case 'pin':
+      await dao.setFavorite(entry.id, !entry.isFavorite);
+    case 'archive':
+      await dao.setStatus(
+        entry.id,
+        archived ? DiaryEntryStatus.normal : DiaryEntryStatus.archived,
+      );
+  }
+}
+
+/// The search box under the header — always on screen, grey, with a cross that
+/// comes and goes with the text.
+class _SearchBar extends StatelessWidget {
+  const _SearchBar({required this.controller, required this.onChanged});
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: tooltip,
-      onPressed: onPressed,
-      icon: Icon(icon, color: Theme.of(context).colorScheme.onSurfaceVariant),
+    final theme = Theme.of(context);
+    final palette = AppPalette.of(theme);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        // The palette's own track is the dark card's colour, so in the dark
+        // theme the box would vanish.
+        color: theme.brightness == Brightness.light
+            ? palette.segmentTrack
+            : palette.chip,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(LucideIcons.search, size: 17, color: palette.textSecondary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              onChanged: onChanged,
+              textInputAction: TextInputAction.search,
+              style: TextStyle(fontSize: 15, color: palette.textPrimary),
+              decoration: InputDecoration(
+                isCollapsed: true,
+                border: InputBorder.none,
+                hintText: 'Поиск по записям',
+                hintStyle: TextStyle(fontSize: 15, color: palette.textTertiary),
+              ),
+            ),
+          ),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: controller,
+            builder: (context, value, _) => value.text.isEmpty
+                ? const SizedBox.shrink()
+                : GestureDetector(
+                    onTap: () {
+                      controller.clear();
+                      onChanged('');
+                    },
+                    behavior: HitTestBehavior.opaque,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Icon(
+                        LucideIcons.x,
+                        size: 18,
+                        color: palette.textSecondary,
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      ),
     );
   }
+}
+
+/// The notes, as sections of one scroll: pinned tiles, then the rest — in rows
+/// grouped by date, or in tiles, as the view mode says.
+class _DiaryList extends ConsumerWidget {
+  const _DiaryList({this.terms = const []});
+
+  /// What is being searched for. Empty means no search is on, and then no note's
+  /// body is decoded at all — see [_found].
+  final List<String> terms;
+
+  /// Whether the note answers the search. Title first and body second, because
+  /// the title is already a string while the body is a Delta that has to be
+  /// decoded — and with no search on, nothing is decoded at all.
+  bool _found(DiaryEntry entry) {
+    if (terms.isEmpty) return true;
+    if (matchesTerms(entry.title, terms)) return true;
+    return matchesTerms(plainNoteBody(entry.body), terms);
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final entriesAsync = ref.watch(diaryEntriesProvider);
+    final mode = ref.watch(diaryViewModeProvider);
+    // Two queries for the whole screen, not one per row — see
+    // `moodsByEntryProvider`. An empty map while they are in flight, so a row
+    // draws without its labels for a frame rather than not at all.
+    final moods = ref.watch(moodsByEntryProvider).valueOrNull ?? const {};
+    final tags = ref.watch(tagsByEntryProvider).valueOrNull ?? const {};
+    // The pictures live in a directory that has to be asked for; until the
+    // answer arrives a tile simply draws without its cover.
+    final imagesDirectory = ref.watch(noteImagesDirectoryProvider).valueOrNull;
+
+    return entriesAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (error, _) => Center(child: Text('Ошибка: $error')),
+      data: (entries) {
+        // The archive is its own page, so it never turns up here — not even
+        // when it would match the search.
+        final shown = entries
+            .where((e) => e.status != DiaryEntryStatus.archived)
+            .where(_found)
+            .toList();
+        if (shown.isEmpty && terms.isEmpty) {
+          return EmptyScreen(
+            family: 'violet',
+            icon: LucideIcons.pencil,
+            title: 'Здесь будут ваши записи',
+            body: 'Мысли, идеи, списки. Первая запись — в один тап.',
+            actionLabel: 'Написать запись',
+            onAction: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const CreateNotePage()),
+            ),
+          );
+        }
+        if (shown.isEmpty) {
+          return Center(
+            child: Text(
+              'Ничего не найдено',
+              style: theme.textTheme.bodyMedium?.copyWith(color: labelInk),
+            ),
+          );
+        }
+
+        // Pinned notes get their own block — unless a search is on, when it is
+        // one list of what matched and a note's pin is not what was asked.
+        final searching = terms.isNotEmpty;
+        final pinned = searching
+            ? const <DiaryEntry>[]
+            : shown.where((e) => e.isFavorite).toList();
+        final rest = searching
+            ? shown
+            : shown.where((e) => !e.isFavorite).toList();
+        final groups = groupDiaryByDate(rest, DateTime.now());
+
+        return CustomScrollView(
+          slivers: [
+            if (pinned.isNotEmpty) ...[
+              const SliverToBoxAdapter(child: _PinnedCaption()),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                sliver: SliverGrid(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    mainAxisSpacing: 10,
+                    crossAxisSpacing: 10,
+                    mainAxisExtent: 112,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    (context, i) => _PinnedTile(
+                      entry: pinned[i],
+                      onTap: () => _open(context, pinned[i]),
+                      onLongPress: () => _noteActions(context, ref, pinned[i]),
+                    ),
+                    childCount: pinned.length,
+                  ),
+                ),
+              ),
+            ],
+            if (mode == DiaryViewMode.grid && rest.isNotEmpty)
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                sliver: SliverGrid(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    mainAxisSpacing: 14,
+                    crossAxisSpacing: 14,
+                    // Room for a cover and two lines under it. The picture takes
+                    // whatever the title and the date leave, so a tile is the
+                    // same height whatever it holds and the two columns stay
+                    // level.
+                    childAspectRatio: 0.82,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    (context, i) => _DiaryTile(
+                      entry: rest[i],
+                      imagesDirectory: imagesDirectory,
+                      terms: terms,
+                      onOpen: () => _open(context, rest[i]),
+                      onLongPress: () => _noteActions(context, ref, rest[i]),
+                    ),
+                    childCount: rest.length,
+                  ),
+                ),
+              )
+            else
+              // One section per item, built as it scrolls into view.
+              SliverList.builder(
+                itemCount: groups.length,
+                itemBuilder: (context, i) {
+                  final group = groups[i];
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SectionCaption(title: group.title),
+                      RowsCard(
+                        dividerIndent: 16,
+                        children: [
+                          for (final entry in group.notes)
+                            _NoteRow(
+                              entry: entry,
+                              terms: terms,
+                              moods: moods[entry.id] ?? const [],
+                              tags: tags[entry.id] ?? const [],
+                              onTap: () => _open(context, entry),
+                              onLongPress: () =>
+                                  _noteActions(context, ref, entry),
+                            ),
+                        ],
+                      ),
+                    ],
+                  );
+                },
+              ),
+            // Clears the floating navigation bar.
+            const SliverToBoxAdapter(child: SizedBox(height: 120)),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// "📌 ЗАКРЕПЛЁННЫЕ" over the coloured tiles.
+class _PinnedCaption extends StatelessWidget {
+  const _PinnedCaption();
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(Theme.of(context));
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 10),
+      child: Row(
+        children: [
+          Icon(LucideIcons.pin, size: 13, color: palette.textSecondary),
+          const SizedBox(width: 6),
+          Text(
+            'ЗАКРЕПЛЁННЫЕ',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 1.04,
+              color: palette.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A pinned note as a tile in one of the six task colours — which one is fixed
+/// by the note, so it keeps its colour from one visit to the next.
+class _PinnedTile extends StatelessWidget {
+  const _PinnedTile({
+    required this.entry,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  final DiaryEntry entry;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final palette = AppPalette.of(theme);
+    final accent =
+        pickableTaskPalette[entry.id % pickableTaskPalette.length].accent;
+    final fill = taskBadgeSurface(theme, accent, pageSurface(theme));
+    final strong = taskBadgeInk(theme, accent, fill);
+    final titled = entry.title.trim().isNotEmpty;
+
+    return Material(
+      color: fill,
+      borderRadius: BorderRadius.circular(18),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                titled ? entry.title : 'Без названия',
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  height: 1.25,
+                  color: titled ? palette.textPrimary : palette.textSecondary,
+                ),
+              ),
+              Text(
+                'Изменено ${_changedLabel(entry.updatedAt)}',
+                style: TextStyle(fontSize: 12, color: strong),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "сегодня", "вчера", "12 окт" — for the line under a pinned tile.
+String _changedLabel(DateTime at) {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final local = at.toLocal();
+  final days = today
+      .difference(DateTime(local.year, local.month, local.day))
+      .inDays;
+  if (days <= 0) return 'сегодня';
+  if (days == 1) return 'вчера';
+  return DateFormat(
+    local.year == now.year ? 'd MMM' : 'd MMM yyyy',
+    'ru_RU',
+  ).format(local);
+}
+
+/// One note in a section: the day and weekday on the left, the title and two
+/// lines of the text beside them — and, under those, the mood and tags when the
+/// note has any.
+class _NoteRow extends StatelessWidget {
+  const _NoteRow({
+    required this.entry,
+    required this.moods,
+    required this.tags,
+    required this.onTap,
+    required this.onLongPress,
+    this.terms = const [],
+  });
+
+  final DiaryEntry entry;
+  final List<NoteMood> moods;
+  final List<NoteTag> tags;
+  final List<String> terms;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  /// How many tags a row shows before it starts counting them instead.
+  static const int _tagsShown = 3;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final palette = AppPalette.of(theme);
+    final at = entry.updatedAt.toLocal();
+    final weekday = DateFormat('E', 'ru_RU').format(at);
+    // Wound to the match, so a note found by its seventh paragraph does not
+    // answer with its first.
+    final excerpt = excerptAround(plainNoteBody(entry.body), terms);
+    final titled = entry.title.trim().isNotEmpty;
+    final hidden = tags.length - _tagsShown;
+
+    return InkWell(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 38,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Column(
+                  children: [
+                    Text(
+                      '${at.day}',
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                        height: 1.1,
+                        color: palette.textPrimary,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                    Text(
+                      '${weekday[0].toUpperCase()}${weekday.substring(1)}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: palette.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _Highlighted(
+                          text: titled ? entry.title : 'Без названия',
+                          terms: terms,
+                          maxLines: 1,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                            color: titled
+                                ? palette.textPrimary
+                                : palette.textTertiary,
+                          ),
+                        ),
+                      ),
+                      if (entry.status == DiaryEntryStatus.draft) ...[
+                        const SizedBox(width: 8),
+                        const _DraftMark(),
+                      ],
+                    ],
+                  ),
+                  if (excerpt.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    _Highlighted(
+                      text: excerpt,
+                      terms: terms,
+                      maxLines: 2,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.4,
+                        color: palette.textSecondary,
+                      ),
+                    ),
+                  ],
+                  if (moods.isNotEmpty || tags.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        for (final mood in moods)
+                          MoodChip(
+                            mood: mood,
+                            // No fill on a row: the tag chips beside it are
+                            // coloured already, and a filled mood next to them
+                            // makes the line a row of boxes.
+                            filled: false,
+                            surface: raisedSurface(theme),
+                          ),
+                        for (final tag in tags.take(_tagsShown))
+                          NoteTagChip(tag: tag, surface: raisedSurface(theme)),
+                        if (hidden > 0) _MoreTagsChip(count: hidden),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// "Черновик" beside a draft's title — the tab that used to hold drafts is gone,
+/// so the list says which ones they are.
+class _DraftMark extends StatelessWidget {
+  const _DraftMark();
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(Theme.of(context));
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: palette.chip,
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: Text(
+        'Черновик',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w500,
+          color: palette.textSecondary,
+        ),
+      ),
+    );
+  }
+}
+
+/// The body is a Delta; a row shows its text with the formatting dropped, and
+/// the search reads the same string. A note saved before anything was typed
+/// holds an empty string, which is not JSON — hence the guard rather than a
+/// try/catch.
+String plainNoteBody(String body) {
+  if (body.trim().isEmpty) return '';
+  final operations = jsonDecode(body) as List;
+  return deltaPlainText(operations).trim().replaceAll(RegExp(r'\s+'), ' ');
+}
+
+/// Time for a note touched today, a date for anything older: a bare "08:30" on a
+/// note from last week says nothing. Read by the tile, so the grid dates a note
+/// the same way.
+String formatNoteTime(DateTime date) {
+  final now = DateTime.now();
+  final sameDay =
+      date.year == now.year && date.month == now.month && date.day == now.day;
+  return sameDay
+      ? DateFormat('HH:mm', 'ru_RU').format(date)
+      : DateFormat('d MMM', 'ru_RU').format(date);
 }
 
 /// The choice between the two views.
@@ -295,528 +836,6 @@ class _ViewModeTile extends StatelessWidget {
       trailing: selected
           ? Icon(LucideIcons.check, size: 20, color: accent)
           : null,
-    );
-  }
-}
-
-/// The header while a search is on: back out on the left, the field itself, and
-/// a cross that empties it without leaving.
-///
-/// Two buttons rather than one that does both: a single × that clears a full
-/// field and closes an empty one is a button whose meaning depends on state, and
-/// the state is a glance away.
-class _SearchField extends StatelessWidget {
-  const _SearchField({
-    required this.controller,
-    required this.onChanged,
-    required this.onClear,
-    required this.onClose,
-  });
-
-  final TextEditingController controller;
-  final ValueChanged<String> onChanged;
-  final VoidCallback onClear;
-  final VoidCallback onClose;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Row(
-      children: [
-        _HeaderButton(
-          icon: LucideIcons.arrow_left,
-          tooltip: 'Закрыть поиск',
-          onPressed: onClose,
-        ),
-        Expanded(
-          child: Container(
-            height: 42,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: insetSurface(theme),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Row(
-              children: [
-                Icon(LucideIcons.search, size: 18, color: labelInk),
-                const SizedBox(width: 8),
-                Expanded(
-                  // Rebuilt as the field changes so the cross can come and go
-                  // with the text — the page above only hears about terms.
-                  child: TextField(
-                    controller: controller,
-                    onChanged: onChanged,
-                    autofocus: true,
-                    textInputAction: TextInputAction.search,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurface,
-                    ),
-                    decoration: InputDecoration(
-                      isDense: true,
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.zero,
-                      hintText: 'Поиск по заметкам',
-                      hintStyle: theme.textTheme.bodyMedium?.copyWith(
-                        color: labelInk,
-                      ),
-                    ),
-                  ),
-                ),
-                ValueListenableBuilder<TextEditingValue>(
-                  valueListenable: controller,
-                  builder: (context, value, _) => value.text.isEmpty
-                      ? const SizedBox(width: 4)
-                      : GestureDetector(
-                          onTap: onClear,
-                          behavior: HitTestBehavior.opaque,
-                          child: Padding(
-                            padding: const EdgeInsets.only(left: 8),
-                            child: Icon(
-                              LucideIcons.x,
-                              size: 18,
-                              color: labelInk,
-                            ),
-                          ),
-                        ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-      ],
-    );
-  }
-}
-
-/// The same pill strip the habits screen uses, without the icons: four Russian
-/// labels leave no room for them.
-class _DiaryTabBar extends StatelessWidget {
-  const _DiaryTabBar({
-    required this.tabs,
-    required this.selectedIndex,
-    required this.onChanged,
-  });
-
-  final List<String> tabs;
-  final int selectedIndex;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    // The track stays neutral; the thumb is the app accent, so the selected tab
-    // reads as a brand fill and takes [onBrandFill] for its label.
-    final thumb = theme.colorScheme.primary;
-    final selectedInk = onBrandFill(thumb);
-
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: insetSurface(theme),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final tabWidth = constraints.maxWidth / tabs.length;
-          return Stack(
-            children: [
-              AnimatedAlign(
-                duration: _DiaryPageState._tabSwitch,
-                curve: _DiaryPageState._tabCurve,
-                alignment: Alignment(
-                  tabs.length == 1
-                      ? 0
-                      : -1 + 2 * selectedIndex / (tabs.length - 1),
-                  0,
-                ),
-                child: Container(
-                  width: tabWidth,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: thumb,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-              Row(
-                children: [
-                  for (var i = 0; i < tabs.length; i++)
-                    Expanded(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () => onChanged(i),
-                        child: SizedBox(
-                          height: 36,
-                          child: Center(
-                            child: Text(
-                              tabs[i],
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.labelMedium?.copyWith(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: i == selectedIndex
-                                    ? selectedInk
-                                    : theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-/// One tab's worth of notes.
-class _DiaryList extends ConsumerWidget {
-  const _DiaryList({required this.filter, this.terms = const []});
-
-  final _DiaryFilter filter;
-
-  /// What is being searched for. Empty means no search is on, and then no note's
-  /// body is decoded at all — see [_found].
-  final List<String> terms;
-
-  bool _keeps(DiaryEntry entry) => switch (filter) {
-    _DiaryFilter.all => entry.status == DiaryEntryStatus.normal,
-    _DiaryFilter.favorites =>
-      entry.isFavorite && entry.status != DiaryEntryStatus.archived,
-    _DiaryFilter.drafts => entry.status == DiaryEntryStatus.draft,
-    _DiaryFilter.archive => entry.status == DiaryEntryStatus.archived,
-  };
-
-  /// Whether the note answers the search. Title first and body second, because
-  /// the title is already a string while the body is a Delta that has to be
-  /// decoded — and with no search on, nothing is decoded at all.
-  bool _found(DiaryEntry entry) {
-    if (terms.isEmpty) return true;
-    if (matchesTerms(entry.title, terms)) return true;
-    return matchesTerms(_DiaryCard.plainBody(entry.body), terms);
-  }
-
-  String get _emptyLabel => switch (filter) {
-    _DiaryFilter.all => 'Пока нет заметок',
-    _DiaryFilter.favorites => 'Нет избранных заметок',
-    _DiaryFilter.drafts => 'Нет черновиков',
-    _DiaryFilter.archive => 'В архиве пусто',
-  };
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final entriesAsync = ref.watch(diaryEntriesProvider);
-    final mode = ref.watch(diaryViewModeProvider);
-    // Two queries for the whole screen, not one per card — see
-    // `moodsByEntryProvider`. An empty map while they are in flight, so a card
-    // draws without its labels for a frame rather than not at all.
-    final moods = ref.watch(moodsByEntryProvider).valueOrNull ?? const {};
-    final tags = ref.watch(tagsByEntryProvider).valueOrNull ?? const {};
-    // The pictures live in a directory that has to be asked for; until the
-    // answer arrives a row simply draws without its cover.
-    final imagesDirectory = ref.watch(noteImagesDirectoryProvider).valueOrNull;
-
-    return entriesAsync.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => Center(child: Text('Ошибка: $error')),
-      data: (entries) {
-        final shown = entries.where(_keeps).where(_found).toList();
-        if (shown.isEmpty) {
-          return Center(
-            child: Text(
-              terms.isEmpty ? _emptyLabel : 'Ничего не найдено',
-              style: theme.textTheme.bodyMedium?.copyWith(color: labelInk),
-            ),
-          );
-        }
-
-        void open(BuildContext context, DiaryEntry entry) =>
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => NoteViewPage(entryId: entry.id),
-              ),
-            );
-
-        // One inset for both views, so the notes stand in the same place
-        // whichever way they are drawn. The 120 at the bottom clears the
-        // floating nav bar.
-        const padding = EdgeInsets.fromLTRB(20, 8, 20, 120);
-
-        if (mode == DiaryViewMode.grid) {
-          return GridView.builder(
-            padding: padding,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              mainAxisSpacing: 14,
-              crossAxisSpacing: 14,
-              // Room for a cover and two lines under it. The picture takes
-              // whatever the title and the date leave, so a tile is the same
-              // height whatever it holds and the two columns stay level.
-              childAspectRatio: 0.82,
-            ),
-            itemCount: shown.length,
-            itemBuilder: (context, index) {
-              final entry = shown[index];
-              return _DiaryTile(
-                entry: entry,
-                imagesDirectory: imagesDirectory,
-                terms: terms,
-                onOpen: () => open(context, entry),
-              );
-            },
-          );
-        }
-
-        return ListView.separated(
-          padding: padding,
-          itemCount: shown.length,
-          // Runs exactly the width of a card, since the cards fill the list and
-          // the inset is the list's own.
-          separatorBuilder: (_, _) => Divider(
-            height: 21,
-            thickness: 1,
-            color: theme.colorScheme.outlineVariant,
-          ),
-          itemBuilder: (context, index) {
-            final entry = shown[index];
-            return InkWell(
-              onTap: () => open(context, entry),
-              child: _DiaryCard(
-                entry: entry,
-                imagesDirectory: imagesDirectory,
-                terms: terms,
-                moods: moods[entry.id] ?? const [],
-                tags: tags[entry.id] ?? const [],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-/// One note in the list: the thumbnail, and beside it the title with the star,
-/// then the date and the mood, then two lines of the text, then the tags.
-///
-/// No longer one fixed height — a note with tags is taller than one without, and
-/// pinning the row would mean either cropping the tags or holding empty space
-/// under every note that has none. What is capped is the *text*: two lines, so a
-/// note of ten paragraphs cannot push its neighbours off the screen.
-///
-/// No fill and no shadow — the cards are told apart by the divider between them,
-/// and a divider laid between two filled cards is invisible.
-class _DiaryCard extends ConsumerWidget {
-  const _DiaryCard({
-    required this.entry,
-    required this.imagesDirectory,
-    this.terms = const [],
-    this.moods = const [],
-    this.tags = const [],
-  });
-
-  final DiaryEntry entry;
-  final Directory? imagesDirectory;
-
-  /// What the search is looking for: picked out of the title and the excerpt,
-  /// and what the excerpt is wound forward to.
-  final List<String> terms;
-
-  /// The note's labels, handed down from the list — see `moodsByEntryProvider`.
-  /// Normally one mood or none; the join table allows more and the row draws
-  /// whatever it is given.
-  final List<NoteMood> moods;
-  final List<NoteTag> tags;
-
-  static const double _thumb = 72;
-
-  /// How many tags a card shows before it starts counting them instead. The same
-  /// idea as the attachment strip on the note screen: the first few, then how
-  /// many are left.
-  static const int _tagsShown = 3;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    // Wound to the match, so a card found by its seventh paragraph does not
-    // answer with its first.
-    final excerpt = excerptAround(plainBody(entry.body), terms);
-    final titled = entry.title.trim().isNotEmpty;
-    final hidden = tags.length - _tagsShown;
-
-    return Row(
-      // Top, not centre: the thumbnail is one height and the text beside it is
-      // not, and a picture floating in the middle of a tall card reads as a
-      // mistake.
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _RowThumb(size: _thumb, path: noteThumbnail(entry, imagesDirectory)),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: _Highlighted(
-                      text: titled ? entry.title : 'Без названия',
-                      terms: terms,
-                      maxLines: 1,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: titled ? theme.colorScheme.onSurface : labelInk,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  // Its own gesture above the card's, so starring a note does
-                  // not open it.
-                  _FavouriteStar(
-                    favourite: entry.isFavorite,
-                    onTap: () => ref
-                        .read(diaryDaoProvider)
-                        .setFavorite(entry.id, !entry.isFavorite),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 2),
-              Row(
-                children: [
-                  Text(
-                    formatTime(entry.updatedAt),
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: labelInk,
-                    ),
-                  ),
-                  if (moods.isNotEmpty) ...[
-                    // The separator only exists between two things.
-                    Text(
-                      '  ·  ',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: labelInk,
-                      ),
-                    ),
-                    // Clipped rather than wrapped: the date line is one line,
-                    // and a second mood is rare enough not to reshape the card.
-                    Flexible(
-                      child: ClipRect(
-                        child: Row(
-                          children: [
-                            for (final mood in moods) ...[
-                              MoodChip(
-                                mood: mood,
-                                // No fill on a row: the card already carries
-                                // coloured tag chips a line below, and a filled
-                                // mood next to the date makes the line a row of
-                                // boxes.
-                                filled: false,
-                                surface: pageSurface(theme),
-                              ),
-                              if (mood != moods.last) const SizedBox(width: 10),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 6),
-              _Highlighted(
-                text: excerpt,
-                terms: terms,
-                maxLines: 2,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  height: 1.35,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              if (tags.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final tag in tags.take(_tagsShown))
-                      NoteTagChip(tag: tag, surface: pageSurface(theme)),
-                    if (hidden > 0) _MoreTagsChip(count: hidden),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// The body is a Delta; a card shows its text with the formatting dropped, and
-  /// the search reads the same string. A note saved before anything was typed
-  /// holds an empty string, which is not JSON — hence the guard rather than a
-  /// try/catch.
-  static String plainBody(String body) {
-    if (body.trim().isEmpty) return '';
-    final operations = jsonDecode(body) as List;
-    return deltaPlainText(operations).trim().replaceAll(RegExp(r'\s+'), ' ');
-  }
-
-  /// Time for a note touched today, a date for anything older: a bare "08:30"
-  /// on a note from last week says nothing. Read by the tile as well, so both
-  /// views date a note the same way.
-  static String formatTime(DateTime date) {
-    final now = DateTime.now();
-    final sameDay =
-        date.year == now.year && date.month == now.month && date.day == now.day;
-    return sameDay
-        ? DateFormat('HH:mm', 'ru_RU').format(date)
-        : DateFormat('d MMM', 'ru_RU').format(date);
-  }
-}
-
-/// The favourite toggle on a row.
-///
-/// On the page tone rather than on a picture, so no scrim disc — the star itself
-/// carries the state, in the accent when the note is starred and in the label
-/// tone when it is not. Lucide has no filled star to switch to, which is why
-/// colour has to do the whole job.
-class _FavouriteStar extends StatelessWidget {
-  const _FavouriteStar({required this.favourite, required this.onTap});
-
-  final bool favourite;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return GestureDetector(
-      onTap: onTap,
-      // Opaque and padded: a 16px star is not a tap target, and the padding is
-      // what makes it one without moving the glyph.
-      behavior: HitTestBehavior.opaque,
-      child: Tooltip(
-        message: favourite ? 'Убрать из избранного' : 'В избранное',
-        child: Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 4),
-          child: Icon(
-            LucideIcons.star,
-            size: 18,
-            color: favourite
-                ? inkOn(pageSurface(theme), theme.colorScheme.primary)
-                : labelInk,
-          ),
-        ),
-      ),
     );
   }
 }
@@ -927,12 +946,14 @@ class _DiaryTile extends ConsumerWidget {
     required this.imagesDirectory,
     required this.terms,
     required this.onOpen,
+    required this.onLongPress,
   });
 
   final DiaryEntry entry;
   final Directory? imagesDirectory;
   final List<String> terms;
   final VoidCallback onOpen;
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -959,6 +980,7 @@ class _DiaryTile extends ConsumerWidget {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onOpen,
+          onLongPress: onLongPress,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -1001,7 +1023,7 @@ class _DiaryTile extends ConsumerWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      _DiaryCard.formatTime(entry.updatedAt),
+                      formatNoteTime(entry.updatedAt),
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: labelInk,
                       ),
@@ -1071,11 +1093,11 @@ class _FavouriteChip extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Tooltip(
-          message: favourite ? 'Убрать из избранного' : 'В избранное',
+          message: favourite ? 'Открепить' : 'Закрепить',
           child: Padding(
             padding: const EdgeInsets.all(6),
             child: Icon(
-              LucideIcons.star,
+              LucideIcons.pin,
               size: 16,
               color: favourite
                   ? inkOn(_disc, theme.colorScheme.primary)
@@ -1083,44 +1105,6 @@ class _FavouriteChip extends StatelessWidget {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// The cover, or a stand-in when the note has none — or when its file is gone,
-/// which a picture copied into the app's own directory should not be, but a row
-/// is not the place to find out.
-class _RowThumb extends StatelessWidget {
-  const _RowThumb({required this.size, required this.path});
-
-  final double size;
-  final String? path;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final placeholder = Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: insetSurface(theme),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Icon(LucideIcons.file_text, size: 22, color: labelInk),
-    );
-
-    final source = path;
-    if (source == null) return placeholder;
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: Image.file(
-        File(source),
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
-        errorBuilder: (context, _, _) => placeholder,
       ),
     );
   }

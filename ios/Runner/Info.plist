@@ -26,6 +26,26 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<!-- Where Google sends the browser back after an OAuth sign-in. The
+	     scheme is reverse-DNS and not the Android applicationId
+	     (com.yourname.todo_app): a URI scheme may hold only letters,
+	     digits, "+", "-" and ".", so the underscore rules that one out. It is spelled again as authRedirectUrl in
+	     lib/settings/supabase_config.dart, in the deep-link intent filter of
+	     android/app/src/main/AndroidManifest.xml, and in the Supabase
+	     dashboard. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>io.supabase.nook</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>io.supabase.nook</string>
+			</array>
+		</dict>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

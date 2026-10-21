@@ -3,6 +3,10 @@ import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/notifications/timer_notification.dart';
 import 'package:todo_app/notifications/app_notifications.dart';
 
+/// Any moment at all: these tests never read a log's edit time. It exists
+/// because the sync needs one and the column is therefore not nullable.
+final _fixtureStamp = DateTime(2026, 1, 1);
+
 final _day = DateTime(2026, 5, 20);
 DateTime _at(int hour, int minute) => DateTime(2026, 5, 20, hour, minute);
 
@@ -13,6 +17,7 @@ Task _task({
   TrackingMode trackingMode = TrackingMode.timer,
   TaskStatus status = TaskStatus.active,
 }) => Task(
+  dirty: false,
   id: id,
   title: title,
   status: status,
@@ -37,6 +42,8 @@ TaskLog _log({
   double? value,
   bool completed = false,
 }) => TaskLog(
+  dirty: false,
+  updatedAt: _fixtureStamp,
   id: id,
   taskId: taskId,
   date: date ?? _day,

@@ -4,10 +4,15 @@
          permission every notification needs from Android 13 on, and the boot
          permission is what lets a pending alert survive a reboot.
 
-         SCHEDULE_EXACT_ALARM is declared but never requested from code: the
-         request throws the user out into a system settings screen, which is too
-         rude for a convenience. Until it is offered as a deliberate opt-in, the
-         alert falls back to an inexact alarm — a little late rather than never.
+         SCHEDULE_EXACT_ALARM is what makes a reminder arrive to the minute.
+         Android 14 stopped granting it by default, and a refusal is silent: the
+         schedule falls back to an inexact alarm, which the system batches and
+         holds back in Doze, so reminders come ten or fifteen minutes late. It is
+         never requested behind an unrelated tap — the request opens a system
+         settings screen — but the "Точное время напоминаний" switch in settings
+         asks for it deliberately. USE_EXACT_ALARM is deliberately *not*
+         declared: it needs no asking, and Google Play only allows it for
+         alarm clocks and calendars.
 
          VIBRATE and POST_NOTIFICATIONS are also declared by
          flutter_local_notifications itself and merge with these. -->
@@ -15,6 +20,12 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
+
+    <!-- Signing in talks to Supabase, and that is the app's only network call.
+         The Flutter template declares INTERNET in src/debug for hot reload, so
+         a debug build had it all along and a release build would not — this is
+         the declaration that makes the account work on a real APK. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
 
     <application
         android:label="Nook"
@@ -41,6 +52,38 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Where Google sends the browser back after an OAuth sign-in.
+                 The scheme is reverse-DNS and not the applicationId
+                 (com.yourname.todo_app): a URI scheme may hold only letters,
+                 digits, '+', '-' and '.', so the underscore rules that one
+                 out, and Android silently fails to match a filter whose
+                 scheme is invalid. It is spelled again
+                 as `authRedirectUrl` in lib/settings/supabase_config.dart, in
+                 ios/Runner/Info.plist, and in the Supabase dashboard's
+                 Redirect URLs — all four have to agree.
+
+                 android:launchMode="singleTop" above is what delivers this to
+                 the running activity instead of starting a second one. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="io.supabase.nook" android:host="login-callback"/>
+            </intent-filter>
+
+            <!-- How a tap on the home-screen widget opens the app. The intent
+                 the widget sends is explicit — it names this class — so the
+                 filter is not what routes it; what it does is make the action
+                 part of the activity's declared surface, which is what the
+                 home_widget plugin looks for when it reports the tap to Dart
+                 (HomeWidgetPlugin.initiallyLaunchedFromHomeWidget, and
+                 onNewIntent for an app already running).
+
+                 singleTop above is again what matters: without it a tap on the
+                 widget would start a second copy of the app. -->
+            <intent-filter>
+                <action android:name="es.antonborri.home_widget.action.LAUNCH"/>
+            </intent-filter>
         </activity>
         <!-- Delivers the scheduled "time is up" alert, and re-registers the
              pending ones after a reboot or an app update — without the boot
@@ -56,6 +99,75 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
                 <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
+
+        <!-- The "Сегодня" home-screen widget. Exported because the thing that
+             sends it APPWIDGET_UPDATE is the system, and the DATE_CHANGED entry
+             is what redraws it the moment midnight passes rather than up to
+             half an hour later, when updatePeriodMillis next comes round.
+
+             The class draws and nothing else; see TodayWidgetProvider.kt. -->
+        <receiver
+            android:name=".TodayWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+                <action android:name="android.intent.action.DATE_CHANGED"/>
+                <action android:name="android.intent.action.TIME_SET"/>
+                <action android:name="android.intent.action.TIMEZONE_CHANGED"/>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/today_widget_info"/>
+        </receiver>
+
+        <!-- The two habit widgets: one habit with its week, and today's habits
+             as a row of circles. Same filter as above; see NookWidgetProvider.kt. -->
+        <receiver
+            android:name=".HabitWeekWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_habit_week_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+                <action android:name="android.intent.action.DATE_CHANGED"/>
+                <action android:name="android.intent.action.TIME_SET"/>
+                <action android:name="android.intent.action.TIMEZONE_CHANGED"/>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/habit_week_widget_info"/>
+        </receiver>
+        <receiver
+            android:name=".HabitStripWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_habit_strip_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+                <action android:name="android.intent.action.DATE_CHANGED"/>
+                <action android:name="android.intent.action.TIME_SET"/>
+                <action android:name="android.intent.action.TIMEZONE_CHANGED"/>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/habit_strip_widget_info"/>
+        </receiver>
+
+        <!-- Where a tick made on the widget is answered: this starts the
+             background Dart isolate that writes it to the database, so the mark
+             is stamped and queued for sync exactly as the app's own screens
+             stamp it. Declared here and not by the plugin — its manifest is
+             empty, so an app that leaves this out has a checkbox that does
+             nothing. -->
+        <receiver
+            android:name="es.antonborri.home_widget.HomeWidgetBackgroundReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="es.antonborri.home_widget.action.BACKGROUND"/>
             </intent-filter>
         </receiver>
 

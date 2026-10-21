@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Every string the home-screen widget shows.
+
+     In the default folder and in Russian, with no localised variants, because
+     the app itself is Russian only — `MaterialApp` pins `ru_RU` whatever the
+     phone is set to, and a widget that spoke the system language would be the
+     one part of it that did.
+
+     No `<plurals>`: `getQuantityString` applies the plural rules of the
+     *resource* locale, so on an English phone these Russian strings would be
+     chosen by English rules. Counted words are worded in Dart, which already
+     knows the Russian rule (see habits_payload.dart). -->
+<resources>
+    <string name="widget_name">Сегодня</string>
+    <string name="widget_description">Задачи на сегодня: отметить сделанное, не открывая приложение.</string>
+
+    <string name="widget_title">Сегодня</string>
+    <string name="widget_add_task">Добавить задачу</string>
+    <string name="widget_progress">%1$d из %2$d</string>
+    <string name="widget_empty">На сегодня задач нет</string>
+    <!-- Shown when the stored week has run out: the app has not been opened in
+         days, so the widget has nothing to draw for today and is asking. -->
+    <string name="widget_stale">Откройте приложение, чтобы обновить</string>
+
+
+    <string name="widget_habit_week_name">Привычка с неделей</string>
+    <string name="widget_habit_week_description">Одна привычка и её неделя: серия, кнопка «Отметить». Нажмите на название, чтобы показать следующую привычку.</string>
+    <string name="widget_habit_strip_name">Привычки сегодня</string>
+    <string name="widget_habit_strip_description">Привычки на сегодня кружками: нажмите, чтобы отметить. Стрелка листает, если их много.</string>
+    <string name="widget_habit_mark">Отметить</string>
+    <string name="widget_habit_count">+1 · %1$d/%2$d</string>
+    <string name="widget_habit_done">Выполнено</string>
+    <string name="widget_habit_open">Открыть</string>
+    <string name="widget_habits_none">Привычек пока нет</string>
+    <string name="widget_habits_none_today">На сегодня привычек нет</string>
+</resources>

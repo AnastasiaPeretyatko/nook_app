@@ -4,7 +4,9 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/widgets/color_picker_row.dart';
+import 'package:todo_app/settings/analytics_settings.dart';
 import 'package:todo_app/utils/surfaces.dart';
+import 'package:todo_app/utils/week.dart';
 import 'package:todo_app/utils/task_colors.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 
@@ -53,6 +55,12 @@ class _HabitHistorySheetState extends ConsumerState<HabitHistorySheet> {
       for (final l in logs)
         if (l.completed) DateTime(l.date.year, l.date.month, l.date.day),
     };
+
+    final late = lateDays(
+      widget.task,
+      logs,
+      ref.watch(lateGraceMinutesProvider),
+    );
 
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -129,7 +137,10 @@ class _HabitHistorySheetState extends ConsumerState<HabitHistorySheet> {
                 firstDay: firstDay,
                 lastDay: today,
                 focusedDay: _focusedDay.isAfter(today) ? today : _focusedDay,
-                startingDayOfWeek: StartingDayOfWeek.monday,
+                startingDayOfWeek:
+                    ref.watch(weekStartProvider) == DateTime.sunday
+                    ? StartingDayOfWeek.sunday
+                    : StartingDayOfWeek.monday,
                 availableGestures: AvailableGestures.horizontalSwipe,
                 headerStyle: const HeaderStyle(
                   formatButtonVisible: false,
@@ -149,9 +160,9 @@ class _HabitHistorySheetState extends ConsumerState<HabitHistorySheet> {
                 onPageChanged: (day) => setState(() => _focusedDay = day),
                 calendarBuilders: CalendarBuilders<void>(
                   defaultBuilder: (context, day, _) =>
-                      _dayCell(day, completedDays, today),
+                      _dayCell(day, completedDays, late, today),
                   todayBuilder: (context, day, _) =>
-                      _dayCell(day, completedDays, today),
+                      _dayCell(day, completedDays, late, today),
                 ),
               ),
               const SizedBox(height: 8),
@@ -172,7 +183,12 @@ class _HabitHistorySheetState extends ConsumerState<HabitHistorySheet> {
     );
   }
 
-  Widget _dayCell(DateTime day, Set<DateTime> completedDays, DateTime today) {
+  Widget _dayCell(
+    DateTime day,
+    Set<DateTime> completedDays,
+    Set<DateTime> late,
+    DateTime today,
+  ) {
     final key = DateTime(day.year, day.month, day.day);
     final completed = completedDays.contains(key);
     final isToday = key == today;
@@ -181,7 +197,10 @@ class _HabitHistorySheetState extends ConsumerState<HabitHistorySheet> {
       margin: const EdgeInsets.all(5),
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: completed ? _color : Colors.transparent,
+        // A late tick is the same circle, paler.
+        color: completed
+            ? (late.contains(key) ? _color.withValues(alpha: 0.5) : _color)
+            : Colors.transparent,
         shape: BoxShape.circle,
         border: isToday && !completed
             ? Border.all(color: _color, width: 1.5)

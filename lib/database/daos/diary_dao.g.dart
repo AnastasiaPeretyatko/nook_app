@@ -9,6 +9,7 @@ mixin _$DiaryDaoMixin on DatabaseAccessor<AppDatabase> {
   $NoteTagsTable get noteTags => attachedDatabase.noteTags;
   $DiaryEntryMoodsTable get diaryEntryMoods => attachedDatabase.diaryEntryMoods;
   $DiaryEntryTagsTable get diaryEntryTags => attachedDatabase.diaryEntryTags;
+  $SyncTombstonesTable get syncTombstones => attachedDatabase.syncTombstones;
   DiaryDaoManager get managers => DiaryDaoManager(this);
 }
 
@@ -30,5 +31,10 @@ class DiaryDaoManager {
       $$DiaryEntryTagsTableTableManager(
         _db.attachedDatabase,
         _db.diaryEntryTags,
+      );
+  $$SyncTombstonesTableTableManager get syncTombstones =>
+      $$SyncTombstonesTableTableManager(
+        _db.attachedDatabase,
+        _db.syncTombstones,
       );
 }

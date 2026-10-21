@@ -19,8 +19,14 @@ void main() {
   test('iOS carries the app name as display name and bundle name', () {
     final plist = read('ios/Runner/Info.plist');
 
-    expect(plist, contains('<key>CFBundleDisplayName</key>\n\t<string>$appName</string>'));
-    expect(plist, contains('<key>CFBundleName</key>\n\t<string>$appName</string>'));
+    expect(
+      plist,
+      contains('<key>CFBundleDisplayName</key>\n\t<string>$appName</string>'),
+    );
+    expect(
+      plist,
+      contains('<key>CFBundleName</key>\n\t<string>$appName</string>'),
+    );
   });
 
   test('the web page and its manifest carry the app name', () {

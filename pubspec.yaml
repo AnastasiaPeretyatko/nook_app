@@ -2,7 +2,7 @@ name: todo_app
 description: "Recurring tasks tracker with analytics."
 publish_to: "none"
 
-version: 1.0.0+1
+version: 2.0.0+2
 
 environment:
   sdk: ^3.12.2
@@ -30,6 +30,9 @@ dependencies:
   fleather: ^1.27.0
   image_picker: ^1.1.2
   path_provider: ^2.1.5
+  supabase_flutter: ^2.17.2
+  home_widget: ^0.9.3
+  connectivity_plus: ^7.3.2
 
 dev_dependencies:
   flutter_test:
@@ -53,6 +56,8 @@ flutter_launcher_icons:
   min_sdk_android: 24
   adaptive_icon_background: "assets/branding/app_icon_background.png"
   adaptive_icon_foreground: "assets/branding/app_icon_foreground.png"
+  # Android 13+ "themed icon": one colour, tinted by the system.
+  adaptive_icon_monochrome: "assets/branding/app_icon_monochrome.png"
   # The badge already sits at 82% inside the foreground image, which is the
   # safe zone Android guarantees; the plugin's own 16% inset would shrink it
   # twice over.
@@ -62,8 +67,8 @@ flutter_launcher_icons:
   web:
     generate: true
     image_path: "assets/branding/app_icon_full_bleed.png"
-    background_color: "#f7f0ec"
-    theme_color: "#8b86e6"
+    background_color: "#F6F8FB"
+    theme_color: "#5B6DCB"
   macos:
     generate: true
   windows:
@@ -80,36 +85,23 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # Nunito, the app's typeface. Static instances cut from the upstream variable
-  # font and subset to Latin + Cyrillic — the UI is Russian, and the full
-  # charset (Vietnamese, Latin-Ext) is weight nobody here reads. 57 KB apiece.
-  #
-  # Only the weights the app asks for: 400/500/600/700/800 upright, and italic
-  # where a note's text can be italic (paragraph, both headings). Anything else
-  # resolves to the nearest one declared. `OFL.txt` ships beside them because
-  # the licence requires it.
+  # Onest, the app's typeface (design "Иней", docs/design-handoff/DESIGN.md).
+  # Google Fonts ships it only as a variable font; these are static instances
+  # cut from it with `fonttools varLib.instancer` at the four weights the design
+  # uses. Anything else resolves to the nearest one declared. There is no
+  # italic Onest at all. `OFL.txt` ships beside them because the licence
+  # requires it.
   fonts:
-    - family: Nunito
+    - family: Onest
       fonts:
-        - asset: assets/fonts/Nunito-Regular.ttf
+        - asset: assets/fonts/Onest-Regular.ttf
           weight: 400
-        - asset: assets/fonts/Nunito-RegularItalic.ttf
-          weight: 400
-          style: italic
-        - asset: assets/fonts/Nunito-Medium.ttf
+        - asset: assets/fonts/Onest-Medium.ttf
           weight: 500
-        - asset: assets/fonts/Nunito-SemiBold.ttf
+        - asset: assets/fonts/Onest-SemiBold.ttf
           weight: 600
-        - asset: assets/fonts/Nunito-SemiBoldItalic.ttf
-          weight: 600
-          style: italic
-        - asset: assets/fonts/Nunito-Bold.ttf
+        - asset: assets/fonts/Onest-Bold.ttf
           weight: 700
-        - asset: assets/fonts/Nunito-BoldItalic.ttf
-          weight: 700
-          style: italic
-        - asset: assets/fonts/Nunito-ExtraBold.ttf
-          weight: 800
 
   # To add assets to your application, add an assets section, like this:
   # assets:

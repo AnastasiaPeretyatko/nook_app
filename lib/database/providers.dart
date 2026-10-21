@@ -1,4 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:todo_app/auth/providers.dart';
+import 'package:todo_app/settings/group_settings.dart';
+import 'package:todo_app/utils/overdue.dart';
+import 'package:todo_app/utils/task_audience.dart';
 import 'app_database.dart';
 
 final databaseProvider = Provider<AppDatabase>((ref) {
@@ -17,6 +21,16 @@ final eventsDaoProvider = Provider<EventsDao>((ref) {
 
 final diaryDaoProvider = Provider<DiaryDao>((ref) {
   return ref.watch(databaseProvider).diaryDao;
+});
+
+final cycleDaoProvider = Provider<CycleDao>((ref) {
+  return ref.watch(databaseProvider).cycleDao;
+});
+
+/// Every day of the cycle that has a row — marked or taken back. The Cycle tab
+/// and the sync nudge watch this one list.
+final cycleDaysProvider = StreamProvider<List<CycleDay>>((ref) {
+  return ref.watch(cycleDaoProvider).watchAll();
 });
 
 /// Every diary entry, newest touched first. The diary's four tabs filter this
@@ -73,8 +87,62 @@ final entryTagsProvider = StreamProvider.family<List<NoteTag>, int>((
   return ref.watch(diaryDaoProvider).watchTagsForEntry(entryId);
 });
 
+/// The signed-in account's id — the `me` of [taskAudience]. A provider of its
+/// own so a test can be someone without signing in.
+final myUidProvider = Provider<String?>(
+  (ref) => ref.watch(currentUserProvider)?.id,
+);
+
+/// The root tasks that are **mine** — see [TaskAudience.mine]. What the habits
+/// grid, the calendar, the reminders and the home-screen widget read, so none
+/// of them shows, reminds of or counts another member's task. A task handed to
+/// someone else is on [othersGroupTasksProvider] when its group asks for it.
 final rootTasksProvider = StreamProvider<List<Task>>((ref) {
-  return ref.watch(tasksDaoProvider).watchRootTasks();
+  final me = ref.watch(myUidProvider);
+  return ref
+      .watch(tasksDaoProvider)
+      .watchRootTasks()
+      .map(
+        (tasks) => [
+          for (final t in tasks)
+            if (isMyTask(t, me)) t,
+        ],
+      );
+});
+
+/// Group tasks that are **not** mine — one I handed to another member, or
+/// another member's own — in the groups switched to "show all"
+/// ([groupsShowAllProvider]). What the day screen adds to [rootTasksProvider].
+/// Derived from [allTasksProvider] rather than a query of its own.
+final othersGroupTasksProvider = Provider<List<Task>>((ref) {
+  final me = ref.watch(myUidProvider);
+  final others = [
+    for (final t in ref.watch(allTasksProvider).valueOrNull ?? const <Task>[])
+      if (t.parentId == null && !isMyTask(t, me)) t,
+  ];
+  // The setting is read only when there is something to filter, so a phone with
+  // no groups never asks for it.
+  if (others.isEmpty) return const [];
+  final showAll = ref.watch(groupsShowAllProvider);
+  return [
+    for (final t in others)
+      if (showAll.contains(t.groupUid)) t,
+  ];
+});
+
+/// The groups this account is in, as the last sync mirrored them.
+final groupsProvider = StreamProvider<List<TaskGroup>>((ref) {
+  return ref.watch(tasksDaoProvider).watchGroups();
+});
+
+/// Every member of every group, me included.
+final groupMembersProvider = StreamProvider<List<GroupMember>>((ref) {
+  return ref.watch(tasksDaoProvider).watchGroupMembers();
+});
+
+/// The other members' marks on group tasks.
+final groupMarksProvider = StreamProvider<List<GroupMark>>((ref) {
+  return ref.watch(tasksDaoProvider).watchGroupMarks();
 });
 
 /// Every task, subtasks included. For screens that need both a task and its
@@ -101,11 +169,84 @@ final logsForDateProvider = StreamProvider.family<List<TaskLog>, DateTime>((
   ref,
   date,
 ) {
-  return ref.watch(tasksDaoProvider).watchLogsForDate(date);
+  final tasks = ref.watch(allTasksProvider).valueOrNull ?? const <Task>[];
+  final marks =
+      ref.watch(groupMarksProvider).valueOrNull ?? const <GroupMark>[];
+  return ref
+      .watch(tasksDaoProvider)
+      .watchLogsForDate(date)
+      .map(
+        (logs) => withSharedTicks(
+          logs,
+          tasks,
+          marks,
+          includes: (day) => day == DateTime(date.year, date.month, date.day),
+        ),
+      );
 });
 
+// The logs below count a tick by another member on a group task "for everyone"
+// as done (see [withSharedTicks]), so no screen needs a rule of its own for it.
 final allLogsProvider = StreamProvider<List<TaskLog>>((ref) {
-  return ref.watch(tasksDaoProvider).watchAllLogs();
+  final tasks = ref.watch(allTasksProvider).valueOrNull ?? const <Task>[];
+  final marks =
+      ref.watch(groupMarksProvider).valueOrNull ?? const <GroupMark>[];
+  return ref
+      .watch(tasksDaoProvider)
+      .watchAllLogs()
+      .map((logs) => withSharedTicks(logs, tasks, marks));
+});
+
+/// The one-off tasks whose day has passed with them still unticked — the rule is
+/// [isTaskOverdue] and lives there, not here.
+///
+/// Derived rather than queried: whether a task is done is a row in `task_logs`,
+/// so the answer needs both streams — and both are already open for the screens
+/// that show the tasks themselves, so this costs no query of its own.
+///
+/// Empty until **both** streams have a value. Treating "no logs yet" as "nothing
+/// is ticked" would count a task that is in fact done, and the badge reading
+/// this would flash a number for one frame and then drop it on every launch.
+///
+/// **Today is read while this is computed.** Nothing recomputes it when the
+/// clock passes midnight: an app left open overnight keeps yesterday's answer
+/// until something else rebuilds this. `TasksList` has always worked that way —
+/// it takes `DateTime.now()` in `build` — and the badge inherits it rather than
+/// growing a timer of its own.
+final overdueTasksProvider = Provider<List<Task>>((ref) {
+  final tasksAsync = ref.watch(allTasksProvider);
+  final logsAsync = ref.watch(allLogsProvider);
+  if (!tasksAsync.hasValue || !logsAsync.hasValue) return const [];
+
+  final today = DateTime.now();
+  // Every (task, day) that carries a tick, so the tasks below are one set lookup
+  // each rather than a scan of the whole log table.
+  final completedOn = <(int, DateTime)>{
+    for (final log in logsAsync.requireValue)
+      if (log.completed)
+        (log.taskId, DateTime(log.date.year, log.date.month, log.date.day)),
+  };
+
+  // The tick sits on the day the task is scheduled for — its start date, the
+  // same key `TasksList` reads. A task without one is never overdue, so there is
+  // nothing to look up for it.
+  bool isCompleted(Task task) {
+    final startDate = task.startDate;
+    if (startDate == null) return false;
+    return completedOn.contains((
+      task.id,
+      DateTime(startDate.year, startDate.month, startDate.day),
+    ));
+  }
+
+  final me = ref.watch(myUidProvider);
+  return tasksAsync.requireValue
+      .where(
+        (task) =>
+            isMyTask(task, me) &&
+            isTaskOverdue(task, completed: isCompleted(task), today: today),
+      )
+      .toList();
 });
 
 /// Timer runs going right now — a session that was started and never closed.
@@ -134,5 +275,20 @@ final logsBetweenProvider = StreamProvider.family<List<TaskLog>, DateRange>((
   ref,
   range,
 ) {
-  return ref.watch(tasksDaoProvider).watchLogsBetween(range.start, range.end);
+  final tasks = ref.watch(allTasksProvider).valueOrNull ?? const <Task>[];
+  final marks =
+      ref.watch(groupMarksProvider).valueOrNull ?? const <GroupMark>[];
+  final from = DateTime(range.start.year, range.start.month, range.start.day);
+  final to = DateTime(range.end.year, range.end.month, range.end.day);
+  return ref
+      .watch(tasksDaoProvider)
+      .watchLogsBetween(range.start, range.end)
+      .map(
+        (logs) => withSharedTicks(
+          logs,
+          tasks,
+          marks,
+          includes: (day) => !day.isBefore(from) && day.isBefore(to),
+        ),
+      );
 });

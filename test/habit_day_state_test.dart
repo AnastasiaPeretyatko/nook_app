@@ -13,6 +13,7 @@ Task _habit({
   Set<int> days = const {},
   DateTime? startDate,
 }) => Task(
+  dirty: false,
   id: 1,
   title: 'Привычка',
   status: TaskStatus.active,
@@ -104,6 +105,7 @@ void main() {
       // Rows saved before "Ежедневно" and "Другое" were split can still carry an
       // interval. Daily means every day, so no weekday may come out as off.
       final task = Task(
+        dirty: false,
         id: 1,
         title: 'Зарядка',
         status: TaskStatus.active,
@@ -126,6 +128,7 @@ void main() {
 
     test('custom still repeats every N days', () {
       final task = Task(
+        dirty: false,
         id: 1,
         title: 'Пробежка',
         status: TaskStatus.active,

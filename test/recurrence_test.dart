@@ -12,6 +12,7 @@ Task _task({
   DateTime? startDate,
 }) {
   return Task(
+    dirty: false,
     id: 1,
     title: 'Задача',
     status: TaskStatus.active,

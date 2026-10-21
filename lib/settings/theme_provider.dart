@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:todo_app/theme/app_palette.dart';
 
 /// Overridden in [main] with an actual [SharedPreferences] instance.
 final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
@@ -12,22 +13,25 @@ final themeModeProvider = NotifierProvider<ThemeModeNotifier, ThemeMode>(
 );
 
 class ThemeModeNotifier extends Notifier<ThemeMode> {
-  static const _prefsKey = 'theme_mode';
+  /// Public because the home-screen widget is rebuilt in a background isolate
+  /// that has no providers — see `lib/home_widget/widget_theme.dart`. It reads
+  /// the setting straight out of the same store, through this key and [decode].
+  static const prefsKey = 'theme_mode';
 
   @override
   ThemeMode build() {
     final prefs = ref.watch(sharedPreferencesProvider);
-    return _decode(prefs.getString(_prefsKey));
+    return decode(prefs.getString(prefsKey));
   }
 
   Future<void> setThemeMode(ThemeMode mode) async {
     if (mode == state) return;
     state = mode;
     final prefs = ref.read(sharedPreferencesProvider);
-    await prefs.setString(_prefsKey, mode.name);
+    await prefs.setString(prefsKey, mode.name);
   }
 
-  static ThemeMode _decode(String? value) {
+  static ThemeMode decode(String? value) {
     return switch (value) {
       'light' => ThemeMode.light,
       'dark' => ThemeMode.dark,
@@ -36,39 +40,33 @@ class ThemeModeNotifier extends Notifier<ThemeMode> {
   }
 }
 
-/// Available primary colors for the app: the accents of [taskPalette], so the
-/// interface and the tasks share one palette. Unlike a task's light tone these
-/// are only ever used for elements whose foreground is derived from the accent's
-/// own luminance, so mid-tone colors are fine here.
-const appColorPalette = <Color>[
-  Color(0xFF8B7CF6), // violet
-  Color(0xFF76B894), // green
-  Color(0xFFF5A76F), // orange
-  Color(0xFF72B7D8), // blue
-  Color(0xFFD98BA8), // pink
-  Color(0xFFF4C95D), // yellow
-  Color(0xFFE97B70), // red
-  Color(0xFF1A1A1A), // graphite — the neutral, no-accent option
-];
+/// The accents the settings offer, as stored: each one's light-theme tone. The
+/// dark tone is looked up from it — see [appAccents].
+final appColorPalette = [for (final accent in appAccents) accent.light];
+
+/// The accent a stored preference names. One saved before "Иней" comes back as
+/// its nearest new accent ([accentFor]); nothing is rewritten in the store.
+Color accentFromPrefs(int? stored) =>
+    stored != null ? accentFor(Color(stored)).light : appColorPalette.first;
 
 final appColorProvider = NotifierProvider<AppColorNotifier, Color>(
   AppColorNotifier.new,
 );
 
 class AppColorNotifier extends Notifier<Color> {
-  static const _prefsKey = 'app_color';
+  /// Public for the same reason as [ThemeModeNotifier.prefsKey].
+  static const prefsKey = 'app_color';
 
   @override
   Color build() {
     final prefs = ref.watch(sharedPreferencesProvider);
-    final stored = prefs.getInt(_prefsKey);
-    return stored != null ? Color(stored) : appColorPalette.first;
+    return accentFromPrefs(prefs.getInt(prefsKey));
   }
 
   Future<void> setColor(Color color) async {
     if (color.toARGB32() == state.toARGB32()) return;
     state = color;
     final prefs = ref.read(sharedPreferencesProvider);
-    await prefs.setInt(_prefsKey, color.toARGB32());
+    await prefs.setInt(prefsKey, color.toARGB32());
   }
 }

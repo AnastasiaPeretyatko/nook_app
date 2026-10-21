@@ -17,3 +17,19 @@ String deltaPlainText(List<dynamic> operations) {
   }
   return text.toString();
 }
+
+/// The note's check-list in numbers: how many boxes are ticked and how many
+/// there are. A box is the line break that closes a list line (`block: cl`), and
+/// it is ticked when that break also carries `checked`.
+(int done, int total) checklistProgress(List<dynamic> operations) {
+  var done = 0;
+  var total = 0;
+  for (final operation in operations) {
+    if (operation is! Map) continue;
+    final attributes = operation['attributes'];
+    if (attributes is! Map || attributes['block'] != 'cl') continue;
+    total++;
+    if (attributes['checked'] == true) done++;
+  }
+  return (done, total);
+}

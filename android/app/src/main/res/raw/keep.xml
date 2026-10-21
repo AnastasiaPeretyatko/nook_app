@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The notification small icon is named by a *string* in Dart
+     (AndroidInitializationSettings('@drawable/ic_notification') in
+     lib/notifications/app_notifications.dart), so nothing in the Android code
+     or in any resource XML refers to it. A release build runs the resource
+     shrinker, which sees no reference and drops the drawable — and then the
+     plugin's initialize() fails with "invalid_icon", which the app swallows,
+     which means *no notification of any kind* is ever posted. Debug builds do
+     not shrink, so the bug shows up only in an APK.
+
+     This file is the documented way to tell the shrinker to keep it. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_notification" />

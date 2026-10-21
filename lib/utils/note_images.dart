@@ -58,13 +58,35 @@ Future<void> deleteNoteImages(Iterable<String> names) async {
   }
 }
 
+/// Every image any note ever attached, gone.
+///
+/// For the one moment the app has to forget a whole account: a different user
+/// signs in, the database is emptied, and a photograph left on disk would be
+/// the one piece of the previous person still there — the most private piece,
+/// and the only one no screen would ever show them again to be deleted.
+///
+/// The directory's whole contents rather than the names read out of the rows.
+/// Those rows are being deleted in the same breath, and a file whose note was
+/// lost some other way would otherwise stay forever with nothing left pointing
+/// at it. The folder belongs to this app and holds nothing else.
+Future<void> deleteAllNoteImages() async {
+  final directory = await noteImagesDirectory();
+  if (!await directory.exists()) return;
+  await for (final entity in directory.list()) {
+    if (entity is File) await entity.delete();
+  }
+}
+
 /// The names in a note's `images` column. A row written before the column
 /// existed holds nothing at all, which is not JSON — hence the guard.
 List<String> decodeImageNames(String? stored) {
   if (stored == null || stored.trim().isEmpty) return const [];
   final decoded = jsonDecode(stored);
   if (decoded is! List) return const [];
-  return [for (final name in decoded) if (name is String) name];
+  return [
+    for (final name in decoded)
+      if (name is String) name,
+  ];
 }
 
 String encodeImageNames(List<String> names) => jsonEncode(names);

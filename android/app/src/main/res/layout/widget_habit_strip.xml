@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Today's habits as a row of circles (4×1). A tap on a circle ticks it. The
+     row cannot scroll — RemoteViews has no horizontal scroller — so what does
+     not fit goes onto pages, and @id/hs_next turns them. The circles are
+     inflated from widget_habit_strip_item.xml into @id/hs_items. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:id="@+id/hs_card"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_card" />
+
+    <LinearLayout
+        android:id="@+id/hs_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingLeft="10dp"
+        android:paddingTop="6dp"
+        android:paddingRight="10dp"
+        android:paddingBottom="6dp">
+
+        <LinearLayout
+            android:id="@+id/hs_items"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="horizontal" />
+
+        <FrameLayout
+            android:id="@+id/hs_next"
+            android:layout_width="30dp"
+            android:layout_height="match_parent"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/hs_next_icon"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:layout_gravity="center"
+                android:contentDescription="@null"
+                android:src="@drawable/widget_ic_chevron" />
+        </FrameLayout>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/hs_empty"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fontFamily="@font/onest_semibold"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:textSize="13sp"
+        android:visibility="gone" />
+</FrameLayout>
