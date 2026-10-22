@@ -57,7 +57,14 @@ class SettingsPage extends ConsumerWidget {
             const SizedBox(height: 24),
             Center(
               child: Text(
-                '$appName · Версия $appVersionLabel',
+                // The build number arrives a moment after the page, or never
+                // where there is no platform to ask (tests).
+                ref
+                    .watch(appVersionLabelProvider)
+                    .maybeWhen(
+                      data: (v) => '$appName · Версия $v',
+                      orElse: () => appName,
+                    ),
                 style: TextStyle(
                   fontSize: 12,
                   color: AppPalette.of(theme).textTertiary,

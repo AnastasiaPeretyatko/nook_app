@@ -6,7 +6,7 @@
     android:minResizeHeight="110dp"
     android:minResizeWidth="250dp"
     android:minWidth="250dp"
-    android:previewLayout="@layout/widget_habit_week"
+    android:previewLayout="@layout/widget_habit_week_preview"
     android:resizeMode="horizontal"
     android:targetCellHeight="2"
     android:targetCellWidth="4"

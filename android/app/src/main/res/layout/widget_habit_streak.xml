@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One habit's streak (2×2): the name, the streak as a big number, and seven
+     dots for the week. The dots are inflated from widget_habit_streak_dot.xml
+     into @id/hk_dots. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:id="@+id/hk_card"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_card" />
+
+    <LinearLayout
+        android:id="@+id/hk_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingLeft="14dp"
+        android:paddingTop="10dp"
+        android:paddingRight="14dp"
+        android:paddingBottom="10dp">
+
+        <TextView
+            android:id="@+id/hk_caption"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/onest_medium"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:text="@string/widget_habit_streak_caption"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/hk_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:ellipsize="end"
+            android:fontFamily="@font/onest_bold"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textSize="16sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/hk_number"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="@font/onest_bold"
+                android:includeFontPadding="false"
+                android:textSize="36sp" />
+
+            <TextView
+                android:id="@+id/hk_word"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:fontFamily="@font/onest_medium"
+                android:includeFontPadding="false"
+                android:maxLines="2"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/hk_dots"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/hk_empty"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fontFamily="@font/onest_semibold"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:padding="12dp"
+        android:textSize="12sp"
+        android:visibility="gone" />
+</FrameLayout>

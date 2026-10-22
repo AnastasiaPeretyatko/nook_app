@@ -1,22 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One habit circle and its name under it. The whole item is the tap target. -->
+<!-- One habit circle and its name under it, 56dp wide. The whole item is the tap target. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/hs_item"
-    android:layout_width="52dp"
+    android:layout_width="56dp"
     android:layout_height="match_parent"
     android:gravity="center"
     android:orientation="vertical">
 
     <FrameLayout
-        android:layout_width="32dp"
-        android:layout_height="32dp">
+        android:id="@+id/item_circle"
+        android:layout_width="40dp"
+        android:layout_height="40dp">
 
         <ImageView
             android:id="@+id/item_ring"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:contentDescription="@null"
-            android:src="@drawable/widget_check_ring" />
+            android:src="@drawable/widget_habit_ring" />
 
         <ImageView
             android:id="@+id/item_fill"
@@ -27,9 +28,17 @@
             android:visibility="gone" />
 
         <ImageView
+            android:id="@+id/item_progress"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@null"
+            android:scaleType="fitXY"
+            android:visibility="gone" />
+
+        <ImageView
             android:id="@+id/item_mark"
-            android:layout_width="15dp"
-            android:layout_height="15dp"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
             android:layout_gravity="center"
             android:contentDescription="@null"
             android:src="@drawable/widget_ic_check"
@@ -42,7 +51,7 @@
             android:layout_gravity="center"
             android:fontFamily="@font/onest_semibold"
             android:includeFontPadding="false"
-            android:textSize="10sp"
+            android:textSize="11sp"
             android:visibility="gone" />
     </FrameLayout>
 
@@ -50,7 +59,7 @@
         android:id="@+id/item_label"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
+        android:layout_marginTop="4dp"
         android:ellipsize="end"
         android:fontFamily="@font/onest_medium"
         android:gravity="center"

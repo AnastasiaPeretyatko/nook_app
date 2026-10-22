@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "708695856433",
+    "project_id": "nook-c51b1",
+    "storage_bucket": "nook-c51b1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:708695856433:android:4d6a5d9f9e3ea73b520c10",
+        "android_client_info": {
+          "package_name": "com.yourname.todo_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDiPhFXMeLI4GlVF8JgWATe8HbEu8Qr0fo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -27,6 +27,10 @@
          the declaration that makes the account work on a real APK. -->
     <uses-permission android:name="android.permission.INTERNET"/>
 
+    <!-- Self-update (ota_update): the APK is downloaded to the app's own files
+         and handed to the system installer, which needs this permission. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+
     <application
         android:label="Nook"
         android:name="${applicationName}"
@@ -157,6 +161,33 @@
                 android:resource="@xml/habit_strip_widget_info"/>
         </receiver>
 
+        <!-- The 2×2 streak widget. Its receiver is the same as above; the
+             activity is what the launcher opens when the widget is dropped, to
+             choose the habit (android:configure in habit_streak_widget_info). -->
+        <receiver
+            android:name=".HabitStreakWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_habit_streak_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+                <action android:name="android.intent.action.DATE_CHANGED"/>
+                <action android:name="android.intent.action.TIME_SET"/>
+                <action android:name="android.intent.action.TIMEZONE_CHANGED"/>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/habit_streak_widget_info"/>
+        </receiver>
+        <activity
+            android:name=".HabitStreakConfigureActivity"
+            android:exported="true"
+            android:theme="@style/WidgetConfigTheme">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE"/>
+            </intent-filter>
+        </activity>
+
         <!-- Where a tick made on the widget is answered: this starts the
              background Dart isolate that writes it to the database, so the mark
              is stamped and queued for sync exactly as the app's own screens
@@ -170,6 +201,17 @@
                 <action android:name="es.antonborri.home_widget.action.BACKGROUND"/>
             </intent-filter>
         </receiver>
+
+        <!-- Lets the system installer read the downloaded APK (ota_update). -->
+        <provider
+            android:name="sk.fourq.otaupdate.OtaUpdateFileProvider"
+            android:authorities="${applicationId}.ota_update_provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/filepaths" />
+        </provider>
 
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

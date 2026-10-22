@@ -6,7 +6,7 @@
     android:minResizeHeight="40dp"
     android:minResizeWidth="180dp"
     android:minWidth="250dp"
-    android:previewLayout="@layout/widget_habit_strip"
+    android:previewLayout="@layout/widget_habit_strip_preview"
     android:resizeMode="horizontal"
     android:targetCellHeight="1"
     android:targetCellWidth="4"
