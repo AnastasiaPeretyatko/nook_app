@@ -76,6 +76,7 @@ class WidgetHabit {
     required this.count,
     required this.target,
     required this.subtitle,
+    required this.streak,
     required this.week,
   });
 
@@ -100,6 +101,12 @@ class WidgetHabit {
   /// "серия 4 дня · лучшая 23" — worded here, where Russian plurals are cheap.
   final String subtitle;
 
+  /// The current streak in days, for the 2×2 widget's big number; its word
+  /// ("день", "дня", "дней") travels as [streakWord] so Kotlin never counts.
+  final int streak;
+
+  String get streakWord => _dayWord(streak);
+
   /// Seven letters, one per day of the week the day falls in, in the order the
   /// app draws it: `d` done (on time or late), `m` missed, `t` today still open,
   /// `p` partial progress, `f` a day ahead, `o` nothing planned.
@@ -116,6 +123,8 @@ class WidgetHabit {
     if (count != null) 'count': count,
     if (target != null) 'target': target,
     'sub': subtitle,
+    'streak': streak,
+    'streakWord': streakWord,
     'week': week,
   };
 }
@@ -233,6 +242,7 @@ WidgetHabit _habitFor(
         ? counterTarget(task)
         : null,
     subtitle: _subtitle(streaks.current, streaks.best),
+    streak: streaks.current,
     week: weekCells.cells.map(_letter).join(),
   );
 }
@@ -263,14 +273,15 @@ String _subtitle(int streak, int best) {
 }
 
 /// "1 день", "4 дня", "11 дней".
-String _days(int n) {
+String _days(int n) => '$n ${_dayWord(n)}';
+
+String _dayWord(int n) {
   final mod100 = n % 100, mod10 = n % 10;
-  final word = mod100 >= 11 && mod100 <= 14
+  return mod100 >= 11 && mod100 <= 14
       ? 'дней'
       : mod10 == 1
       ? 'день'
       : mod10 >= 2 && mod10 <= 4
       ? 'дня'
       : 'дней';
-  return '$n $word';
 }

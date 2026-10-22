@@ -22,13 +22,14 @@ class HomeWidgetBridge {
   /// The key the payload is stored under. Read by `TodayWidgetProvider`.
   static const payloadKey = 'today_payload';
 
-  /// The habit widgets — the week of one habit and the row of circles — share
-  /// one payload, since they draw the same data. Spelled like [providerName]:
+  /// The habit widgets — the week of one habit, the row of circles and the 2×2
+  /// streak — share one payload, since they draw the same data. Spelled like [providerName]:
   /// the Kotlin classes and the manifest receivers carry the same names.
   static const habitsPayloadKey = 'habits_payload';
   static const habitProviderNames = [
     'HabitWeekWidgetProvider',
     'HabitStripWidgetProvider',
+    'HabitStreakWidgetProvider',
   ];
 
   /// What was last handed to the platform, per key. A widget redraw is a
@@ -47,7 +48,7 @@ class HomeWidgetBridge {
   Future<void> push(String payload) =>
       _push(payloadKey, payload, const [providerName]);
 
-  /// The same for the two habit widgets.
+  /// The same for the habit widgets.
   Future<void> pushHabits(String payload) =>
       _push(habitsPayloadKey, payload, habitProviderNames);
 

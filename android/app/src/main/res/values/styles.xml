@@ -15,4 +15,7 @@
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
+    <!-- The habit chooser shown when the 2×2 streak widget is added: a plain
+         system dialog, light here and dark in values-night. -->
+    <style name="WidgetConfigTheme" parent="@android:style/Theme.DeviceDefault.Light.Dialog" />
 </resources>
