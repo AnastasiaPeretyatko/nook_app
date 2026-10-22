@@ -5,7 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:todo_app/auth/providers.dart';
 import 'package:todo_app/auth/supabase_init.dart';
+import 'package:todo_app/notifications/providers.dart';
 import 'package:todo_app/push/push_init.dart';
+import 'package:todo_app/push/push_tap.dart';
 
 /// Keeps this phone's push token on the server under whoever is signed in.
 ///
@@ -31,18 +33,32 @@ final pushRegistrationProvider = Provider<void>((ref) {
     }
   }
 
+  // Before the first push can arrive, see ensureGroupChannel.
+  unawaited(ref.read(appNotificationsProvider).ensureGroupChannel());
+
   var disposed = false;
   StreamSubscription<String>? refreshes;
+  StreamSubscription<String>? taps;
   unawaited(
     initPush().then((token) {
       if (disposed || token == null) return;
       unawaited(register(token));
       refreshes = pushTokenRefreshes().listen(register);
+
+      // A tap on a push opens its group: from the background by the stream,
+      // from a closed app by the launch message.
+      void open(String? group) {
+        if (!disposed) ref.read(pushTapProvider.notifier).report(group);
+      }
+
+      taps = pushOpenedGroups().listen(open);
+      unawaited(pushLaunchedGroup().then(open));
     }),
   );
   ref.onDispose(() {
     disposed = true;
     refreshes?.cancel();
+    taps?.cancel();
   });
 });
 

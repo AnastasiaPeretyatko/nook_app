@@ -35,6 +35,10 @@ class AppNotifications {
   static const _doneChannelId = 'habit_timer_done';
   static const _reminderChannelId = 'task_reminders';
 
+  /// The channel a group push is filed under. Spelled out on the server too
+  /// (`CHANNEL_ID` in `supabase/functions/push/index.ts`): change both.
+  static const groupChannelId = 'group_activity';
+
   /// Two ids per task out of one counter, so the ongoing entry and the alert
   /// that replaces it can be cancelled independently.
   static int runningIdFor(int taskId) => taskId * 2;
@@ -183,6 +187,29 @@ class AppNotifications {
       debugPrint('Reminder falling back to inexact: $error');
       await _guard(() => schedule(AndroidScheduleMode.inexactAllowWhileIdle));
     }
+  }
+
+  /// Creates the channel group pushes arrive in. A push names its channel, and
+  /// Android files one that does not exist under a catch-all, so the channel has
+  /// to be there before the first one comes. Asks for nothing: a user may still
+  /// turn the channel off, which is what a channel is for.
+  Future<void> ensureGroupChannel() async {
+    if (!_supported || defaultTargetPlatform != TargetPlatform.android) return;
+    if (!await _ensureReady(requestPermission: false)) return;
+    await _guard(
+      () async => _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >()
+          ?.createNotificationChannel(
+            const AndroidNotificationChannel(
+              groupChannelId,
+              'Группы',
+              description: 'Новые и выполненные задачи участников групп',
+              importance: Importance.high,
+            ),
+          ),
+    );
   }
 
   /// Takes every entry down. For signing out, wiping data, or tests.
