@@ -15,6 +15,7 @@ import 'package:todo_app/pages/habits_page.dart';
 import 'package:todo_app/pages/home_page.dart';
 import 'package:todo_app/pages/tasks_page.dart';
 import 'package:todo_app/push/push_registration.dart';
+import 'package:todo_app/push/push_tap.dart';
 import 'package:todo_app/home_widget/home_widget_scope.dart';
 import 'package:todo_app/home_widget/providers.dart';
 import 'package:todo_app/home_widget/widget_actions.dart';
@@ -157,6 +158,16 @@ class _MainScreenState extends ConsumerState<MainScreen>
         case _:
           break;
       }
+    });
+
+    // A tap on a group push, from the shade: its group opens.
+    ref.listenManual<PushTap?>(pushTapProvider, (_, tap) {
+      if (!mounted || tap == null) return;
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => GroupPage(groupUid: tap.groupUid),
+        ),
+      );
     });
 
     // A run that ends badly says so on whatever screen is up — the account page

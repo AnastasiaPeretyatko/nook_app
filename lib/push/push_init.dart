@@ -32,6 +32,26 @@ Stream<String> pushTokenRefreshes() =>
     // ignore: deprecated_member_use
     FirebaseMessaging.instance.onTokenRefresh;
 
+/// The group a tapped push is about, while the app was in the background. A
+/// push without one (the hand-made test) is skipped.
+Stream<String> pushOpenedGroups() => FirebaseMessaging.onMessageOpenedApp
+    .map((message) => message.data['group_id'])
+    .where((group) => group is String)
+    .cast<String>();
+
+/// The same, for the push whose tap started the app. Null when it did not, and
+/// once the answer has been given FCM does not give it twice.
+Future<String?> pushLaunchedGroup() async {
+  try {
+    final message = await FirebaseMessaging.instance.getInitialMessage();
+    final group = message?.data['group_id'];
+    return group is String ? group : null;
+  } catch (e) {
+    debugPrint('Push launch message failed: $e');
+    return null;
+  }
+}
+
 /// Throws this phone's token away and returns what it was, or null.
 ///
 /// Deleting it makes the old one dead for FCM, so a push sent to a row the
