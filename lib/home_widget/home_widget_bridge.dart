@@ -12,6 +12,13 @@ import 'package:home_widget/home_widget.dart';
 /// Every call is a no-op off Android. Widgets are the only consumer, the desktop
 /// and web builds have no such thing, and a test must not need a plugin.
 class HomeWidgetBridge {
+  /// [skipIfStored]: do not redraw for a payload that is already stored. For the
+  /// background isolate that answers a tap — it starts with nothing remembered, so
+  /// it would otherwise redraw every widget on the screen, changed or not.
+  HomeWidgetBridge({this.skipIfStored = false});
+
+  final bool skipIfStored;
+
   /// The class name of the `AppWidgetProvider`, which the plugin resolves
   /// against the application id. It has to stay the same as the Kotlin class in
   /// `android/app/src/main/kotlin/.../TodayWidgetProvider.kt` and as the
@@ -55,6 +62,11 @@ class HomeWidgetBridge {
   Future<void> _push(String key, String payload, List<String> providers) async {
     if (!_supported || _pushed[key] == payload) return;
     try {
+      if (skipIfStored &&
+          await HomeWidget.getWidgetData<String>(key) == payload) {
+        _pushed[key] = payload;
+        return;
+      }
       await HomeWidget.saveWidgetData<String>(key, payload);
       for (final name in providers) {
         await HomeWidget.updateWidget(androidName: name);

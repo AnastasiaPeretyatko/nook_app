@@ -103,6 +103,23 @@ void main() {
     expect(first['streakWord'], 'дня');
   });
 
+  test('a done circle is filled with the darker tone of its colour', () {
+    // No colour stored → the palette's first family, a real swatch.
+    final habit = _payload([_habit()]).days.first.habits.single;
+
+    // The fill is the family's `strong` tone, not the bare accent, and the
+    // glyph on it differs from it in both themes.
+    expect(habit.fill, isNot(habit.color));
+    expect(habit.fillInk, isNot(habit.fill));
+    expect(habit.fillInkDark, isNot(habit.fillDark));
+    final json = jsonDecode(_payload([_habit()]).encode()) as Map;
+    final first = (json['days'] as List).first['habits'].first as Map;
+    expect(
+      first.keys,
+      containsAll(['fill', 'fillDark', 'fillInk', 'fillInkDark']),
+    );
+  });
+
   test('the streak word follows the Russian rule', () {
     String wordFor(int days) {
       final logs = [

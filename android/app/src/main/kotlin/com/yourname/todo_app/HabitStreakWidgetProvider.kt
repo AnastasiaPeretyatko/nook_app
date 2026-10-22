@@ -21,6 +21,8 @@ class HabitStreakWidgetProvider : NookWidgetProvider() {
     override val payloadKey = "habits_payload"
     override val payloadVersion = 1
 
+    override fun hasNothing(payload: Payload) = payload.day.getJSONArray("habits").length() == 0
+
     override fun render(
         context: Context,
         manager: AppWidgetManager,

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A fixed space between two habits of the strip, which are 56dp each and pinned
+     to the left edge. A FrameLayout because RemoteViews allows no bare View. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="9dp"
+    android:layout_height="match_parent" />

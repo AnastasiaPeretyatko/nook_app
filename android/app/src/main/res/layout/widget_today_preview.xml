@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the widget picker shows for "Сегодня" (4×2): the real card with sample content from
+     WidgetsLight.dc.html, colours fixed (the light palette). Nothing here is bound
+     at runtime; the real widget is widget_today.xml. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_card" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingLeft="14dp"
+        android:paddingTop="10dp"
+        android:paddingRight="14dp"
+        android:paddingBottom="10dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:fontFamily="@font/onest_semibold"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/widget_title"
+                android:textColor="#1B2230"
+                android:textSize="15sp" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="@font/onest_medium"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/widget_preview_progress"
+                android:textColor="#5F6878"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="4dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="32dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <FrameLayout
+                android:layout_width="34dp"
+                android:layout_height="match_parent">
+            <ImageView
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_gravity="center_vertical"
+                android:contentDescription="@null"
+                android:src="@drawable/widget_check_fill"
+                android:tint="#5B6DCB" />
+            <ImageView
+                android:layout_width="13dp"
+                android:layout_height="13dp"
+                android:layout_gravity="center_vertical"
+                android:layout_marginStart="4.5dp"
+                android:contentDescription="@null"
+                android:src="@drawable/widget_ic_check" />
+            </FrameLayout>
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+                android:fontFamily="@font/onest_medium"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/widget_preview_task_report"
+                android:textColor="#5F6878"
+                android:textSize="14sp" />
+            <ImageView
+                android:layout_width="6dp"
+                android:layout_height="6dp"
+            android:layout_marginStart="8dp"
+                android:contentDescription="@null"
+                android:src="@drawable/widget_row_dot"
+                android:tint="#3B66B5" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+                android:fontFamily="@font/onest_medium"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="12:00"
+                android:textColor="#5F6878"
+                android:textSize="12sp" />
+        </LinearLayout>
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="32dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <FrameLayout
+                android:layout_width="34dp"
+                android:layout_height="match_parent">
+            <ImageView
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_gravity="center_vertical"
+                android:contentDescription="@null"
+                android:src="@drawable/widget_check_ring"
+                android:tint="#C9D0DE" />
+            </FrameLayout>
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+                android:fontFamily="@font/onest_medium"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/widget_preview_task_call"
+                android:textColor="#1B2230"
+                android:textSize="14sp" />
+            <ImageView
+                android:layout_width="6dp"
+                android:layout_height="6dp"
+            android:layout_marginStart="8dp"
+                android:contentDescription="@null"
+                android:src="@drawable/widget_row_dot"
+                android:tint="#5D4DB0" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+                android:fontFamily="@font/onest_medium"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="15:00"
+                android:textColor="#5F6878"
+                android:textSize="12sp" />
+        </LinearLayout>
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="32dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <FrameLayout
+                android:layout_width="34dp"
+                android:layout_height="match_parent">
+            <ImageView
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_gravity="center_vertical"
+                android:contentDescription="@null"
+                android:src="@drawable/widget_check_ring"
+                android:tint="#C9D0DE" />
+            </FrameLayout>
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+                android:fontFamily="@font/onest_medium"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/widget_preview_task_shop"
+                android:textColor="#1B2230"
+                android:textSize="14sp" />
+            <ImageView
+                android:layout_width="6dp"
+                android:layout_height="6dp"
+            android:layout_marginStart="8dp"
+                android:contentDescription="@null"
+                android:src="@drawable/widget_row_dot"
+                android:tint="#2B6E53" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+                android:fontFamily="@font/onest_medium"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/widget_preview_evening"
+                android:textColor="#5F6878"
+                android:textSize="12sp" />
+        </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

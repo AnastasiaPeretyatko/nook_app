@@ -58,16 +58,12 @@ class _HomeWidgetScopeState extends ConsumerState<HomeWidgetScope>
     // of days that has run out, or a theme changed on another screen — and the
     // first state is the one that has to be pushed. The same reasoning as the
     // notification subscriptions in `main.dart`.
-    ref.listenManual<String>(
-      todayWidgetPayloadProvider,
-      (_, payload) => unawaited(bridge.push(payload)),
-      fireImmediately: true,
-    );
-    ref.listenManual<String>(
-      habitsWidgetPayloadProvider,
-      (_, payload) => unawaited(bridge.pushHabits(payload)),
-      fireImmediately: true,
-    );
+    ref.listenManual<String>(todayWidgetPayloadProvider, (_, payload) {
+      if (payload.isNotEmpty) unawaited(bridge.push(payload));
+    }, fireImmediately: true);
+    ref.listenManual<String>(habitsWidgetPayloadProvider, (_, payload) {
+      if (payload.isNotEmpty) unawaited(bridge.pushHabits(payload));
+    }, fireImmediately: true);
 
     // A tap that reaches an app already running. With an error handler, or a
     // platform channel that fails would surface as an unhandled async error and

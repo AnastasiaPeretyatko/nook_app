@@ -13,7 +13,8 @@ final homeWidgetBridgeProvider = Provider<HomeWidgetBridge>((ref) {
   return HomeWidgetBridge();
 });
 
-/// What the home-screen widget should be showing, already encoded.
+/// What the home-screen widget should be showing, already encoded — or an empty
+/// string while the database has not answered yet, which nobody pushes.
 ///
 /// Pure derivation, like [taskRemindersProvider]: watching it costs nothing and
 /// the platform call lives behind [homeWidgetBridgeProvider]. Encoded here
@@ -22,22 +23,20 @@ final homeWidgetBridgeProvider = Provider<HomeWidgetBridge>((ref) {
 /// different, which is what stops a redraw broadcast per keystroke in the task
 /// form.
 final todayWidgetPayloadProvider = Provider<String>((ref) {
-  final tasks = ref.watch(rootTasksProvider).valueOrNull ?? const <Task>[];
+  final tasksState = ref.watch(rootTasksProvider);
+  final tasks = tasksState.valueOrNull ?? const <Task>[];
 
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
-  final logs =
-      ref
-          .watch(
-            logsBetweenProvider(
-              DateRange(
-                today,
-                today.add(const Duration(days: todayWidgetHorizonDays)),
-              ),
-            ),
-          )
-          .valueOrNull ??
-      const <TaskLog>[];
+  final logsState = ref.watch(
+    logsBetweenProvider(
+      DateRange(today, today.add(const Duration(days: todayWidgetHorizonDays))),
+    ),
+  );
+  // Nothing until the database has answered: a payload built from the empty
+  // first emission would be stored — and drawn — as "no tasks".
+  if (!tasksState.hasValue || !logsState.hasValue) return '';
+  final logs = logsState.value!;
 
   // The widget is repainted when the app's accent or theme changes, the same as
   // every screen — it is the app's surface, just one that happens to be drawn by
@@ -60,13 +59,17 @@ final todayWidgetPayloadProvider = Provider<String>((ref) {
 /// The same for the two habit widgets. Needs every log, not a window of them:
 /// a streak reaches back to the habit's first day.
 final habitsWidgetPayloadProvider = Provider<String>((ref) {
+  final tasks = ref.watch(rootTasksProvider);
+  final logs = ref.watch(allLogsProvider);
+  // As above: not before the database has answered.
+  if (!tasks.hasValue || !logs.hasValue) return '';
   final theme = widgetThemeFor(
     accent: ref.watch(appColorProvider),
     mode: ref.watch(themeModeProvider),
   );
   return buildHabitsWidgetPayload(
-    tasks: ref.watch(rootTasksProvider).valueOrNull ?? const <Task>[],
-    logs: ref.watch(allLogsProvider).valueOrNull ?? const <TaskLog>[],
+    tasks: tasks.value!,
+    logs: logs.value!,
     now: DateTime.now(),
     light: theme.light,
     dark: theme.dark,

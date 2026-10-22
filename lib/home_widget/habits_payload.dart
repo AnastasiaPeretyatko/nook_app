@@ -6,6 +6,7 @@ import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/home_widget/today_payload.dart';
 import 'package:todo_app/utils/recurrence.dart';
 import 'package:todo_app/utils/task_colors.dart';
+import 'package:todo_app/utils/task_palette.dart';
 import 'package:todo_app/utils/tracking.dart';
 import 'package:todo_app/utils/week.dart';
 import 'package:todo_app/widgets/color_picker_row.dart';
@@ -70,6 +71,10 @@ class WidgetHabit {
     required this.title,
     required this.color,
     required this.checkInk,
+    required this.fill,
+    required this.fillDark,
+    required this.fillInk,
+    required this.fillInkDark,
     required this.due,
     required this.done,
     required this.kind,
@@ -84,6 +89,15 @@ class WidgetHabit {
   final String title;
   final int color;
   final int checkInk;
+
+  /// The darker tone a *done* circle is filled with — the app's own
+  /// `taskBadgeInk`: the family's `strong` on the light card, its `darkInk` on
+  /// the dark one — and the glyph that reads on each. Both travel because the
+  /// launcher picks by the system theme, which can flip while the app is closed.
+  final int fill;
+  final int fillDark;
+  final int fillInk;
+  final int fillInkDark;
 
   /// The rule lands on this day.
   final bool due;
@@ -117,6 +131,10 @@ class WidgetHabit {
     'title': title,
     'color': color,
     'checkInk': checkInk,
+    'fill': fill,
+    'fillDark': fillDark,
+    'fillInk': fillInk,
+    'fillInkDark': fillInkDark,
     'due': due,
     'done': done,
     'kind': kind,
@@ -182,6 +200,8 @@ HabitsWidgetPayload buildHabitsWidgetPayload({
               week: week,
               graceMinutes: graceMinutes,
               todayStaysOpen: todayStaysOpen,
+              lightCard: Color(light.card),
+              darkCard: Color(dark.card),
             ),
         ],
       ),
@@ -196,6 +216,10 @@ HabitsWidgetPayload buildHabitsWidgetPayload({
   );
 }
 
+// `taskBadgeInk` reads only the brightness of the theme it is given.
+final _lightTheme = ThemeData(brightness: Brightness.light);
+final _darkTheme = ThemeData(brightness: Brightness.dark);
+
 WidgetHabit _habitFor(
   Task task,
   List<TaskLog> logs, {
@@ -203,6 +227,8 @@ WidgetHabit _habitFor(
   required List<DateTime> week,
   required int graceMinutes,
   required bool todayStaysOpen,
+  required Color lightCard,
+  required Color darkCard,
 }) {
   final weekCells = habitWeek(
     task: task,
@@ -223,12 +249,18 @@ WidgetHabit _habitFor(
       ? Color(task.colorValue!)
       : ColorPickerRow.colors.first;
   final todayIndex = week.indexOf(day);
+  final fill = taskBadgeInk(_lightTheme, color, lightCard);
+  final fillDark = taskBadgeInk(_darkTheme, color, darkCard);
 
   return WidgetHabit(
     id: task.id,
     title: task.title,
     color: color.toARGB32(),
     checkInk: onBrandFill(color).toARGB32(),
+    fill: fill.toARGB32(),
+    fillDark: fillDark.toARGB32(),
+    fillInk: onBrandFill(fill).toARGB32(),
+    fillInkDark: onBrandFill(fillDark).toARGB32(),
     due: isTaskScheduledOn(task, day),
     done: switch (weekCells.cells[todayIndex]) {
       WeekCell.onTime || WeekCell.late => true,

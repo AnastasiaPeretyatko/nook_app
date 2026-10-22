@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The empty circle of a habit on the 4×1 strip: 40dp across with a 2dp line
+     (the design's `border: 2px`). Same reasoning as widget_check_ring.xml — a
+     stroked vector, never a stroke-only shape, which fills solid when tinted. The
+     counter's progress arc is drawn on this exact circle (radius 19, centre 20). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="40dp"
+    android:height="40dp"
+    android:viewportWidth="40"
+    android:viewportHeight="40">
+    <path
+        android:pathData="M20,1 A19,19 0 1,0 20,39 A19,19 0 1,0 20,1 Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2" />
+</vector>

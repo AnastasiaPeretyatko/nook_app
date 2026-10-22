@@ -44,4 +44,24 @@
     <string name="widget_habit_streak_preview_title">Медитация</string>
     <string name="widget_habit_streak_preview_number">4</string>
     <string name="widget_habit_streak_preview_word">дня\nподряд</string>
+
+    <!-- Samples for the widget picker (widget_*_preview.xml), not real data. -->
+    <string name="widget_preview_water">Вода</string>
+    <string name="widget_preview_exercise">Зарядка</string>
+    <string name="widget_preview_meditation">Медитация</string>
+    <string name="widget_preview_reading">Чтение</string>
+    <string name="widget_preview_vitamins">Витамины</string>
+    <string name="widget_preview_progress">3 из 7</string>
+    <string name="widget_preview_task_report">Отправить отчёт</string>
+    <string name="widget_preview_task_call">Созвон с командой</string>
+    <string name="widget_preview_task_shop">Купить продукты</string>
+    <string name="widget_preview_evening">вечер</string>
+    <string name="widget_preview_week_sub">серия 4 дня · лучшая 23</string>
+    <string name="widget_preview_mon">Пн</string>
+    <string name="widget_preview_tue">Вт</string>
+    <string name="widget_preview_wed">Ср</string>
+    <string name="widget_preview_thu">Чт</string>
+    <string name="widget_preview_fri">Пт</string>
+    <string name="widget_preview_sat">Сб</string>
+    <string name="widget_preview_sun">Вс</string>
 </resources>
