@@ -179,7 +179,7 @@ Future<void> pushWidgetPayload(AppDatabase database) async {
   );
   final theme = widgetThemeFromPrefs(prefs);
 
-  final bridge = HomeWidgetBridge();
+  final bridge = HomeWidgetBridge(skipIfStored: true);
   await bridge.push(
     buildTodayWidgetPayload(
       tasks: tasks,

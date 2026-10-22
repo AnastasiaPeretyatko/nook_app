@@ -57,7 +57,32 @@ abstract class NookWidgetProvider : HomeWidgetProvider() {
         appWidgetIds.forEach {
             appWidgetManager.updateAppWidget(it, render(context, appWidgetManager, it, payload))
         }
-        if (payload == null) requestRefresh(context)
+        refreshIfNothingToShow(context, payload)
+    }
+
+    /**
+     * True when [payload] is valid but holds nothing to draw. A stored payload can
+     * be a stale or half-built one (the app was closed before it wrote a real one),
+     * and the widget then says "no habits" until the app is opened — so it asks
+     * for a rebuild from the database instead. Habit widgets override it.
+     */
+    internal open fun hasNothing(payload: Payload): Boolean = false
+
+    /**
+     * No payload at all is asked for at once; an empty one at most every
+     * [REFRESH_EVERY_MS], because a phone that really has no habits would
+     * otherwise wake the background isolate on every redraw. The isolate answers
+     * with the database's truth, and skips the redraw when that is what is stored.
+     */
+    private fun refreshIfNothingToShow(context: Context, payload: Payload?) {
+        if (payload == null) return requestRefresh(context)
+        if (!hasNothing(payload)) return
+        val state = widgetState(context)
+        val key = "refresh_at_$payloadKey"
+        val now = System.currentTimeMillis()
+        if (now - state.getLong(key, 0L) < REFRESH_EVERY_MS) return
+        state.edit().putLong(key, now).apply()
+        requestRefresh(context)
     }
 
     /**
@@ -176,6 +201,7 @@ abstract class NookWidgetProvider : HomeWidgetProvider() {
     companion object {
         private const val ACTION_NEXT = "com.yourname.todo_app.action.NEXT"
         private const val BACKGROUND_ACTION = "es.antonborri.home_widget.action.BACKGROUND"
+        private const val REFRESH_EVERY_MS = 15 * 60 * 1000L
     }
 }
 
@@ -274,6 +300,18 @@ internal class Skin(
     private val dark: Palette,
     private val followsSystem: Boolean,
 ) {
+    /**
+     * Sets a colour that belongs to the item (a habit's own tone) but differs per
+     * theme — both are handed over, like [paint]'s palettes.
+     */
+    fun paintPair(views: RemoteViews, viewId: Int, method: String, lightColor: Int, darkColor: Int) {
+        if (followsSystem && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            views.setColorInt(viewId, method, lightColor, darkColor)
+        } else {
+            views.setInt(viewId, method, if (palette == dark && palette != light) darkColor else lightColor)
+        }
+    }
+
     /** Sets a colour that has to follow the theme. Below API 31 it is resolved here. */
     fun paint(views: RemoteViews, viewId: Int, method: String, pick: (Palette) -> Int) {
         if (followsSystem && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

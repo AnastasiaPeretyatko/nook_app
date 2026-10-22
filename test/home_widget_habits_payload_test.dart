@@ -94,6 +94,47 @@ void main() {
     expect(habit.done, isTrue);
     expect(habit.week[3], 'd');
     expect(habit.subtitle, 'серия 3 дня');
+    expect(habit.streak, 3);
+    expect(habit.streakWord, 'дня');
+    // The 2×2 widget reads these two straight from the JSON.
+    final json = jsonDecode(payload.encode()) as Map<String, dynamic>;
+    final first = (json['days'] as List).first['habits'].first as Map;
+    expect(first['streak'], 3);
+    expect(first['streakWord'], 'дня');
+  });
+
+  test('a done circle is filled with the darker tone of its colour', () {
+    // No colour stored → the palette's first family, a real swatch.
+    final habit = _payload([_habit()]).days.first.habits.single;
+
+    // The fill is the family's `strong` tone, not the bare accent, and the
+    // glyph on it differs from it in both themes.
+    expect(habit.fill, isNot(habit.color));
+    expect(habit.fillInk, isNot(habit.fill));
+    expect(habit.fillInkDark, isNot(habit.fillDark));
+    final json = jsonDecode(_payload([_habit()]).encode()) as Map;
+    final first = (json['days'] as List).first['habits'].first as Map;
+    expect(
+      first.keys,
+      containsAll(['fill', 'fillDark', 'fillInk', 'fillInkDark']),
+    );
+  });
+
+  test('the streak word follows the Russian rule', () {
+    String wordFor(int days) {
+      final logs = [
+        for (var i = 0; i < days; i++)
+          _log(1, _today.subtract(Duration(days: i)), id: i + 1),
+      ];
+      return _payload([
+        _habit(startDate: _today.subtract(Duration(days: days))),
+      ], logs).days.first.habits.single.streakWord;
+    }
+
+    expect(wordFor(1), 'день');
+    expect(wordFor(4), 'дня');
+    expect(wordFor(11), 'дней');
+    expect(wordFor(21), 'день');
   });
 
   test('a longer best streak is named next to the current one', () {
@@ -114,6 +155,7 @@ void main() {
       _payload([_habit()]).days.first.habits.single.subtitle,
       'пока без серии',
     );
+    expect(_payload([_habit()]).days.first.habits.single.streak, 0);
   });
 
   test('a habit the rule skips today is kept, but not due', () {
