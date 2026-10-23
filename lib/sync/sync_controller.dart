@@ -51,6 +51,11 @@ class SyncController {
   /// offline is told once, not at every timer tick.
   bool _pausedAfterError = false;
 
+  /// Set while the last run found no network: the first sign of a connection
+  /// lifts the pause and runs. Only listening in that state, so a phone that
+  /// syncs fine keeps no subscription open.
+  StreamSubscription<bool>? _waitingForNetwork;
+
   /// Long enough that a note being written is not sent on every letter, short
   /// enough that closing the app straight after a save still catches it.
   static const _debounceDelay = Duration(seconds: 3);
@@ -60,16 +65,21 @@ class SyncController {
   static const _heartbeatPeriod = Duration(minutes: 15);
 
   void start() {
-    _heartbeat?.cancel();
-    _heartbeat = Timer.periodic(_heartbeatPeriod, (_) => _run(automatic: true));
+    _startHeartbeat();
     // Once immediately: the app has just been opened, or sync has just been
     // switched on, and both are moments where something is probably waiting.
     unawaited(_run(automatic: true));
     startRealtime();
   }
 
+  void _startHeartbeat() {
+    _heartbeat?.cancel();
+    _heartbeat = Timer.periodic(_heartbeatPeriod, (_) => _run(automatic: true));
+  }
+
   void stop() {
     stopRealtime();
+    _stopWaitingForNetwork();
     _debounce?.cancel();
     _debounce = null;
     _heartbeat?.cancel();
@@ -109,7 +119,30 @@ class SyncController {
   /// is none.
   Future<SyncOutcome> syncIfAuto() => _run(automatic: true);
 
-  Future<SyncOutcome> _run({required bool automatic}) async {
+  /// Called after a run that found no network. The first "a connection
+  /// appeared" lifts the pause and tries at once, still as an automatic run, so
+  /// "Только по Wi-Fi" and "Автоматически" keep their say.
+  void _waitForNetwork() {
+    _waitingForNetwork?.cancel();
+    _waitingForNetwork = _ref.read(networkAvailableChangesProvider).listen((
+      available,
+    ) {
+      if (!available) return;
+      _stopWaitingForNetwork();
+      _pausedAfterError = false;
+      unawaited(_run(automatic: true, force: true));
+    });
+  }
+
+  void _stopWaitingForNetwork() {
+    _waitingForNetwork?.cancel();
+    _waitingForNetwork = null;
+  }
+
+  Future<SyncOutcome> _run({
+    required bool automatic,
+    bool force = false,
+  }) async {
     if (!_ref.read(syncActiveProvider)) return SyncOutcome.skipped;
     if (automatic) {
       // Before anything touches the status: a skipped run reports idle, which
@@ -124,12 +157,21 @@ class SyncController {
 
     final status = _ref.read(syncStatusProvider.notifier);
     final service = _ref.read(syncServiceProvider);
+    // Another run is on its way. Turned away *before* touching the status: a
+    // skipped run reports idle, which used to replace the first run's
+    // "Синхронизация…" with "Ещё не синхронизировалось" while it was still going.
+    if (service.isRunning) return SyncOutcome.skipped;
     // The engine holds no storage of its own, so its place in the server's
     // clock is handed to it and taken back.
     service.watermark = _ref.read(syncWatermarkProvider);
 
     status.reportRunning();
-    final outcome = await service.sync();
+    // A run the user asked for, or one the returning network triggered, does
+    // not wait out the engine's backoff.
+    final outcome = await service.sync(force: !automatic || force);
+    // The user just did what the timer is for: count the fifteen minutes from
+    // now. Only while the timer exists, so a stopped controller stays stopped.
+    if (!automatic && _heartbeat != null) _startHeartbeat();
 
     switch (outcome) {
       case SyncOutcome.done:
@@ -139,18 +181,26 @@ class SyncController {
               .set(service.watermark);
         }
         _pausedAfterError = false;
+        _stopWaitingForNetwork();
         await status.reportSuccess(DateTime.now());
       case SyncOutcome.offline:
         _pausedAfterError = true;
+        _waitForNetwork();
         status.reportFailure(offline: true, detail: service.lastError);
       case SyncOutcome.failed:
         _pausedAfterError = true;
+        _stopWaitingForNetwork();
         status.reportFailure(offline: false, detail: service.lastError);
       case SyncOutcome.skipped:
         // Never attempted — a run already going, or a recent failure still
         // being waited out. Saying "failed" would be a lie, and saying
         // "synced" a worse one.
-        status.reportIdle();
+        if (automatic) {
+          status.reportIdle();
+        } else {
+          // The user pressed the button and nothing could start: say why.
+          status.reportFailure(offline: false, detail: service.lastError);
+        }
     }
     return outcome;
   }

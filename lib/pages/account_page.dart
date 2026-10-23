@@ -22,6 +22,7 @@ import 'package:todo_app/sync/sync_status.dart';
 import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/utils/task_palette.dart';
 import 'package:todo_app/widgets/list_card.dart';
+import 'package:todo_app/widgets/app_toast.dart';
 import 'package:todo_app/widgets/page_header.dart';
 import 'package:todo_app/widgets/user_avatar.dart';
 
@@ -245,11 +246,27 @@ class _AccountPageState extends ConsumerState<AccountPage> {
   }
 
   /// The same question, reached from the card that appears when the account has
-  /// changed under a switch that was already on.
-  Future<void> _decideAgain() async {
-    final choice = await askAboutExistingData(context, ref);
-    if (choice == null) return;
-    await applyFirstSyncChoice(ref, choice);
+  /// changed under a switch that was already on. True when it was answered —
+  /// answering is what lets syncing start, so the card shows it working.
+  ///
+  /// A failure is shown rather than swallowed: this button used to do nothing
+  /// at all when the question could not be asked.
+  Future<bool> _decideAgain() async {
+    final overlay = Overlay.of(context, rootOverlay: true);
+    try {
+      final choice = await askAboutExistingData(context, ref);
+      if (choice == null) return false;
+      await applyFirstSyncChoice(ref, choice);
+      return true;
+    } catch (error) {
+      showAppToast(
+        overlay,
+        message: 'Не удалось начать синхронизацию',
+        detail: error.toString(),
+        isError: true,
+      );
+      return false;
+    }
   }
 
   @override
@@ -509,14 +526,37 @@ class _Profile extends StatelessWidget {
 
 /// Where syncing stands, and the button for the next step: turn it on, answer
 /// the question, or sync now.
-class _SyncCard extends ConsumerWidget {
+class _SyncCard extends ConsumerStatefulWidget {
   const _SyncCard({required this.onEnable, required this.onDecide});
 
   final VoidCallback onEnable;
-  final VoidCallback onDecide;
+  final Future<bool> Function() onDecide;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_SyncCard> createState() => _SyncCardState();
+}
+
+class _SyncCardState extends ConsumerState<_SyncCard> {
+  /// A press shows the spinner for at least this long. A run with nothing to
+  /// send ends in a fraction of a second, and a button that flickers once looks
+  /// like a button that did nothing.
+  static const _minSpinner = Duration(seconds: 2);
+
+  bool _pressed = false;
+
+  /// Keeps the spinner up until [work] is done *and* [_minSpinner] has passed.
+  Future<void> _hold(Future<Object?> work) async {
+    setState(() => _pressed = true);
+    await Future.wait([work, Future<void>.delayed(_minSpinner)]);
+    if (mounted) setState(() => _pressed = false);
+  }
+
+  Future<void> _decide() async {
+    if (await widget.onDecide()) await _hold(Future.value());
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final palette = AppPalette.of(theme);
     final user = ref.watch(currentUserProvider);
@@ -563,20 +603,20 @@ class _SyncCard extends ConsumerWidget {
       ),
     };
 
-    final running = status.phase == SyncPhase.running;
+    final running = _pressed || status.phase == SyncPhase.running;
     final String label;
     final VoidCallback? action;
     if (!enabled) {
       label = 'Включить синхронизацию';
-      action = onEnable;
+      action = widget.onEnable;
     } else if (needsDecision) {
-      label = 'Ответить';
-      action = onDecide;
+      label = 'Синхронизировать';
+      action = running ? null : _decide;
     } else {
       label = 'Синхронизировать сейчас';
       action = running
           ? null
-          : () => ref.read(syncControllerProvider).syncNow();
+          : () => _hold(ref.read(syncControllerProvider).syncNow());
     }
 
     return Container(

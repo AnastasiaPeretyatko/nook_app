@@ -189,7 +189,7 @@ enum SyncCardTone {
     case SyncPhase.offline:
       return (
         title: 'Нет связи с сервером',
-        subtitle: 'Повторим позже. $last',
+        subtitle: 'Как только появится связь, запустим синхронизацию\n$last',
         tone: SyncCardTone.neutral,
       );
     case SyncPhase.idle:

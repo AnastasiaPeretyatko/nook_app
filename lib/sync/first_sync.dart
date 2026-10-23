@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:todo_app/auth/providers.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/settings/sync_settings.dart';
+import 'package:todo_app/settings/about_settings.dart';
 import 'package:todo_app/sync/providers.dart';
 import 'package:todo_app/utils/note_images.dart';
 
@@ -107,6 +108,7 @@ Future<void> wipeAccountData(WidgetRef ref) async {
   await ref.read(diaryDaoProvider).wipeAllEntries();
   await ref.read(cycleDaoProvider).wipeAll();
   await deleteAllNoteImages();
+  await ref.read(aboutSettingsProvider.notifier).clear();
 }
 
 /// The same, plus forgetting everything stored *about* the sync.

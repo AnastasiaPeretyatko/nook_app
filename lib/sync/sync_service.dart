@@ -103,6 +103,14 @@ class SyncService {
   static const _firstBackoff = Duration(seconds: 5);
   static const _maxBackoff = Duration(minutes: 5);
 
+  /// A request to a server that accepts the connection and never answers has no
+  /// timeout of its own, and one such run would keep [_running] set until the
+  /// app restarts — every later run, the button's too, would be turned away.
+  static const _runLimit = Duration(minutes: 2);
+
+  /// Whether a run is in flight right now.
+  bool get isRunning => _running;
+
   /// The furthest point in the server's own clock this device has seen.
   ///
   /// Held in memory and handed in by the caller, so the service itself owns no
@@ -117,28 +125,42 @@ class SyncService {
   String? lastError;
 
   /// Runs one push-and-pull. Never throws.
-  Future<SyncOutcome> sync() async {
+  ///
+  /// [force] skips the wait after a failure: the user pressed the button, or the
+  /// network just came back, and either is a better reason to try than a timer.
+  Future<SyncOutcome> sync({bool force = false}) async {
     final client = _client;
-    if (client == null) return SyncOutcome.skipped;
-    if (client.auth.currentUser == null) return SyncOutcome.skipped;
+    if (client == null) {
+      lastError = 'Нет подключения к серверу (Supabase не запустился)';
+      return SyncOutcome.skipped;
+    }
+    if (client.auth.currentUser == null) {
+      lastError = 'Нет активной сессии — войдите в аккаунт заново';
+      return SyncOutcome.skipped;
+    }
     if (_running) return SyncOutcome.skipped;
 
     // A run that failed a moment ago will fail again; hammering a server that
     // is down is how an app gets rate-limited.
     final retryAfter = _retryAfter;
-    if (retryAfter != null && DateTime.now().isBefore(retryAfter)) {
+    if (!force && retryAfter != null && DateTime.now().isBefore(retryAfter)) {
       return SyncOutcome.skipped;
     }
 
     _running = true;
     try {
-      // Groups first, ahead of the push: a task waiting to go up into a group
-      // this account has since left would be refused, and a refusal fails the
-      // whole run — every run after it too. Learning about the departure first
-      // takes that task off the device instead.
-      await _syncGroups(client);
-      await _push(client);
-      await _pull(client);
+      // shortcut: the limit cuts the wait, not the requests — a run that
+      // outlives it keeps going in the background beside the next one. Fine for
+      // upserts; move the limit into the HTTP client if that ever hurts.
+      await Future<void>(() async {
+        // Groups first, ahead of the push: a task waiting to go up into a group
+        // this account has since left would be refused, and a refusal fails the
+        // whole run — every run after it too. Learning about the departure
+        // first takes that task off the device instead.
+        await _syncGroups(client);
+        await _push(client);
+        await _pull(client);
+      }).timeout(_runLimit);
       _backoff = Duration.zero;
       _retryAfter = null;
       lastError = null;
@@ -167,10 +189,20 @@ class SyncService {
   }
 
   /// Whether the failure is "no connection" rather than "something is wrong".
-  static bool _isOffline(Object error) =>
+  ///
+  /// A connection dropped halfway ("Connection reset by peer") reaches here as
+  /// `package:http`'s `ClientException`, not as a `SocketException`, and it is
+  /// the commonest way a flaky network shows up.
+  // shortcut: matched by class name because `http` is not a direct dependency
+  // and supabase_flutter does not re-export it; import it and use `is` once it is.
+  @visibleForTesting
+  static bool isOfflineError(Object error) =>
       error is SocketException ||
       error is TimeoutException ||
-      error is AuthRetryableFetchException;
+      error is AuthRetryableFetchException ||
+      error.runtimeType.toString() == 'ClientException';
+
+  static bool _isOffline(Object error) => isOfflineError(error);
 
   // ---------------------------------------------------------------------------
   // Groups

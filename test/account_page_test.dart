@@ -144,7 +144,7 @@ void main() {
         find.text('На устройстве данные другого аккаунта'),
         findsOneWidget,
       );
-      expect(find.text('Ответить'), findsOneWidget);
+      expect(find.text('Синхронизировать'), findsOneWidget);
       expect(find.text('Синхронизировать сейчас'), findsNothing);
     });
   });
@@ -267,7 +267,18 @@ void cardTests() {
     });
 
     test('offline is not a fault', () {
-      final card = info(status: const SyncStatus(phase: SyncPhase.offline));
+      final card = info(
+        status: SyncStatus(
+          phase: SyncPhase.offline,
+          lastSuccessAt: DateTime(2026, 10, 19, 14, 10),
+        ),
+      );
+      expect(card.title, 'Нет связи с сервером');
+      expect(
+        card.subtitle,
+        'Как только появится связь, запустим синхронизацию\n'
+        'Последний раз сегодня в 14:10',
+      );
       expect(card.tone, SyncCardTone.neutral);
     });
 

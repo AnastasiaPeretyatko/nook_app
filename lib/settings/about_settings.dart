@@ -147,6 +147,24 @@ class AboutSettingsNotifier extends Notifier<AboutSettings> {
     ]);
   }
 
+  /// Forgets the person: gender and the cycle's dates and lengths. For wiping a
+  /// device that changes hands — these are health data in prefs, not in the
+  /// database, so wiping the tables alone leaves them for the next account.
+  Future<void> clear() async {
+    final prefs = ref.read(sharedPreferencesProvider);
+    for (final key in [
+      _gender,
+      _track,
+      _start,
+      _length,
+      _period,
+      _exceptions,
+    ]) {
+      await prefs.remove(key);
+    }
+    ref.invalidateSelf();
+  }
+
   static String _text(DateTime d) => d.toIso8601String().substring(0, 10);
 
   Future<void> setCycleLength(int days) async {

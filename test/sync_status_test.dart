@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:todo_app/sync/sync_service.dart';
 import 'package:todo_app/sync/sync_status.dart';
 
 /// The one line the settings screen says about syncing.
@@ -9,6 +10,7 @@ import 'package:todo_app/sync/sync_status.dart';
 /// "1 минут назад" makes the whole thing look broken even when it is working.
 void main() {
   setUpAll(() => initializeDateFormatting('ru_RU', null));
+  offlineErrorTests();
 
   final now = DateTime.utc(2026, 8, 26, 12, 0);
   String label(SyncStatus status) => syncStatusLabel(status, now: now);
@@ -115,6 +117,25 @@ void main() {
         at(Duration.zero),
         isNot(at(Duration.zero).copyWith(phase: SyncPhase.running)),
       );
+    });
+  });
+}
+
+// Declared under the name the `http` package gives its own: the engine tells it
+// apart by name.
+class ClientException implements Exception {
+  @override
+  String toString() => 'ClientException: Connection reset by peer';
+}
+
+void offlineErrorTests() {
+  group('which failures count as "no connection"', () {
+    test('a connection reset halfway is one', () {
+      expect(SyncService.isOfflineError(ClientException()), isTrue);
+    });
+
+    test('a refusal by the server is not', () {
+      expect(SyncService.isOfflineError(StateError('duplicate key')), isFalse);
     });
   });
 }

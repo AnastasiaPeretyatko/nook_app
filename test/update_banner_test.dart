@@ -9,59 +9,102 @@ class _Fixed extends UpdateNotifier {
   _Fixed(this._state);
 
   final UpdateState _state;
+  int installs = 0;
 
   @override
   UpdateState build() => _state;
+
+  @override
+  void install() {
+    installs++;
+    state = UpdateState(info: _state.info, percent: 40);
+  }
 }
 
-UpdateInfo _info(String changelog) => UpdateInfo(
+const _info = UpdateInfo(
   versionCode: 6,
-  versionName: '2.0.3',
+  versionName: '1.1.1',
   url: 'https://example.com/app.apk',
-  changelog: changelog,
+  changelog: 'Исправили ошибки\nСинхронизация стала надёжнее',
 );
 
-Future<void> _pump(WidgetTester tester, String changelog) => tester.pumpWidget(
-  ProviderScope(
-    overrides: [
-      updateProvider.overrideWith(
-        () => _Fixed(UpdateState(info: _info(changelog))),
+late _Fixed _notifier;
+
+Future<void> _pump(WidgetTester tester, UpdateState state) {
+  _notifier = _Fixed(state);
+  return tester.pumpWidget(
+    ProviderScope(
+      overrides: [updateProvider.overrideWith(() => _notifier)],
+      child: const MaterialApp(
+        home: Scaffold(bottomNavigationBar: UpdateBanner()),
       ),
-    ],
-    child: const MaterialApp(
-      home: Scaffold(bottomNavigationBar: UpdateBanner()),
     ),
-  ),
-);
+  );
+}
 
-/// The release notes in the update strip: three lines, and the rest on demand.
+/// The update strip is a thin line with an arrow; the notes and the button live
+/// on the page it opens.
 void main() {
-  final long = [for (var i = 1; i <= 12; i++) 'Пункт $i обновления'].join('\n');
+  testWidgets('no update, no strip', (tester) async {
+    await _pump(tester, const UpdateState());
 
-  testWidgets('a short note shows whole, with nothing to expand', (
-    tester,
-  ) async {
-    await _pump(tester, 'Исправили ошибки');
-
-    expect(find.text('Доступно обновление 2.0.3'), findsOneWidget);
-    expect(find.text('Исправили ошибки'), findsOneWidget);
-    expect(find.text('Подробнее'), findsNothing);
+    expect(find.text('Доступно обновление'), findsNothing);
   });
 
-  testWidgets('a long note is cut, "Подробнее" opens all of it, "Свернуть" '
-      'closes it', (tester) async {
-    await _pump(tester, long);
+  testWidgets('the strip only says there is an update', (tester) async {
+    await _pump(tester, const UpdateState(info: _info));
 
-    expect(find.text('Подробнее'), findsOneWidget);
-    expect(tester.widget<Text>(find.text(long)).maxLines, 3);
+    expect(find.text('Доступно обновление'), findsOneWidget);
+    expect(
+      find.text('Исправили ошибки\nСинхронизация стала надёжнее'),
+      findsNothing,
+    );
+    expect(find.text('Обновить'), findsNothing);
+  });
 
-    await tester.tap(find.text('Подробнее'));
+  testWidgets('a tap opens the page with the version and the notes', (
+    tester,
+  ) async {
+    await _pump(tester, const UpdateState(info: _info));
+
+    await tester.tap(find.text('Доступно обновление'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Доступное обновление v1.1.1'), findsOneWidget);
+    expect(find.text('Что нового:'), findsOneWidget);
+    expect(
+      find.text('Исправили ошибки\nСинхронизация стала надёжнее'),
+      findsOneWidget,
+    );
+    expect(find.text('Обновить'), findsOneWidget);
+  });
+
+  testWidgets('the button gives way to the progress once pressed', (
+    tester,
+  ) async {
+    await _pump(tester, const UpdateState(info: _info));
+    await tester.tap(find.text('Доступно обновление'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Обновить'));
     await tester.pump();
-    expect(tester.widget<Text>(find.text(long)).maxLines, isNull);
-    expect(find.text('Свернуть'), findsOneWidget);
 
-    await tester.tap(find.text('Свернуть'));
-    await tester.pump();
-    expect(tester.widget<Text>(find.text(long)).maxLines, 3);
+    expect(_notifier.installs, 1);
+    expect(find.text('Обновить'), findsNothing);
+    expect(find.text('Загрузка 40%'), findsOneWidget);
+  });
+
+  testWidgets('a failure shows its reason and offers another try', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      const UpdateState(info: _info, error: 'Не удалось скачать'),
+    );
+    await tester.tap(find.text('Не удалось обновить'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Не удалось скачать'), findsOneWidget);
+    expect(find.text('Повторить'), findsOneWidget);
   });
 }

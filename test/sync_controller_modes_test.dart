@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,11 +27,18 @@ class _CountingService extends SyncService {
       );
 
   int runs = 0;
+  int forcedRuns = 0;
+  bool busy = false;
+
+  @override
+  bool get isRunning => busy;
+
   SyncOutcome outcome = SyncOutcome.done;
 
   @override
-  Future<SyncOutcome> sync() async {
+  Future<SyncOutcome> sync({bool force = false}) async {
     runs++;
+    if (force) forcedRuns++;
     return outcome;
   }
 }
@@ -49,6 +58,7 @@ void main() {
   late AppDatabase db;
   late _CountingService service;
   var onWifi = true;
+  late StreamController<bool> network;
 
   Future<ProviderContainer> container(Map<String, Object> stored) async {
     SharedPreferences.setMockInitialValues({
@@ -64,6 +74,7 @@ void main() {
         currentUserProvider.overrideWithValue(someone),
         syncServiceProvider.overrideWithValue(service),
         onWifiProvider.overrideWithValue(() async => onWifi),
+        networkAvailableChangesProvider.overrideWithValue(network.stream),
       ],
     );
     addTearDown(c.dispose);
@@ -75,6 +86,8 @@ void main() {
     addTearDown(db.close);
     service = _CountingService(db);
     onWifi = true;
+    network = StreamController<bool>.broadcast();
+    addTearDown(network.close);
   });
 
   test('automatic runs are on by default', () async {
@@ -121,6 +134,78 @@ void main() {
         expect(service.runs, 2);
       },
     );
+  });
+
+  group('when the connection comes back', () {
+    test('an offline run is retried by itself, skipping the backoff', () async {
+      final c = await container({});
+      final controller = c.read(syncControllerProvider);
+      service.outcome = SyncOutcome.offline;
+      await controller.syncIfAuto();
+      expect(service.runs, 1);
+
+      service.outcome = SyncOutcome.done;
+      network.add(false); // still nothing: no run
+      await pumpEventQueue();
+      expect(service.runs, 1);
+
+      network.add(true);
+      await pumpEventQueue();
+      expect(service.runs, 2);
+      expect(service.forcedRuns, 1);
+      expect(c.read(syncStatusProvider).phase, SyncPhase.idle);
+    });
+
+    test(
+      'a refusal by the server is not retried on a new connection',
+      () async {
+        final c = await container({});
+        service.outcome = SyncOutcome.failed;
+        await c.read(syncControllerProvider).syncIfAuto();
+
+        network.add(true);
+        await pumpEventQueue();
+
+        expect(service.runs, 1);
+      },
+    );
+  });
+
+  test('the button skips the wait after a failure', () async {
+    final c = await container({});
+
+    await c.read(syncControllerProvider).syncNow();
+
+    expect(service.forcedRuns, 1);
+  });
+
+  group('a run that is already going', () {
+    test('is not overwritten by a turned-away one', () async {
+      final c = await container({});
+      final controller = c.read(syncControllerProvider);
+      c.read(syncStatusProvider.notifier).reportRunning();
+      service.busy = true;
+
+      expect(await controller.syncNow(), SyncOutcome.skipped);
+      expect(await controller.syncIfAuto(), SyncOutcome.skipped);
+
+      // Back to "idle" here would be the card saying nothing is happening.
+      expect(c.read(syncStatusProvider).phase, SyncPhase.running);
+      expect(service.runs, 0);
+    });
+  });
+
+  test('a press that could not start says why', () async {
+    final c = await container({});
+    service
+      ..outcome = SyncOutcome.skipped
+      ..lastError = 'Нет активной сессии';
+
+    await c.read(syncControllerProvider).syncNow();
+
+    final status = c.read(syncStatusProvider);
+    expect(status.phase, SyncPhase.failed);
+    expect(status.lastError, 'Нет активной сессии');
   });
 
   group('with "Автоматически" off', () {

@@ -19,8 +19,8 @@ const db = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
 )
 
-// The notification channel the app creates for these (not built yet: until it
-// is, Android files them under its default one, which still shows them).
+// The notification channel the app creates at start (`groupChannelId` in
+// `app_notifications.dart`): change both.
 const CHANNEL_ID = 'group_activity'
 
 async function accessToken(): Promise<string> {

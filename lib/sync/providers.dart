@@ -44,6 +44,16 @@ final onWifiProvider = Provider<Future<bool> Function()>((ref) {
   };
 });
 
+/// Fires when the phone's connection changes; true = some network is there.
+///
+/// A provider so a test can swap it: listening to the real stream without the
+/// platform plugin reports an error and fails the test.
+final networkAvailableChangesProvider = Provider<Stream<bool>>((ref) {
+  return Connectivity().onConnectivityChanged.map(
+    (kinds) => kinds.any((k) => k != ConnectivityResult.none),
+  );
+});
+
 /// Switches the diary's part of syncing, and makes sure nothing is lost on the
 /// way back on.
 ///
