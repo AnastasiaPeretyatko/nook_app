@@ -5,9 +5,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:todo_app/auth/auth_user.dart';
 import 'package:todo_app/auth/providers.dart';
-import 'package:todo_app/auth/supabase_init.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/groups/groups_repository.dart';
@@ -33,28 +32,18 @@ void main() {
 
   /// Stands in for a signed-in account. Only `id` is read by anything here;
   /// the rest is what `User` insists on having.
-  final someone = User(
-    id: 'a-user-id',
-    appMetadata: const {},
-    userMetadata: const {},
-    aud: 'authenticated',
-    createdAt: DateTime.utc(2026).toIso8601String(),
-    email: 'me@example.com',
-  );
+  final someone = AuthUser(id: 'a-user-id', email: 'me@example.com');
 
   Future<ProviderContainer> container({
     Map<String, Object> stored = const {},
-    bool ready = true,
-    User? user,
+    AuthUser? user,
   }) async {
     SharedPreferences.setMockInitialValues(stored);
     prefs = await SharedPreferences.getInstance();
     return ProviderContainer(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(prefs),
-        supabaseReadyProvider.overrideWithValue(ready),
-        // `ready` here is a claim, not a started Supabase: the settings screen's
-        // groups block would otherwise ask the real client.
+        // The settings screen's groups block would otherwise build a real one.
         groupsRepositoryProvider.overrideWithValue(null),
         currentUserProvider.overrideWithValue(user),
         // The real one reaches for a plugin that a widget test does not have.
@@ -137,15 +126,6 @@ void main() {
 
       // The sign-in form, not a sync card.
       expect(find.text('Вход'), findsOneWidget);
-      expect(enableButton(), findsNothing);
-    });
-
-    testWidgets('says so when the server never came up', (tester) async {
-      final c = await container(ready: false, user: someone);
-      addTearDown(c.dispose);
-      await pump(tester, c);
-
-      expect(find.text('Сервер недоступен'), findsOneWidget);
       expect(enableButton(), findsNothing);
     });
 

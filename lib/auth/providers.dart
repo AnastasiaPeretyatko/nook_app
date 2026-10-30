@@ -1,26 +1,72 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:todo_app/api/api_client.dart';
+import 'package:todo_app/api/device_id.dart';
+import 'package:todo_app/api/token_store.dart';
 import 'package:todo_app/auth/auth_repository.dart';
+import 'package:todo_app/auth/auth_user.dart';
+import 'package:todo_app/settings/api_config.dart';
+import 'package:todo_app/settings/theme_provider.dart';
+
+/// Where the session's tokens live. A provider so a test can swap in
+/// `MemoryTokenStore` — the real one asks the platform's keystore.
+final tokenStoreProvider = Provider<TokenStore>((ref) => SecureTokenStore());
+
+/// This phone's name for the server, or null where there are no prefs to keep
+/// it in (a widget test that overrides nothing).
+final deviceIdProvider = Provider<String?>((ref) {
+  try {
+    return deviceIdIn(ref.watch(sharedPreferencesProvider));
+  } on UnimplementedError {
+    return null;
+  }
+});
+
+/// The one client every request to our server goes through.
+final apiClientProvider = Provider<ApiClient>((ref) {
+  final client = ApiClient(
+    baseUrl: apiBaseUrl,
+    tokens: ref.watch(tokenStoreProvider),
+    deviceId: () => ref.read(deviceIdProvider),
+  );
+  ref.onDispose(client.close);
+  return client;
+});
+
+/// The repository, or null when there are no prefs to cache the account in.
+///
+/// The app always provides them; the null is for a widget test that overrides
+/// nothing and still has to render — as before, such a test simply sees nobody
+/// signed in. (`sharedPreferencesProvider` throws when it is not overridden,
+/// so that is the one error caught here.)
+final authRepositoryProvider = Provider<AuthRepository?>((ref) {
+  final SharedPreferences prefs;
+  try {
+    prefs = ref.watch(sharedPreferencesProvider);
+  } on UnimplementedError {
+    return null;
+  }
+  return AuthRepository(
+    ref.watch(apiClientProvider),
+    ref.watch(tokenStoreProvider),
+    prefs,
+  );
+});
 
 /// Who is signed in, live.
 ///
-/// `Stream.value(null)` when there is no repository — Supabase did not come up,
-/// or this is a widget test — so every reader gets an answer rather than an
-/// error. Plain `StreamProvider`, the same shape the database providers use; a
-/// `Notifier` would imply the app owns the session, and it does not.
-final authUserProvider = StreamProvider<User?>((ref) {
-  final repo = ref.watch(authRepositoryProvider);
-  if (repo == null) return Stream.value(null);
-  return repo.userChanges();
-});
+/// Plain `StreamProvider`, the same shape the database providers use; a
+/// `Notifier` would imply the screens own the session, and the repository does.
+final authUserProvider = StreamProvider<AuthUser?>(
+  (ref) =>
+      ref.watch(authRepositoryProvider)?.userChanges() ?? Stream.value(null),
+);
 
 /// The signed-in user, or null. What the screens read.
 ///
-/// Falls back to the session restored at start-up while the stream has yet to
-/// emit: `onAuthStateChange` does deliver the restored session, but not in the
-/// first frame, and without the fallback the settings row would flash
-/// "не вошли" on every launch.
-final currentUserProvider = Provider<User?>(
+/// Falls back to the account cached at start-up while the stream has yet to
+/// emit, so the settings row does not flash "не вошли" on every launch.
+final currentUserProvider = Provider<AuthUser?>(
   (ref) =>
       ref.watch(authUserProvider).valueOrNull ??
       ref.watch(authRepositoryProvider)?.currentUser,

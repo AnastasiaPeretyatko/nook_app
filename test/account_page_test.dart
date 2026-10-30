@@ -5,9 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:todo_app/auth/auth_user.dart';
 import 'package:todo_app/auth/providers.dart';
-import 'package:todo_app/auth/supabase_init.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/pages/account_page.dart';
@@ -19,13 +18,10 @@ import 'package:todo_app/sync/sync_status.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  final someone = User(
+  final someone = AuthUser(
     id: 'a-user-id',
-    appMetadata: const {},
-    userMetadata: const {'full_name': 'Анастасия'},
-    aud: 'authenticated',
-    createdAt: DateTime.utc(2026).toIso8601String(),
     email: 'nastya@example.com',
+    displayName: 'Анастасия',
   );
 
   late AppDatabase db;
@@ -34,7 +30,7 @@ void main() {
   Future<void> open(
     WidgetTester tester, {
     Map<String, Object> stored = const {},
-    User? user,
+    AuthUser? user,
   }) async {
     SharedPreferences.setMockInitialValues({
       'sync_enabled': true,
@@ -46,7 +42,6 @@ void main() {
       ProviderScope(
         overrides: [
           sharedPreferencesProvider.overrideWithValue(prefs),
-          supabaseReadyProvider.overrideWithValue(true),
           currentUserProvider.overrideWithValue(user ?? someone),
           databaseProvider.overrideWithValue(db),
         ],
@@ -104,14 +99,7 @@ void main() {
   ) async {
     await open(
       tester,
-      user: User(
-        id: 'a-user-id',
-        appMetadata: const {},
-        userMetadata: const {},
-        aud: 'authenticated',
-        createdAt: DateTime.utc(2026).toIso8601String(),
-        email: 'nastya@example.com',
-      ),
+      user: AuthUser(id: 'a-user-id', email: 'nastya@example.com'),
     );
 
     // One line, not the same address twice.
