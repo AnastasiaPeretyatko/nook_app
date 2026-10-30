@@ -248,8 +248,8 @@ class AppDatabase extends _$AppDatabase {
         // account to sync claimed all eight; every account after it opened its
         // push with an upsert of ids that were taken and was refused — and
         // since moods go up before everything else, such an account synced
-        // nothing at all, ever. `supabase/004_shared_moods.sql` makes those
-        // rows shared and unowned; this clears the marks that would still send
+        // nothing at all, ever. the server keeps those rows shared and
+        // unowned (BACKEND_PLAN.md §4.2); this clears the marks that would still send
         // them.
         //
         // Not conditional on the rows being dirty: a device that installed at
@@ -539,7 +539,7 @@ class AppDatabase extends _$AppDatabase {
             // A seeded mood is never sent: the server keeps one shared row for
             // each, owned by nobody, and these eight uuids are identical on
             // every install — see [DiaryDao.pendingMoods] and
-            // `supabase/004_shared_moods.sql`. Leaving the default `true` here
+            // BACKEND_PLAN.md §4.2. Leaving the default `true` here
             // would mark a constant of the app as news.
             dirty: const Value(false),
           ),

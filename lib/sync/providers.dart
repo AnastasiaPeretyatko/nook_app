@@ -1,26 +1,40 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:todo_app/api/http_sync_api.dart';
+import 'package:todo_app/api/sync_api.dart';
 import 'package:todo_app/auth/providers.dart';
-import 'package:todo_app/auth/supabase_init.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/settings/sync_settings.dart';
 import 'package:todo_app/settings/theme_provider.dart';
+import 'package:todo_app/sync/realtime_listener.dart';
 import 'package:todo_app/sync/sync_service.dart';
 import 'package:todo_app/sync/sync_status.dart';
 
+/// Everything that goes over the wire to our server, behind one interface so a
+/// test can put a `FakeSyncApi` in its place.
+final syncApiProvider = Provider<SyncApi>(
+  (ref) => HttpSyncApi(ref.watch(apiClientProvider)),
+);
+
+/// How the doorbell's connection is opened — a provider so a test can hand it a
+/// fake instead of a network.
+final realtimeConnectorProvider = Provider<WsConnector>(
+  (ref) => connectWebSocket,
+);
+
 /// The engine itself.
 ///
-/// Rebuilt when the client appears or goes away, which is also what resets the
-/// watermark's owner — see [syncControllerProvider], which puts the stored one
-/// back on it.
+/// Rebuilt when the api changes, which is also what resets the watermark's
+/// owner — see [syncControllerProvider], which puts the stored one back on it.
 final syncServiceProvider = Provider<SyncService>((ref) {
   return SyncService(
     dao: ref.watch(diaryDaoProvider),
     tasksDao: ref.watch(tasksDaoProvider),
     cycleDao: ref.watch(cycleDaoProvider),
-    client: ref.watch(supabaseClientProvider),
-    // Read when a run starts, not here: the switch can move without the engine
-    // being rebuilt.
+    api: ref.watch(syncApiProvider),
+    // Read when a run starts, not here: the account can change without the
+    // engine being rebuilt.
+    userId: () => ref.read(currentUserProvider)?.id,
     syncDiary: () => ref.read(syncDiaryProvider),
     syncCycle: () => ref.read(syncCycleProvider),
   );
@@ -82,15 +96,14 @@ final syncCycleSetterProvider = Provider<Future<void> Function(bool)>((ref) {
 
 /// Whether syncing should actually be happening right now.
 ///
-/// Four things have to be true at once, and they are kept apart on purpose:
-/// the user asked for it, an account exists, Supabase came up, and the notes
-/// already on this device have been settled with **this** account. Only the
+/// Three things have to be true at once, and they are kept apart on purpose:
+/// the user asked for it, an account exists, and the data already on this
+/// device has been settled with **this** account. Only the
 /// first is a setting — the rest are facts about the world, and folding them
 /// into the stored value would rewrite the user's choice behind their back
 /// every time they signed out.
 final syncActiveProvider = Provider<bool>((ref) {
   return ref.watch(syncEnabledProvider) &&
-      ref.watch(supabaseReadyProvider) &&
       ref.watch(currentUserProvider) != null &&
       !ref.watch(syncNeedsDecisionProvider);
 });

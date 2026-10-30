@@ -9,8 +9,8 @@ import 'package:todo_app/sync/payload.dart';
 /// Groups on the device: the v16 migration, the mirror the sync writes, and
 /// what group tasks change about uploading, adopting and wiping.
 ///
-/// The server half — who may see and write what — is `supabase/005_groups.sql`
-/// and was checked against Postgres itself; nothing here can stand in for it.
+/// The server half — who may see and write what — is the server's (BACKEND_PLAN.md §4.3, its own tests);
+/// nothing here can stand in for it.
 void main() {
   driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
 
