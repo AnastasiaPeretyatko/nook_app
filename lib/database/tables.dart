@@ -54,7 +54,7 @@ class Tasks extends Table {
 
   /// The [TaskGroups.uid] this task is shared in; null for a personal task.
   /// Fixed at creation — the server ignores a change, see
-  /// `supabase/005_groups.sql`.
+  /// BACKEND_PLAN.md §4.3.
   TextColumn get groupUid => text().nullable()();
 
   /// Which member the group task is handed to; null means "for everyone",
@@ -68,7 +68,7 @@ class Tasks extends Table {
 
 /// A group this account is in. Mirrored whole from the server on every sync —
 /// never edited here, so it carries no sync marks. Changes go through the
-/// server functions of `supabase/005_groups.sql`.
+/// server's `/groups/*` routes (BACKEND_PLAN.md §4.3).
 ///
 /// `task_groups`, not `groups`: GROUPS is an SQLite keyword.
 class TaskGroups extends Table {
@@ -409,7 +409,7 @@ class SyncTombstones extends Table {
 /// order of those lists is a stored format and may only ever be appended to.
 ///
 /// Health data: it goes up only while "Синхронизировать цикл" is on, and the
-/// server shows it to its owner alone. See `supabase/008_cycle_sync.sql`.
+/// server shows it to its owner alone. See BACKEND_PLAN.md §4.2.
 @TableIndex(name: 'cycle_days_date', unique: true, columns: {#date})
 class CycleDays extends Table {
   IntColumn get id => integer().autoIncrement()();

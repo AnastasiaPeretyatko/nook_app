@@ -3,9 +3,8 @@ import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:todo_app/auth/auth_user.dart';
 import 'package:todo_app/auth/providers.dart';
-import 'package:todo_app/auth/supabase_init.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/settings/sync_settings.dart';
@@ -21,24 +20,17 @@ void main() {
   late AppDatabase db;
   late DiaryDao dao;
 
-  User person(String id) => User(
-    id: id,
-    appMetadata: const {},
-    userMetadata: const {},
-    aud: 'authenticated',
-    createdAt: DateTime.utc(2026).toIso8601String(),
-  );
+  AuthUser person(String id) => AuthUser(id: id, email: '$id@example.com');
 
   Future<ProviderContainer> container({
     Map<String, Object> stored = const {},
-    User? user,
+    AuthUser? user,
   }) async {
     SharedPreferences.setMockInitialValues(stored);
     final prefs = await SharedPreferences.getInstance();
     return ProviderContainer(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(prefs),
-        supabaseReadyProvider.overrideWithValue(true),
         currentUserProvider.overrideWithValue(user),
         databaseProvider.overrideWithValue(db),
       ],

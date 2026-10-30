@@ -182,17 +182,15 @@ TaskGroupsCompanion groupFromRow(Map<String, dynamic> row) =>
       ownerUid: row['owner_id'] as String,
     );
 
-/// A membership, with the member's published name and picture beside it —
-/// [profile] is their `profiles` row, or null when they never published one.
-GroupMembersCompanion memberFromRow(
-  Map<String, dynamic> row, {
-  Map<String, dynamic>? profile,
-}) => GroupMembersCompanion.insert(
-  groupUid: row['group_id'] as String,
-  userUid: row['user_id'] as String,
-  displayName: Value(profile?['display_name'] as String?),
-  avatarUrl: Value(profile?['avatar_url'] as String?),
-);
+/// A membership, as the server lists it: the member's published name and
+/// picture ride in the same row, null when they never published one.
+GroupMembersCompanion memberFromRow(Map<String, dynamic> row) =>
+    GroupMembersCompanion.insert(
+      groupUid: row['group_id'] as String,
+      userUid: row['user_id'] as String,
+      displayName: Value(row['display_name'] as String?),
+      avatarUrl: Value(row['avatar_url'] as String?),
+    );
 
 /// Who made a day mark. Every account's marks of a group task come down, not
 /// only this one's.
@@ -223,11 +221,9 @@ TaskLogsCompanion logFromRow(Map<String, dynamic> row) => TaskLogsCompanion(
 
 /// A cycle day, as the server takes it.
 ///
-/// [userId] is sent, unlike the task marks' `user_id`: the day is the row's key
-/// together with the account, and the push resolves a conflict on that pair, so
-/// the pair has to be in the row. The server checks it against the session.
-Map<String, dynamic> cycleDayToRow(CycleDay day, {required String userId}) => {
-  'user_id': userId,
+/// No `user_id`: the server keys the day by the account in the token and
+/// ignores any other.
+Map<String, dynamic> cycleDayToRow(CycleDay day) => {
   'date': _calendarDay(day.date),
   'flow': day.flow,
   'mood': day.mood,

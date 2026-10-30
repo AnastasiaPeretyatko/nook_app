@@ -1,5 +1,10 @@
+import 'dart:io';
+
+import 'package:http/http.dart' as http;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:todo_app/api/api_exception.dart';
 import 'package:todo_app/sync/sync_service.dart';
 import 'package:todo_app/sync/sync_status.dart';
 
@@ -121,17 +126,34 @@ void main() {
   });
 }
 
-// Declared under the name the `http` package gives its own: the engine tells it
-// apart by name.
-class ClientException implements Exception {
-  @override
-  String toString() => 'ClientException: Connection reset by peer';
-}
-
 void offlineErrorTests() {
   group('which failures count as "no connection"', () {
     test('a connection reset halfway is one', () {
-      expect(SyncService.isOfflineError(ClientException()), isTrue);
+      expect(
+        SyncService.isOfflineError(http.ClientException('reset by peer')),
+        isTrue,
+      );
+    });
+
+    test('a broken TLS handshake is one', () {
+      expect(
+        SyncService.isOfflineError(const HandshakeException('tls')),
+        isTrue,
+      );
+    });
+
+    test('the own server being unreachable is one, its refusal is not', () {
+      expect(SyncService.isOfflineError(const ApiException.offline()), isTrue);
+      expect(
+        SyncService.isOfflineError(
+          const ApiException(ApiFailure.server, status: 409, code: 'x'),
+        ),
+        isFalse,
+      );
+      expect(
+        SyncService.isOfflineError(const ApiException.signInRequired()),
+        isFalse,
+      );
     });
 
     test('a refusal by the server is not', () {

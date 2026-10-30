@@ -898,6 +898,17 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
     }
   }
 
+  /// Takes back marks the server refused to keep (a group task handed to
+  /// someone else), so the phone does not show a tick that exists nowhere else.
+  Future<void> deleteLogs(Iterable<TaskLog> refused) async {
+    for (final log in refused) {
+      await (delete(taskLogs)..where(
+            (l) => l.taskId.equals(log.taskId) & l.date.equals(log.date),
+          ))
+          .go();
+    }
+  }
+
   /// Mirrors the server's answer to "which groups am I in, and with whom".
   ///
   /// Whole, not merged: the lists are small and the server is the only writer.
@@ -910,13 +921,37 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
     List<GroupMembersCompanion> members,
   ) {
     return transaction(() async {
-      await delete(groupMembers).go();
-      await delete(taskGroups).go();
-      for (final group in groups) {
-        await into(taskGroups).insert(group);
-      }
-      for (final member in members) {
-        await into(groupMembers).insert(member);
+      // Every pull brings the snapshot, nearly always the one already held.
+      // Rewriting it would make every screen watching the groups repaint for
+      // nothing, so the tables are touched only when something differs.
+      final sameGroups = _sameSet(
+        [for (final g in await getGroups()) (g.uid, g.name, g.ownerUid)],
+        [for (final g in groups) (g.uid.value, g.name.value, g.ownerUid.value)],
+      );
+      final sameMembers = _sameSet(
+        [
+          for (final m in await getGroupMembers())
+            (m.groupUid, m.userUid, m.displayName, m.avatarUrl),
+        ],
+        [
+          for (final m in members)
+            (
+              m.groupUid.value,
+              m.userUid.value,
+              m.displayName.value,
+              m.avatarUrl.value,
+            ),
+        ],
+      );
+      if (!sameGroups || !sameMembers) {
+        await delete(groupMembers).go();
+        await delete(taskGroups).go();
+        for (final group in groups) {
+          await into(taskGroups).insert(group);
+        }
+        for (final member in members) {
+          await into(groupMembers).insert(member);
+        }
       }
 
       final kept = [for (final group in groups) group.uid.value];
@@ -929,13 +964,16 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
     });
   }
 
+  static bool _sameSet<T>(List<T> a, List<T> b) =>
+      a.length == b.length && a.toSet().containsAll(b);
+
   /// The group of a task, or null when this device has no such group.
   Future<TaskGroup?> groupByUid(String uid) =>
       (select(taskGroups)..where((g) => g.uid.equals(uid))).getSingleOrNull();
 
   /// Whether [userUid] may edit [task]: any personal task, and a group task
   /// only as its author or the group's owner — what the server allows, see
-  /// `supabase/005_groups.sql`.
+  /// BACKEND_PLAN.md §4.3.
   Future<bool> canEditTask(Task task, String userUid) async {
     final groupUid = task.groupUid;
     return canEditTaskAs(

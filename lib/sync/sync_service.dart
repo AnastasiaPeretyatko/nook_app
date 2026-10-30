@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:io';
+import 'dart:convert';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:todo_app/auth/user_profile.dart';
+import 'package:todo_app/api/api_exception.dart';
+import 'package:todo_app/api/sync_api.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/sync/merge.dart';
 import 'package:todo_app/sync/payload.dart';
@@ -19,8 +19,8 @@ enum SyncOutcome {
   /// Everything went up and came down.
   done,
 
-  /// Not attempted — no account, no client, a run already going, or the last
-  /// failure is still being waited out.
+  /// Not attempted — no account, a run already going, or the last failure is
+  /// still being waited out.
   skipped,
 
   /// The network was not there. The ordinary case, and not a fault.
@@ -30,57 +30,58 @@ enum SyncOutcome {
   failed,
 }
 
-/// Sends what this device wrote and takes what the others did.
+/// Takes what the other devices did and sends what this one wrote.
 ///
 /// Shaped after `AppNotifications`, and for the same reason: everything here
 /// talks to something outside the app that is entitled to fail, and none of
-/// those failures may reach the diary. A refused request is a note that has not
-/// been sent **yet** — the local database is untouched, the mark stays on, and
-/// the next attempt carries it.
+/// those failures may reach the local database. A refused request is a row that
+/// has not been sent **yet** — the local data is untouched, the mark stays on,
+/// and the next attempt carries it.
 ///
 /// ## The order, and why it is not negotiable
 ///
-/// Push first, then pull. Sending before receiving means a disagreement is
-/// settled once, on the server, instead of twice.
+/// **Pull first, then push.** The server does not compare the time of an edit:
+/// it takes whatever arrives last. A device that pushed a stale edit before
+/// hearing about a newer one would overwrite the newer one for everybody. After
+/// a pull, [pullAction] has already thrown away the stale local copy (or kept it
+/// because it really is newer), so what is still marked "unsent" is safe to send.
 ///
-/// Inside the push: catalogues, then notes, then links, then deletions.
-/// Postgres — unlike the SQLite underneath this app, which never turns
-/// `PRAGMA foreign_keys` on — actually enforces its keys, so a link sent before
-/// the note it points at is rejected outright.
+/// ## What is in it so far
+///
+/// Tasks and their day marks, the diary (notes, moods, tags) and the cycle's
+/// days. The groups return with their own stage; until then what the user
+/// writes there stays marked as unsent, and nothing is lost.
 ///
 /// ## Connectivity
 ///
-/// There is none to ask about. `supabase_flutter` v2 dropped its dependency on
-/// `connectivity_plus`, and this app never added one — deliberately: a
-/// connectivity answer describes the *interface*, not the internet, and says
-/// "connected" on a café Wi-Fi that resolves nothing. The request is the
-/// question, and a thrown exception is the answer.
+/// There is none to ask about. A connectivity answer describes the *interface*,
+/// not the internet, and says "connected" on a café Wi-Fi that resolves nothing.
+/// The request is the question, and an [ApiException] is the answer.
 class SyncService {
-  // `this._client` is what the lint asks for and what Dart forbids: a named
-  // parameter may not begin with an underscore. The field stays private
-  // because nothing outside this class should reach the network directly, the
-  // way nothing outside a DAO reaches the database.
   SyncService({
     required this.dao,
     required this.tasksDao,
     required this.cycleDao,
-    required SupabaseClient? client,
+    required SyncApi api,
+    required String? Function() userId,
     bool Function()? syncDiary,
     bool Function()? syncCycle,
-  })
+  }) // The lint wants `this._api`, and Dart forbids a private named parameter.
     // ignore: prefer_initializing_formals
-    : _client = client,
+    : _api = api,
+       // ignore: prefer_initializing_formals
+       _userId = userId,
        _syncDiary = syncDiary ?? (() => true),
        _syncCycle = syncCycle ?? (() => false);
 
+  /// For the deletions waiting to be reported (one table holds them all).
   final DiaryDao dao;
   final TasksDao tasksDao;
   final CycleDao cycleDao;
+  final SyncApi _api;
 
-  /// Null when Supabase never came up — which is every widget test, and any
-  /// launch where the keys were wrong or the platform refused. [sync] then does
-  /// nothing at all, which is the correct amount.
-  final SupabaseClient? _client;
+  /// Who is signed in, asked each run; null means nobody.
+  final String? Function() _userId;
 
   /// Whether the notes take part in this run — asked each time, so the setting
   /// can change between runs. Off, the diary is neither sent nor read, and what
@@ -103,10 +104,26 @@ class SyncService {
   static const _firstBackoff = Duration(seconds: 5);
   static const _maxBackoff = Duration(minutes: 5);
 
-  /// A request to a server that accepts the connection and never answers has no
-  /// timeout of its own, and one such run would keep [_running] set until the
-  /// app restarts — every later run, the button's too, would be turned away.
-  static const _runLimit = Duration(minutes: 2);
+  /// Enough for a server waking from sleep (a minute) plus the work itself. A
+  /// request has its own timeout in [ApiClient]; this is the cap on the whole
+  /// run, so that one that never ends cannot keep [_running] set until the app
+  /// restarts — every later run, the button's too, would be turned away.
+  static const _runLimit = Duration(minutes: 3);
+
+  /// The server's clock is not the phone's, and two rows written in the same
+  /// moment may be stamped out of order of their commit. Reading from a little
+  /// before the watermark costs a few rows read twice; merging is harmless to
+  /// repeat. Subtracted **once, at the start of a run** — inside the loop over
+  /// pages the server's own `next` is used as it is, or a page of more than
+  /// `limit` rows written in one moment would start from the same rows again.
+  static const _overlap = Duration(seconds: 5);
+
+  /// The server refuses more than this many rows of one kind in one request...
+  static const _pushChunk = 500;
+
+  /// ...and a body over 5 MB. A note may be a megabyte of text, so 500 of them
+  /// would not fit; requests are cut by size as well, with room to spare.
+  static const _pushBytes = 4 * 1024 * 1024;
 
   /// Whether a run is in flight right now.
   bool get isRunning => _running;
@@ -124,17 +141,29 @@ class SyncService {
   /// anything succeeds.
   String? lastError;
 
-  /// Runs one push-and-pull. Never throws.
+  /// Whether anything is waiting to be sent. Lets a run that was only set off by
+  /// a local edit stay out of the way when the "edit" was the pull's own write.
+  Future<bool> hasPending() async {
+    if ((await tasksDao.pendingTasks()).isNotEmpty ||
+        (await tasksDao.pendingLogs()).isNotEmpty ||
+        (await _pendingGraves('tasks')).isNotEmpty) {
+      return true;
+    }
+    if (_syncCycle() && (await cycleDao.pending()).isNotEmpty) return true;
+    if (!_syncDiary()) return false;
+    return (await dao.pendingEntries()).isNotEmpty ||
+        (await dao.pendingMoods()).isNotEmpty ||
+        (await dao.pendingTags()).isNotEmpty ||
+        (await _pendingGraves('diary_entries')).isNotEmpty;
+  }
+
+  /// Runs one pull-and-push. Never throws.
   ///
   /// [force] skips the wait after a failure: the user pressed the button, or the
   /// network just came back, and either is a better reason to try than a timer.
   Future<SyncOutcome> sync({bool force = false}) async {
-    final client = _client;
-    if (client == null) {
-      lastError = 'Нет подключения к серверу (Supabase не запустился)';
-      return SyncOutcome.skipped;
-    }
-    if (client.auth.currentUser == null) {
+    final me = _userId();
+    if (me == null) {
       lastError = 'Нет активной сессии — войдите в аккаунт заново';
       return SyncOutcome.skipped;
     }
@@ -150,16 +179,12 @@ class SyncService {
     _running = true;
     try {
       // shortcut: the limit cuts the wait, not the requests — a run that
-      // outlives it keeps going in the background beside the next one. Fine for
-      // upserts; move the limit into the HTTP client if that ever hurts.
+      // outlives it keeps going in the background beside the next one. Fine,
+      // since every write is idempotent; move it into the HTTP client if that
+      // ever hurts.
       await Future<void>(() async {
-        // Groups first, ahead of the push: a task waiting to go up into a group
-        // this account has since left would be refused, and a refusal fails the
-        // whole run — every run after it too. Learning about the departure
-        // first takes that task off the device instead.
-        await _syncGroups(client);
-        await _push(client);
-        await _pull(client);
+        await _pull(me);
+        await _push(me);
       }).timeout(_runLimit);
       _backoff = Duration.zero;
       _retryAfter = null;
@@ -167,14 +192,16 @@ class SyncService {
       return SyncOutcome.done;
     } catch (error, stack) {
       _noteFailure(error, stack);
-      return _isOffline(error) ? SyncOutcome.offline : SyncOutcome.failed;
+      return isOfflineError(error) ? SyncOutcome.offline : SyncOutcome.failed;
     } finally {
       _running = false;
     }
   }
 
   void _noteFailure(Object error, StackTrace stack) {
-    lastError = error.toString();
+    lastError = error is ApiException
+        ? (error.message ?? error.code ?? error.toString())
+        : error.toString();
     _backoff = _backoff == Duration.zero
         ? _firstBackoff
         : Duration(
@@ -183,460 +210,247 @@ class SyncService {
     _retryAfter = DateTime.now().add(_backoff);
 
     // Offline is the ordinary case, not a fault, and it must not fill the log.
-    if (!_isOffline(error)) {
+    if (!isOfflineError(error)) {
       debugPrint('Sync failed: $error\n$stack');
     }
   }
 
   /// Whether the failure is "no connection" rather than "something is wrong".
-  ///
-  /// A connection dropped halfway ("Connection reset by peer") reaches here as
-  /// `package:http`'s `ClientException`, not as a `SocketException`, and it is
-  /// the commonest way a flaky network shows up.
-  // shortcut: matched by class name because `http` is not a direct dependency
-  // and supabase_flutter does not re-export it; import it and use `is` once it is.
   @visibleForTesting
-  static bool isOfflineError(Object error) =>
-      error is SocketException ||
-      error is TimeoutException ||
-      error is AuthRetryableFetchException ||
-      error.runtimeType.toString() == 'ClientException';
-
-  static bool _isOffline(Object error) => isOfflineError(error);
-
-  // ---------------------------------------------------------------------------
-  // Groups
-  // ---------------------------------------------------------------------------
-
-  /// Mirrors the groups this account is in, their members and their names.
-  ///
-  /// Read whole every run rather than "changed since": the lists are a handful
-  /// of rows, and only a whole list can say that a group is **gone** — left,
-  /// removed from, or deleted all look the same from here, as a group the
-  /// server no longer shows.
-  ///
-  /// Publishes this account's own name first, but only once it is in a group:
-  /// nobody else can read it before then.
-  Future<void> _syncGroups(SupabaseClient client) async {
-    final user = client.auth.currentUser!;
-
-    final groups =
-        (await client
-                .from('groups')
-                .select('id, name, owner_id')
-                .isFilter('deleted_at', null))
-            .cast<Map<String, dynamic>>();
-
-    final List<Map<String, dynamic>> members;
-    final Map<String, Map<String, dynamic>> profiles;
-    if (groups.isEmpty) {
-      members = const [];
-      profiles = const {};
-    } else {
-      await client.from('profiles').upsert({
-        'display_name': user.displayName ?? user.email?.split('@').first,
-        'avatar_url': user.avatarUrl,
-      }, onConflict: 'user_id');
-
-      final inGroups = {for (final group in groups) group['id']};
-      members = [
-        for (final row
-            in (await client
-                    .from('group_members')
-                    .select('group_id, user_id')
-                    .isFilter('deleted_at', null))
-                .cast<Map<String, dynamic>>())
-          if (inGroups.contains(row['group_id'])) row,
-      ];
-      profiles = {
-        for (final row
-            in (await client
-                    .from('profiles')
-                    .select('user_id, display_name, avatar_url'))
-                .cast<Map<String, dynamic>>())
-          row['user_id'] as String: row,
-      };
-    }
-
-    await tasksDao.replaceGroups(
-      [for (final row in groups) groupFromRow(row)],
-      [
-        for (final row in members)
-          memberFromRow(row, profile: profiles[row['user_id']]),
-      ],
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Up
-  // ---------------------------------------------------------------------------
-
-  Future<void> _push(SupabaseClient client) async {
-    final diary = _syncDiary();
-    // Catalogues first: a note's links point at them, and Postgres checks.
-    final moods = diary ? await dao.pendingMoods() : const <NoteMood>[];
-    if (moods.isNotEmpty) {
-      await client.from('note_moods').upsert([
-        for (final mood in moods) moodToRow(mood),
-      ]);
-      await dao.clearMoodDirty([for (final mood in moods) ?mood.uid]);
-    }
-
-    final tags = diary ? await dao.pendingTags() : const <NoteTag>[];
-    if (tags.isNotEmpty) {
-      await client.from('note_tags').upsert([
-        for (final tag in tags) tagToRow(tag),
-      ]);
-      await dao.clearTagDirty([for (final tag in tags) ?tag.uid]);
-    }
-
-    final entries = diary ? await dao.pendingEntries() : const <DiaryEntry>[];
-    if (entries.isNotEmpty) {
-      await client.from('diary_entries').upsert([
-        for (final entry in entries) entryToRow(entry),
-      ]);
-      // The links of a changed note are replaced wholesale, exactly as the app
-      // does locally: the note owns its whole set, and working out which one
-      // moved would be more code than sending three rows.
-      for (final entry in entries) {
-        await _pushLinks(client, entry);
-      }
-      // Cleared only after the links, and only for notes untouched since they
-      // were read — an edit made during the send keeps its mark and goes next
-      // time.
-      await dao.clearEntryDirty({
-        for (final entry in entries) ?entry.uid: entry.updatedAt,
-      });
-    }
-
-    // Tasks before their day marks, for the same reason catalogues come before
-    // notes: a mark points at a task and Postgres checks.
-    await _pushTasks(client);
-    await _pushLogs(client);
-    if (_syncCycle()) await _pushCycle(client);
-
-    // Deletions last: everything above may have been about a row this is
-    // about to remove, and the server should hear the story in order.
-    //
-    // One leg for both halves of the app. A tombstone carries the name of the
-    // table it belongs to, and that name is the server's as well as the
-    // device's, so `tasks` and `diary_entries` need no separate handling here.
-    final graves = [
-      for (final grave in await dao.pendingTombstones())
-        // A deleted note is part of the diary's story: it waits with the rest.
-        if (diary || grave.sourceTable != 'diary_entries') grave,
-    ];
-    if (graves.isNotEmpty) {
-      final now = DateTime.now().toUtc().toIso8601String();
-      for (final grave in graves) {
-        await client
-            .from(grave.sourceTable)
-            .update({'deleted_at': now})
-            .eq('id', grave.uid);
-      }
-      await dao.clearTombstones([for (final grave in graves) grave.uid]);
-    }
-  }
-
-  /// Sends the tasks this device changed, **parents before children**.
-  ///
-  /// `parent_id` points into the same table and Postgres checks its keys row by
-  /// row, so a child that turns up in the batch ahead of its parent is rejected
-  /// outright. [_generations] is what stops that, and it handles any depth
-  /// rather than the two the app currently produces: nesting is one level deep
-  /// in the UI, but nothing in the schema forbids more and
-  /// `deleteTaskCascade` already only reaches one.
-  ///
-  /// The marks are cleared once, at the end. A generation that lands and is then
-  /// followed by one that fails leaves everything unsent, and the next run sends
-  /// it all again — an upsert, so re-sending costs nothing and is never wrong.
-  Future<void> _pushTasks(SupabaseClient client) async {
-    final batch = await tasksDao.pendingTasks();
-    if (batch.isEmpty) return;
-
-    final uidsById = await tasksDao.taskUidsById();
-    final me = client.auth.currentUser!.id;
-    final sent = <String, DateTime>{};
-
-    for (final generation in _generations(batch)) {
-      final rows = <Map<String, dynamic>>[];
-      for (final task in generation) {
-        final uid = task.uid;
-        // A group task this account may not edit. The screens never offer the
-        // edit, so this is a slip somewhere — and the server refusing it would
-        // fail every run from now on. Not sent, and the mark cleared with the
-        // rest, so the server's copy wins the next time it changes.
-        if (uid != null && !await tasksDao.canEditTask(task, me)) {
-          debugPrint(
-            'Sync: group task ${task.id} is not ours to edit, not sent',
-          );
-          sent[uid] = task.updatedAt;
-          continue;
-        }
-        // Nothing to address the row by, so skipping beats inventing — but not
-        // in silence. This should be impossible: v14 mints a uid for every task
-        // on the device and v15 re-checks unconditionally. If it happens
-        // anyway, the task is being dropped from every sync forever with
-        // nothing on screen to say so, which is precisely the shape of bug that
-        // takes a week to find.
-        if (uid == null) {
-          debugPrint('Sync: task ${task.id} has no uid, not sent');
-          continue;
-        }
-        rows.add(taskToRow(task, parentUid: uidsById[task.parentId]));
-        sent[uid] = task.updatedAt;
-      }
-      if (rows.isNotEmpty) await client.from('tasks').upsert(rows);
-    }
-
-    await tasksDao.clearTaskDirty(sent);
-  }
-
-  /// The batch in layers, each one safe to send once the ones before it have
-  /// landed: a task is held back while its parent is still waiting.
-  static List<List<Task>> _generations(List<Task> batch) {
-    final layers = <List<Task>>[];
-    var waiting = batch;
-
-    while (waiting.isNotEmpty) {
-      final held = {for (final task in waiting) task.id};
-      // `contains(null)` is false, so a root task is always ready.
-      final ready = [
-        for (final task in waiting)
-          if (!held.contains(task.parentId)) task,
-      ];
-
-      if (ready.isEmpty) {
-        // A parent loop, which the app cannot produce. Send the rest in one go
-        // rather than spin here forever: the server will refuse it and the run
-        // fails loudly, which is the right outcome for data that cannot exist.
-        layers.add(waiting);
-        break;
-      }
-
-      layers.add(ready);
-      final done = {for (final task in ready) task.id};
-      waiting = [
-        for (final task in waiting)
-          if (!done.contains(task.id)) task,
-      ];
-    }
-
-    return layers;
-  }
-
-  /// Sends the day marks this device changed.
-  ///
-  /// A mark whose task carries no uid is **skipped rather than dropped**: it
-  /// keeps its own mark and goes up on a later run, once the task it belongs to
-  /// has an identity. There is nothing to point at until then, and inventing a
-  /// reference is how an orphan row is made.
-  ///
-  /// One statement for the lot, resolved on `(task_id, date)` — the pair *is*
-  /// the row, here and on the server, which is exactly what lets two devices
-  /// that ticked the same day converge without anything having to merge them.
-  Future<void> _pushLogs(SupabaseClient client) async {
-    final batch = await tasksDao.pendingLogs();
-    if (batch.isEmpty) return;
-
-    final uidsById = await tasksDao.taskUidsById();
-    final rows = <Map<String, dynamic>>[];
-    final sent = <TaskLog>[];
-
-    for (final log in batch) {
-      final uid = uidsById[log.taskId];
-      if (uid == null) continue;
-      rows.add(logToRow(log, taskUid: uid));
-      sent.add(log);
-    }
-    if (rows.isEmpty) return;
-
-    // `user_id` is not sent; the server fills it from the session before the
-    // conflict is resolved.
-    await client
-        .from('task_logs')
-        .upsert(rows, onConflict: 'task_id,user_id,date');
-    await tasksDao.clearLogDirty(sent);
-  }
-
-  /// Sends the cycle days this device changed, as one upsert resolved on
-  /// `(user_id, date)` — the pair is the row, so two phones that marked the same
-  /// day converge on their own.
-  Future<void> _pushCycle(SupabaseClient client) async {
-    final batch = await cycleDao.pending();
-    if (batch.isEmpty) return;
-
-    final me = client.auth.currentUser!.id;
-    await client.from('cycle_days').upsert([
-      for (final day in batch) cycleDayToRow(day, userId: me),
-    ], onConflict: 'user_id,date');
-    await cycleDao.clearDirty(batch);
-  }
-
-  Future<void> _pushLinks(SupabaseClient client, DiaryEntry entry) async {
-    final uid = entry.uid;
-    if (uid == null) return;
-
-    final moodUids = await dao.moodUidsForEntry(entry.id);
-    await client.from('diary_entry_moods').delete().eq('entry_id', uid);
-    if (moodUids.isNotEmpty) {
-      await client.from('diary_entry_moods').insert([
-        for (final moodUid in moodUids) {'entry_id': uid, 'mood_id': moodUid},
-      ]);
-    }
-
-    final tagUids = await dao.tagUidsForEntry(entry.id);
-    await client.from('diary_entry_tags').delete().eq('entry_id', uid);
-    if (tagUids.isNotEmpty) {
-      await client.from('diary_entry_tags').insert([
-        for (final tagUid in tagUids) {'entry_id': uid, 'tag_id': tagUid},
-      ]);
-    }
-  }
+  static bool isOfflineError(Object error) => error is ApiException
+      ? error.isOffline
+      : ApiException.isNetworkError(error);
 
   // ---------------------------------------------------------------------------
   // Down
   // ---------------------------------------------------------------------------
 
-  Future<void> _pull(SupabaseClient client) async {
-    // Catalogues before notes, so a note's labels have something to point at,
-    // and tasks before their day marks, so a mark can find the task it belongs
-    // to by uid.
-    var furthest = watermark;
-    // The watermark is one position for every table, so skipping the diary here
-    // would move it past notes never read. Switching the diary back on puts it
-    // back to the start — see `setSyncDiary`.
-    if (_syncDiary()) {
-      furthest = _later(furthest, await _pullMoods(client));
-      furthest = _later(furthest, await _pullTags(client));
-      furthest = _later(furthest, await _pullEntries(client));
-    }
-    furthest = _later(furthest, await _pullTasks(client));
-    furthest = _later(furthest, await _pullLogs(client));
-    // Same reasoning as the diary: with this off the watermark must not be
-    // moved by a table that was not read — `syncCycleSetterProvider` puts it
-    // back to the start when the switch comes on.
-    if (_syncCycle()) furthest = _later(furthest, await _pullCycle(client));
+  Future<Set<String>> _pendingGraves(String table) async => {
+    for (final grave in await dao.pendingTombstones())
+      if (grave.sourceTable == table) grave.uid,
+  };
 
-    // Moved only after everything above has landed. A watermark advanced
-    // early, over a pull that then failed halfway, silently skips whatever the
-    // second half held — forever, because nothing would ever ask for it again.
-    watermark = furthest;
-  }
+  Future<void> _pull(String me) async {
+    final diary = _syncDiary();
+    final cycle = _syncCycle();
+    // Deleted here, not yet reported: the overlap may well hand the row back,
+    // and inserting it again would raise a task or a note the user threw away.
+    final graves = await _pendingGraves('tasks');
+    final entryGraves = diary
+        ? await _pendingGraves('diary_entries')
+        : <String>{};
 
-  Future<List<Map<String, dynamic>>> _changedSince(
-    SupabaseClient client,
-    String table,
-  ) {
-    final query = client.from(table).select();
-    final since = watermark;
-    return (since == null
-            ? query
-            : query.gt('updated_at', since.toUtc().toIso8601String()))
-        .order('updated_at')
-        .then((rows) => rows.cast<Map<String, dynamic>>());
-  }
-
-  Future<DateTime?> _pullMoods(SupabaseClient client) async {
+    var since = watermark?.subtract(_overlap);
     DateTime? furthest;
-    for (final row in await _changedSince(client, 'note_moods')) {
-      furthest = _later(furthest, serverUpdatedAt(row));
-      final uid = uidOf(row);
-      if (uid == null) continue;
+    // Marks that came before their task. The two lists are cut into pages
+    // independently, so a mark can land a page ahead of the task it belongs to.
+    final early = <Map<String, dynamic>>[];
+    // The labels of each note that was taken, by uid; the last copy wins. Applied
+    // after the last page, for the same reason as above: a note can arrive a page
+    // ahead of the mood or tag it names.
+    final links = <String, ({List<String> moods, List<String> tags})>{};
 
-      final local = await dao.moodByUid(uid);
-      if (isDeleted(row)) continue; // No path deletes a mood; nothing to do.
-      if (local == null) {
-        await dao.insertRemoteMood(uid, moodFromRow(row));
-      } else {
-        await dao.applyRemoteMood(uid, moodFromRow(row));
-      }
-    }
-    return furthest;
-  }
-
-  Future<DateTime?> _pullTags(SupabaseClient client) async {
-    DateTime? furthest;
-    for (final row in await _changedSince(client, 'note_tags')) {
-      furthest = _later(furthest, serverUpdatedAt(row));
-      final uid = uidOf(row);
-      if (uid == null) continue;
-
-      final local = await dao.tagByUid(uid);
-      if (isDeleted(row)) continue;
-      if (local == null) {
-        await dao.insertRemoteTag(uid, tagFromRow(row));
-      } else {
-        await dao.applyRemoteTag(uid, tagFromRow(row));
-      }
-    }
-    return furthest;
-  }
-
-  Future<DateTime?> _pullEntries(SupabaseClient client) async {
-    DateTime? furthest;
-    for (final row in await _changedSince(client, 'diary_entries')) {
-      furthest = _later(furthest, serverUpdatedAt(row));
-      final uid = uidOf(row);
-      if (uid == null) continue;
-
-      final local = await dao.entryByUid(uid);
-      final action = pullAction(
-        remoteDeleted: isDeleted(row),
-        localUpdatedAt: local?.updatedAt,
-        localDirty: local?.dirty ?? false,
-        remoteUpdatedAt: clientUpdatedAt(row) ?? DateTime.now(),
-        localUid: local?.uid ?? '',
-        remoteUid: uid,
+    var first = true;
+    while (true) {
+      final page = await _firstCallRetried(
+        first,
+        () => _api.pull(
+          since: since?.toUtc().toIso8601String(),
+          include: {if (diary) 'diary', if (cycle) 'cycle'},
+        ),
       );
+      first = false;
 
-      switch (action) {
-        case PullAction.skip:
-        case PullAction.keepLocal:
-          continue;
-        case PullAction.delete:
-          await dao.deleteEntryByUid(uid);
-        case PullAction.insert:
-          await dao.insertRemoteEntry(uid, entryFromRow(row));
-          await _pullLinks(client, uid);
-        case PullAction.overwrite:
-          await dao.applyRemoteEntry(uid, entryFromRow(row));
-          await _pullLinks(client, uid);
+      // Before the tasks: whether a group task may be edited is read off its
+      // group's owner, and a group that is gone takes its tasks off the phone.
+      await _applyGroups(page['groups']);
+
+      if (diary) {
+        // Catalogues before notes, so a note's labels have something to point at.
+        for (final row in _rows(page['moods'])) {
+          await _applyMood(row);
+        }
+        for (final row in _rows(page['tags'])) {
+          await _applyTag(row);
+        }
+        for (final row in _rows(page['entries'])) {
+          await _applyEntry(row, entryGraves, links);
+        }
       }
+      for (final row in _rows(page['tasks'])) {
+        await _applyTask(row, graves);
+      }
+      for (final row in _rows(page['logs'])) {
+        if (!await _applyLog(row, me, graves)) early.add(row);
+      }
+
+      if (cycle) {
+        for (final row in _rows(page['cycle_days'])) {
+          await _applyCycleDay(row);
+        }
+      }
+
+      final next = DateTime.tryParse(page['next'] as String? ?? '');
+      if (next != null) {
+        since = next;
+        furthest = next;
+      }
+      if (page['has_more'] != true || next == null) break;
     }
-    return furthest;
+
+    // A mark still without its task now has nothing to attach to; if the task is
+    // merely late, the mark comes down again whenever the server next hears of it.
+    for (final row in early) {
+      await _applyLog(row, me, graves);
+    }
+    for (final entry in links.entries) {
+      await _applyLinks(entry.key, entry.value.moods, entry.value.tags);
+    }
+
+    // Moved only after everything above has landed, and never backwards: with
+    // nothing new the server answers with the `since` it was given, which is the
+    // watermark minus the overlap.
+    if (furthest != null &&
+        (watermark == null || furthest.isAfter(watermark!))) {
+      watermark = furthest;
+    }
   }
 
-  Future<DateTime?> _pullTasks(SupabaseClient client) async {
-    DateTime? furthest;
-    for (final row in await _changedSince(client, 'tasks')) {
-      furthest = _later(furthest, serverUpdatedAt(row));
-      final uid = uidOf(row);
-      if (uid == null) continue;
+  /// The server lists every group this account is in, with its members, in
+  /// every answer — whole, so that a group missing from it is how the phone
+  /// learns it was left, removed from or deleted. An answer without the key is
+  /// not "no groups" and leaves the mirror alone.
+  Future<void> _applyGroups(Object? snapshot) async {
+    if (snapshot is! Map<String, dynamic>) return;
+    await tasksDao.replaceGroups(
+      [for (final row in _rows(snapshot['groups'])) groupFromRow(row)],
+      [for (final row in _rows(snapshot['members'])) memberFromRow(row)],
+    );
+  }
 
-      final local = await tasksDao.taskByUid(uid);
-      final action = pullAction(
-        remoteDeleted: isDeleted(row),
-        localUpdatedAt: local?.updatedAt,
-        localDirty: local?.dirty ?? false,
-        remoteUpdatedAt: clientUpdatedAt(row) ?? DateTime.now(),
-        localUid: local?.uid ?? '',
-        remoteUid: uid,
-      );
-
-      switch (action) {
-        case PullAction.skip:
-        case PullAction.keepLocal:
-          continue;
-        case PullAction.delete:
-          await tasksDao.deleteTaskByUid(uid);
-        case PullAction.insert:
-          await tasksDao.insertRemoteTask(uid, await _withParent(row));
-        case PullAction.overwrite:
-          await tasksDao.applyRemoteTask(uid, await _withParent(row));
+  /// A server that was asleep can take longer than one request is allowed to, and
+  /// the first request of a run is the one that wakes it. Offline on the first
+  /// try is therefore tried twice more before it counts; the run's own limit
+  /// still bounds the whole.
+  Future<T> _firstCallRetried<T>(bool first, Future<T> Function() call) async {
+    for (var attempt = 0; ; attempt++) {
+      try {
+        return await call();
+      } on ApiException catch (e) {
+        if (!first || !e.isOffline || attempt >= 2) rethrow;
       }
     }
-    return furthest;
+  }
+
+  static Iterable<Map<String, dynamic>> _rows(Object? list) =>
+      (list as List? ?? const []).cast<Map<String, dynamic>>();
+
+  /// No path deletes a mood or a tag in the app, so a deleted one is never news.
+  Future<void> _applyMood(Map<String, dynamic> row) async {
+    final uid = uidOf(row);
+    if (uid == null || isDeleted(row)) return;
+    if (await dao.moodByUid(uid) == null) {
+      await dao.insertRemoteMood(uid, moodFromRow(row));
+    } else {
+      await dao.applyRemoteMood(uid, moodFromRow(row));
+    }
+  }
+
+  Future<void> _applyTag(Map<String, dynamic> row) async {
+    final uid = uidOf(row);
+    if (uid == null || isDeleted(row)) return;
+    if (await dao.tagByUid(uid) == null) {
+      await dao.insertRemoteTag(uid, tagFromRow(row));
+    } else {
+      await dao.applyRemoteTag(uid, tagFromRow(row));
+    }
+  }
+
+  Future<void> _applyEntry(
+    Map<String, dynamic> row,
+    Set<String> graves,
+    Map<String, ({List<String> moods, List<String> tags})> links,
+  ) async {
+    final uid = uidOf(row);
+    if (uid == null || graves.contains(uid)) return;
+
+    final local = await dao.entryByUid(uid);
+    final action = pullAction(
+      remoteDeleted: isDeleted(row),
+      localUpdatedAt: local?.updatedAt,
+      localDirty: local?.dirty ?? false,
+      remoteUpdatedAt: clientUpdatedAt(row) ?? DateTime.now(),
+      localUid: local?.uid ?? '',
+      remoteUid: uid,
+    );
+
+    switch (action) {
+      case PullAction.skip:
+      case PullAction.keepLocal:
+        return;
+      case PullAction.delete:
+        await dao.deleteEntryByUid(uid);
+        links.remove(uid);
+      case PullAction.insert:
+        await dao.insertRemoteEntry(uid, entryFromRow(row));
+        links[uid] = _labelsOf(row);
+      case PullAction.overwrite:
+        await dao.applyRemoteEntry(uid, entryFromRow(row));
+        links[uid] = _labelsOf(row);
+    }
+  }
+
+  static ({List<String> moods, List<String> tags}) _labelsOf(
+    Map<String, dynamic> row,
+  ) => (
+    moods: [...?(row['mood_ids'] as List?)?.cast<String>()],
+    tags: [...?(row['tag_ids'] as List?)?.cast<String>()],
+  );
+
+  /// Sets a note's labels to the server's. A label this device does not have is
+  /// left out, and the note is **not** marked as changed — sending the same set
+  /// straight back would make two phones trade it for ever (see
+  /// [DiaryDao.applyRemoteEntryMoods]).
+  Future<void> _applyLinks(
+    String entryUid,
+    List<String> moodUids,
+    List<String> tagUids,
+  ) async {
+    final entry = await dao.entryByUid(entryUid);
+    if (entry == null) return;
+    await dao.applyRemoteEntryMoods(entry.id, [
+      for (final uid in moodUids) ?(await dao.moodByUid(uid))?.id,
+    ]);
+    await dao.applyRemoteEntryTags(entry.id, [
+      for (final uid in tagUids) ?(await dao.tagByUid(uid))?.id,
+    ]);
+  }
+
+  Future<void> _applyTask(Map<String, dynamic> row, Set<String> graves) async {
+    final uid = uidOf(row);
+    if (uid == null || graves.contains(uid)) return;
+
+    final local = await tasksDao.taskByUid(uid);
+    final action = pullAction(
+      remoteDeleted: isDeleted(row),
+      localUpdatedAt: local?.updatedAt,
+      localDirty: local?.dirty ?? false,
+      remoteUpdatedAt: clientUpdatedAt(row) ?? DateTime.now(),
+      localUid: local?.uid ?? '',
+      remoteUid: uid,
+    );
+
+    switch (action) {
+      case PullAction.skip:
+      case PullAction.keepLocal:
+        return;
+      case PullAction.delete:
+        await tasksDao.deleteTaskByUid(uid);
+      case PullAction.insert:
+        await tasksDao.insertRemoteTask(uid, await _withParent(row));
+      case PullAction.overwrite:
+        await tasksDao.applyRemoteTask(uid, await _withParent(row));
+    }
   }
 
   /// The row as a companion, with its parent translated from a uid into the
@@ -659,114 +473,100 @@ class SyncService {
     return task.copyWith(parentId: Value(parent?.id));
   }
 
-  /// Takes the day marks the other devices made.
+  /// Takes one day mark. False when its task is not here (yet).
   ///
   /// `remoteDeleted` is always false, and that is a fact about the data rather
-  /// than a shortcut: nothing deletes a single mark. The only statement in the
-  /// app that removes one removes every mark of a task, and on the server the
-  /// same thing is a foreign key — so a mark's disappearance always arrives as
-  /// its task's deletion, which [_pullTasks] has already acted on by the time
-  /// this runs.
-  ///
-  /// A mark whose task is not here is dropped rather than kept anywhere: with
-  /// the task gone this device has nothing to attach it to, and if the task is
-  /// merely late, the mark comes down again the next time the server hears about
-  /// it.
-  Future<DateTime?> _pullLogs(SupabaseClient client) async {
-    final me = client.auth.currentUser!.id;
-    DateTime? furthest;
-    for (final row in await _changedSince(client, 'task_logs')) {
-      furthest = _later(furthest, serverUpdatedAt(row));
-      final taskUid = taskUidOf(row);
-      if (taskUid == null) continue;
+  /// than a shortcut: nothing deletes a single mark. A mark's disappearance
+  /// arrives as its task's deletion, which [_applyTask] has acted on.
+  Future<bool> _applyLog(
+    Map<String, dynamic> row,
+    String me,
+    Set<String> graves,
+  ) async {
+    final taskUid = taskUidOf(row);
+    if (taskUid == null) return true;
+    // The task is being deleted here: its marks go with it.
+    if (graves.contains(taskUid)) return true;
 
-      final task = await tasksDao.taskByUid(taskUid);
-      if (task == null) continue;
+    final task = await tasksDao.taskByUid(taskUid);
+    if (task == null) return false;
 
-      final incoming = logFromRow(row);
+    final incoming = logFromRow(row);
 
-      // Another member's mark on a group task. Theirs alone to change, so the
-      // server's copy is simply taken — no merge, and never into `task_logs`,
-      // which holds this account's one answer per day.
-      final author = markAuthorOf(row);
-      if (author != null && author != me) {
-        await tasksDao.applyGroupMark(
-          taskId: task.id,
-          userUid: author,
-          date: incoming.date.value,
-          completed: incoming.completed.value,
-        );
-        continue;
-      }
-      final day = incoming.date.value;
-      final local = await tasksDao.getLogForDate(task.id, day);
-
-      // The identity handed to the tie-break is the natural key, and it is the
-      // **same string on both sides** — which for a log is right rather than a
-      // degenerate case. A tie can only matter while this copy is still unsent,
-      // and "keep mine for now" is settled by the push that follows: once a row
-      // is clean, anything arriving overwrites it without consulting a clock, so
-      // the two devices converge on whichever pushed last either way.
-      final identity = '$taskUid|${_calendarDay(day)}';
-      final action = pullAction(
-        remoteDeleted: false,
-        localUpdatedAt: local?.updatedAt,
-        localDirty: local?.dirty ?? false,
-        remoteUpdatedAt: clientUpdatedAt(row) ?? DateTime.now(),
-        localUid: identity,
-        remoteUid: identity,
+    // Another member's mark on a group task. Theirs alone to change, so the
+    // server's copy is simply taken — no merge, and never into `task_logs`,
+    // which holds this account's one answer per day.
+    final author = markAuthorOf(row);
+    if (author != null && author != me) {
+      await tasksDao.applyGroupMark(
+        taskId: task.id,
+        userUid: author,
+        date: incoming.date.value,
+        completed: incoming.completed.value,
       );
-
-      switch (action) {
-        case PullAction.skip:
-        case PullAction.keepLocal:
-        case PullAction.delete:
-          continue;
-        // One statement covers both: the upsert resolves on the pair, so a mark
-        // this device already has is updated and a new one is inserted.
-        case PullAction.insert:
-        case PullAction.overwrite:
-          await tasksDao.applyRemoteLog(task.id, incoming);
-      }
+      return true;
     }
-    return furthest;
+    final day = incoming.date.value;
+    final local = await tasksDao.getLogForDate(task.id, day);
+
+    // The identity handed to the tie-break is the natural key, and it is the
+    // **same string on both sides** — which for a log is right rather than a
+    // degenerate case. A tie can only matter while this copy is still unsent,
+    // and "keep mine for now" is settled by the push that follows: once a row
+    // is clean, anything arriving overwrites it without consulting a clock.
+    final identity = '$taskUid|${_calendarDay(day)}';
+    final action = pullAction(
+      remoteDeleted: false,
+      localUpdatedAt: local?.updatedAt,
+      localDirty: local?.dirty ?? false,
+      remoteUpdatedAt: clientUpdatedAt(row) ?? DateTime.now(),
+      localUid: identity,
+      remoteUid: identity,
+    );
+
+    switch (action) {
+      case PullAction.skip:
+      case PullAction.keepLocal:
+      case PullAction.delete:
+        break;
+      // One statement covers both: the upsert resolves on the pair, so a mark
+      // this device already has is updated and a new one is inserted.
+      case PullAction.insert:
+      case PullAction.overwrite:
+        await tasksDao.applyRemoteLog(task.id, incoming);
+    }
+    return true;
   }
 
-  /// Takes the cycle days the other devices marked. Nothing is ever deleted, so
-  /// there is no deletion to hear about — a day taken back arrives as an empty
-  /// day.
-  Future<DateTime?> _pullCycle(SupabaseClient client) async {
-    DateTime? furthest;
-    for (final row in await _changedSince(client, 'cycle_days')) {
-      furthest = _later(furthest, serverUpdatedAt(row));
-      final incoming = cycleDayFromRow(row);
-      final day = incoming.date.value;
-      final local = await cycleDao.getDay(day);
+  /// Takes one cycle day. Nothing is ever deleted: a mark taken back arrives as
+  /// an empty day, which is applied like any other.
+  Future<void> _applyCycleDay(Map<String, dynamic> row) async {
+    final incoming = cycleDayFromRow(row);
+    final day = incoming.date.value;
+    final local = await cycleDao.getDay(day);
 
-      // The identity is the same string on both sides, as for a task log: a tie
-      // can only matter while this copy is unsent, and the push that follows
-      // settles it.
-      final identity = _calendarDay(day);
-      final action = pullAction(
-        remoteDeleted: false,
-        localUpdatedAt: local?.updatedAt,
-        localDirty: local?.dirty ?? false,
-        remoteUpdatedAt: clientUpdatedAt(row) ?? DateTime.now(),
-        localUid: identity,
-        remoteUid: identity,
-      );
+    // The identity is the same string on both sides, as for a task log: a tie
+    // can only matter while this copy is unsent, and the push that follows
+    // settles it.
+    final identity = _calendarDay(day);
+    final action = pullAction(
+      remoteDeleted: false,
+      localUpdatedAt: local?.updatedAt,
+      localDirty: local?.dirty ?? false,
+      remoteUpdatedAt: clientUpdatedAt(row) ?? DateTime.now(),
+      localUid: identity,
+      remoteUid: identity,
+    );
 
-      switch (action) {
-        case PullAction.skip:
-        case PullAction.keepLocal:
-        case PullAction.delete:
-          continue;
-        case PullAction.insert:
-        case PullAction.overwrite:
-          await cycleDao.applyRemote(incoming);
-      }
+    switch (action) {
+      case PullAction.skip:
+      case PullAction.keepLocal:
+      case PullAction.delete:
+        return;
+      case PullAction.insert:
+      case PullAction.overwrite:
+        await cycleDao.applyRemote(incoming);
     }
-    return furthest;
   }
 
   /// `YYYY-MM-DD`, only ever used to spell a log's identity for the tie-break.
@@ -774,44 +574,214 @@ class SyncService {
       '${day.year}-${day.month.toString().padLeft(2, '0')}'
       '-${day.day.toString().padLeft(2, '0')}';
 
-  /// Replaces one note's labels with the server's set.
+  // ---------------------------------------------------------------------------
+  // Up
+  // ---------------------------------------------------------------------------
+
+  Future<void> _push(String me) async {
+    final diary = _syncDiary();
+    final rows = <_Row>[];
+
+    // The order the server writes in, and so the order of sending: labels before
+    // the notes that name them, tasks before the marks that point at them.
+    if (diary) {
+      for (final mood in await dao.pendingMoods()) {
+        final uid = mood.uid;
+        if (uid != null) rows.add(_Row(_Kind.moods, moodToRow(mood), uid: uid));
+      }
+      for (final tag in await dao.pendingTags()) {
+        final uid = tag.uid;
+        if (uid != null) rows.add(_Row(_Kind.tags, tagToRow(tag), uid: uid));
+      }
+      for (final entry in await dao.pendingEntries()) {
+        final uid = entry.uid;
+        if (uid == null) continue;
+        // The note owns its whole set of labels and sends all of it; an empty
+        // list is how the server learns that the last one was taken off.
+        rows.add(
+          _Row(
+            _Kind.entries,
+            {
+              ...entryToRow(entry),
+              'mood_ids': await dao.moodUidsForEntry(entry.id),
+              'tag_ids': await dao.tagUidsForEntry(entry.id),
+            },
+            uid: uid,
+            at: entry.updatedAt,
+          ),
+        );
+      }
+    }
+
+    final uidsById = await tasksDao.taskUidsById();
+    // Parents need no ordering here: the server checks the link at the end of
+    // the transaction, so a child may precede its parent in one request.
+    for (final task in await tasksDao.pendingTasks()) {
+      final uid = task.uid;
+      // Nothing to address the row by, so skipping beats inventing — but not in
+      // silence. This should be impossible: v14 mints a uid for every task on
+      // the device and v15 re-checks unconditionally.
+      if (uid == null) {
+        debugPrint('Sync: task ${task.id} has no uid, not sent');
+        continue;
+      }
+      // A group task goes up only from its author or the group's owner, the
+      // two the server lets edit it. Anyone else's copy is only a mirror.
+      if (task.groupUid != null && !await tasksDao.canEditTask(task, me)) {
+        continue;
+      }
+      rows.add(
+        _Row(
+          _Kind.tasks,
+          taskToRow(task, parentUid: uidsById[task.parentId]),
+          uid: uid,
+          at: task.updatedAt,
+        ),
+      );
+    }
+    // A mark whose task carries no uid is skipped rather than dropped: it keeps
+    // its mark and goes up once the task has an identity.
+    for (final log in await tasksDao.pendingLogs()) {
+      final uid = uidsById[log.taskId];
+      if (uid != null) {
+        rows.add(_Row(_Kind.logs, logToRow(log, taskUid: uid), log: log));
+      }
+    }
+    if (_syncCycle()) {
+      for (final day in await cycleDao.pending()) {
+        rows.add(_Row(_Kind.cycle, cycleDayToRow(day), cycleDay: day));
+      }
+    }
+    for (final uid in await _pendingGraves('tasks')) {
+      rows.add(_Row(_Kind.deleted, {'table': 'tasks', 'id': uid}, uid: uid));
+    }
+    if (diary) {
+      for (final uid in await _pendingGraves('diary_entries')) {
+        rows.add(
+          _Row(_Kind.deleted, {'table': 'diary_entries', 'id': uid}, uid: uid),
+        );
+      }
+    }
+    if (rows.isEmpty) return;
+
+    // One request when it all fits, which is nearly always.
+    final counts = <_Kind, int>{};
+    for (final row in rows) {
+      counts[row.kind] = (counts[row.kind] ?? 0) + 1;
+    }
+    if (counts.values.every((n) => n <= _pushChunk) &&
+        rows.fold<int>(0, (sum, row) => sum + row.bytes) <= _pushBytes) {
+      await _send(rows);
+      return;
+    }
+
+    // A big queue (a first upload) goes in pieces, kind by kind in the order
+    // above, so that a link or a mark never reaches the server ahead of what it
+    // points at. Each piece holds at most 500 rows and about 4 MB.
+    for (final kind in _Kind.values) {
+      var chunk = <_Row>[];
+      var bytes = 0;
+      for (final row in rows.where((row) => row.kind == kind)) {
+        if (chunk.isNotEmpty &&
+            (chunk.length >= _pushChunk || bytes + row.bytes > _pushBytes)) {
+          await _send(chunk);
+          chunk = [];
+          bytes = 0;
+        }
+        chunk.add(row);
+        bytes += row.bytes;
+      }
+      if (chunk.isNotEmpty) await _send(chunk);
+    }
+  }
+
+  /// One `POST /sync/push`, then the marks cleared for what it carried.
   ///
-  /// Fetched per note rather than in one sweep because the link tables carry no
-  /// timestamp to sweep by — a link has no identity of its own, so there is
-  /// nothing for a watermark to compare. What marks it as changed is the note,
-  /// which is why this only ever runs for a note that just arrived.
-  Future<void> _pullLinks(SupabaseClient client, String entryUid) async {
-    final entry = await dao.entryByUid(entryUid);
-    if (entry == null) return;
+  /// **All** of it, refused rows too: a row the server will never take (a
+  /// reason is in `rejected`) must not be offered again on every run, or one bad
+  /// row would hold up the sync for ever. The refusals are written to the log. A
+  /// note with `unknown_label` is saved, only one of its labels was not. A
+  /// failure — no network, a 5xx — throws before any mark is touched, so the
+  /// next run sends the same rows again; every write is by id, so repeating is
+  /// harmless.
+  Future<void> _send(List<_Row> rows) async {
+    List<Map<String, dynamic>> of(_Kind kind) => [
+      for (final row in rows)
+        if (row.kind == kind) row.json,
+    ];
+    Iterable<_Row> kind(_Kind k) => rows.where((row) => row.kind == k);
 
-    final moodRows = await client
-        .from('diary_entry_moods')
-        .select('mood_id')
-        .eq('entry_id', entryUid);
-    final moodIds = <int>[];
-    for (final row in moodRows) {
-      final mood = await dao.moodByUid(row['mood_id'] as String);
-      // A label this device has not been sent yet: skipped rather than
-      // invented, and picked up whenever the catalogue catches up.
-      if (mood != null) moodIds.add(mood.id);
+    final answer = await _api.push({
+      for (final k in _Kind.values)
+        if (of(k).isNotEmpty) k.key: of(k),
+    });
+
+    for (final r in _rows(answer['rejected'])) {
+      debugPrint(
+        'Sync: server refused ${r['table']} ${r['id']}: ${r['reason']}',
+      );
     }
-    await dao.applyRemoteEntryMoods(entry.id, moodIds);
 
-    final tagRows = await client
-        .from('diary_entry_tags')
-        .select('tag_id')
-        .eq('entry_id', entryUid);
-    final tagIds = <int>[];
-    for (final row in tagRows) {
-      final tag = await dao.tagByUid(row['tag_id'] as String);
-      if (tag != null) tagIds.add(tag.id);
+    // Refusals are final (see above), and for a mark there is one more thing to
+    // undo: `not_allowed` means the task is handed to someone else, so the tick
+    // is not this account's to keep. The refusal names the task, not the day.
+    final refusedTasks = {
+      for (final r in _rows(answer['rejected']))
+        if (r['table'] == 'task_logs' && r['reason'] == 'not_allowed') r['id'],
+    };
+    if (refusedTasks.isNotEmpty) {
+      await tasksDao.deleteLogs([
+        for (final r in kind(_Kind.logs))
+          if (refusedTasks.contains(r.json['task_id'])) r.log!,
+      ]);
     }
-    await dao.applyRemoteEntryTags(entry.id, tagIds);
-  }
 
-  static DateTime? _later(DateTime? a, DateTime? b) {
-    if (a == null) return b;
-    if (b == null) return a;
-    return b.isAfter(a) ? b : a;
+    await dao.clearMoodDirty([for (final r in kind(_Kind.moods)) r.uid!]);
+    await dao.clearTagDirty([for (final r in kind(_Kind.tags)) r.uid!]);
+    await dao.clearEntryDirty({
+      for (final r in kind(_Kind.entries)) r.uid!: r.at!,
+    });
+    await tasksDao.clearTaskDirty({
+      for (final r in kind(_Kind.tasks)) r.uid!: r.at!,
+    });
+    await tasksDao.clearLogDirty([for (final r in kind(_Kind.logs)) r.log!]);
+    await cycleDao.clearDirty([for (final r in kind(_Kind.cycle)) r.cycleDay!]);
+    await dao.clearTombstones([for (final r in kind(_Kind.deleted)) r.uid!]);
   }
+}
+
+/// What a row of a push is: also the order of sending, and the key it travels
+/// under in the request.
+enum _Kind {
+  moods('moods'),
+  tags('tags'),
+  entries('entries'),
+  tasks('tasks'),
+  logs('logs'),
+  cycle('cycle_days'),
+  deleted('deleted');
+
+  const _Kind(this.key);
+  final String key;
+}
+
+/// One row waiting to go up, with what is needed to clear its mark afterwards.
+class _Row {
+  _Row(this.kind, this.json, {this.uid, this.at, this.log, this.cycleDay})
+    : bytes = utf8.encode(jsonEncode(json)).length;
+
+  final _Kind kind;
+  final Map<String, dynamic> json;
+
+  /// The row's identity (a deletion's too), for clearing its mark.
+  final String? uid;
+
+  /// When it was last edited as read — a mark is cleared only if this still
+  /// holds, so an edit made during the send is not lost.
+  final DateTime? at;
+  final TaskLog? log;
+  final CycleDay? cycleDay;
+
+  /// Its size on the wire, for cutting a queue to fit a request.
+  final int bytes;
 }

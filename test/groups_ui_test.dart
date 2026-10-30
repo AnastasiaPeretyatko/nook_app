@@ -373,4 +373,22 @@ void main() {
       expect(saved.repeatType, isNull);
     });
   });
+
+  test('a member who never published a name is still "Участник"', () {
+    const noName = GroupMember(groupUid: 'g', userUid: 'u');
+    expect(memberName(noName), 'Участник');
+    expect(memberName(null), 'Участник');
+    expect(
+      memberName(
+        const GroupMember(groupUid: 'g', userUid: 'u', displayName: '  '),
+      ),
+      'Участник',
+    );
+    expect(
+      memberName(
+        const GroupMember(groupUid: 'g', userUid: 'u', displayName: ' Аня '),
+      ),
+      'Аня',
+    );
+  });
 }

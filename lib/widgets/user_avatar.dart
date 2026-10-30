@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:todo_app/auth/user_profile.dart';
+import 'package:todo_app/auth/auth_user.dart';
 import 'package:todo_app/utils/task_colors.dart';
 import 'package:todo_app/utils/task_palette.dart';
 
@@ -26,7 +25,7 @@ class UserAvatar extends StatelessWidget {
     this.size = 44,
   });
 
-  final User user;
+  final AuthUser user;
 
   /// What the avatar sits on. The tint is mixed against it, which is what keeps
   /// the dark theme right without a second set of colours.

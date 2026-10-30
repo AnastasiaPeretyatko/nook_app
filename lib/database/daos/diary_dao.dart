@@ -383,7 +383,7 @@ class DiaryDao extends DatabaseAccessor<AppDatabase> with _$DiaryDaoMixin {
   /// earth, would collide with whichever account got there first. That
   /// collision is what took the whole push down: moods go up before tags,
   /// notes, links and tasks, so an account that could not send them sent
-  /// nothing at all, ever. See `supabase/004_shared_moods.sql`.
+  /// nothing at all, ever. See BACKEND_PLAN.md §4.2 (shared moods).
   ///
   /// A mood with no uid falls out here too — `uid NOT IN (...)` is null for a
   /// null uid, so the row is not returned. That is the right answer for a

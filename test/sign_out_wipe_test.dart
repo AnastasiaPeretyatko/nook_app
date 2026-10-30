@@ -9,16 +9,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:todo_app/auth/auth_user.dart';
+import 'package:todo_app/api/api_exception.dart';
 import 'package:todo_app/auth/auth_repository.dart';
+import 'package:todo_app/auth/google_id_token.dart';
 import 'package:todo_app/auth/providers.dart';
-import 'package:todo_app/auth/supabase_init.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/pages/account_page.dart';
 import 'package:todo_app/settings/theme_provider.dart';
 import 'package:todo_app/sync/providers.dart';
 import 'package:todo_app/sync/sync_service.dart';
+import 'support/fake_sync_api.dart';
 
 /// A server that accepts everything.
 class _OkService extends SyncService {
@@ -27,7 +29,8 @@ class _OkService extends SyncService {
         dao: db.diaryDao,
         tasksDao: db.tasksDao,
         cycleDao: db.cycleDao,
-        client: null,
+        api: FakeSyncApi(),
+        userId: () => null,
       );
 
   @override
@@ -36,6 +39,19 @@ class _OkService extends SyncService {
 
 class _FakeAuth implements AuthRepository {
   bool signedOut = false;
+  String? deletedWith;
+  String? deletedWithGoogle;
+
+  /// Set to make `deleteAccount` refuse the way the server does for a wrong
+  /// password.
+  Object? deleteError;
+
+  @override
+  Future<void> deleteAccount({String? password, String? idToken}) async {
+    if (deleteError != null) throw deleteError!;
+    deletedWith = password;
+    deletedWithGoogle = idToken;
+  }
 
   @override
   Future<void> signOut() async => signedOut = true;
@@ -49,14 +65,7 @@ class _FakeAuth implements AuthRepository {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  final someone = User(
-    id: 'a-user-id',
-    appMetadata: const {},
-    userMetadata: const {},
-    aud: 'authenticated',
-    createdAt: DateTime.utc(2026).toIso8601String(),
-    email: 'a@example.com',
-  );
+  final someone = AuthUser(id: 'a-user-id', email: 'a@example.com');
 
   late AppDatabase db;
   late SharedPreferences prefs;
@@ -86,20 +95,25 @@ void main() {
   });
 
   /// File and database work runs on the real clock, which `pumpAndSettle`
-  /// does not wait for.
+  /// does not wait for. Plain `pump` in the loop: while the work runs the busy
+  /// overlay's spinner animates for ever, and `pumpAndSettle` would never see a
+  /// still screen.
   Future<void> settle(WidgetTester tester) async {
     for (var i = 0; i < 15; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 200)),
       );
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 100));
     }
+    await tester.pumpAndSettle();
   }
 
   Future<void> signOutAndWipe(
     WidgetTester tester, {
     required bool syncOn,
     bool serverOk = false,
+    bool deleteAccount = false,
+    bool viaGoogle = false,
   }) async {
     SharedPreferences.setMockInitialValues({
       'sync_enabled': syncOn,
@@ -117,11 +131,10 @@ void main() {
       ProviderScope(
         overrides: [
           sharedPreferencesProvider.overrideWithValue(prefs),
-          supabaseReadyProvider.overrideWithValue(true),
           currentUserProvider.overrideWithValue(someone),
           databaseProvider.overrideWithValue(db),
           authRepositoryProvider.overrideWithValue(auth),
-          supabaseClientProvider.overrideWithValue(null),
+          googleIdTokenProvider.overrideWithValue(() async => 'google-tok'),
           if (serverOk) syncServiceProvider.overrideWithValue(_OkService(db)),
         ],
         child: const MaterialApp(
@@ -137,6 +150,26 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+
+    if (deleteAccount) {
+      await tester.ensureVisible(find.text('Удалить аккаунт'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Удалить аккаунт'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Продолжить'));
+      await tester.pumpAndSettle();
+      if (viaGoogle) {
+        await tester.tap(find.text('Войти через Google'));
+        await settle(tester);
+        return;
+      }
+      await tester.tap(find.text('Ввести пароль'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'secret pass');
+      await tester.tap(find.text('Удалить аккаунт').last);
+      await settle(tester);
+      return;
+    }
 
     await tester.ensureVisible(find.text('Выйти из аккаунта'));
     await tester.tap(find.text('Выйти из аккаунта'));
@@ -185,4 +218,47 @@ void main() {
       expect(auth.signedOut, isTrue);
     },
   );
+
+  testWidgets(
+    'deleting the account sends the password as typed and wipes the phone',
+    (tester) async {
+      await signOutAndWipe(tester, syncOn: true, deleteAccount: true);
+
+      expect(auth.deletedWith, 'secret pass');
+      expect(await db.select(db.tasks).get(), isEmpty);
+      expect(await db.select(db.diaryEntries).get(), isEmpty);
+      expect(prefs.getString('sync_claimed_for'), isNull);
+    },
+  );
+
+  testWidgets('a wrong password leaves the phone alone and says so', (
+    tester,
+  ) async {
+    auth.deleteError = const ApiException(
+      ApiFailure.server,
+      status: 401,
+      code: 'invalid_credentials',
+    );
+
+    await signOutAndWipe(tester, syncOn: true, deleteAccount: true);
+
+    expect(find.text('Неверный пароль'), findsOneWidget);
+    expect(await db.select(db.tasks).get(), isNotEmpty);
+    expect(prefs.getString('sync_claimed_for'), 'a-user-id');
+  });
+
+  testWidgets('a Google account confirms with a fresh Google token', (
+    tester,
+  ) async {
+    await signOutAndWipe(
+      tester,
+      syncOn: true,
+      deleteAccount: true,
+      viaGoogle: true,
+    );
+
+    expect(auth.deletedWithGoogle, 'google-tok');
+    expect(auth.deletedWith, isNull);
+    expect(await db.select(db.tasks).get(), isEmpty);
+  });
 }

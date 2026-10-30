@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show User;
+import 'package:todo_app/auth/auth_user.dart';
 import 'package:todo_app/auth/providers.dart';
-import 'package:todo_app/auth/user_profile.dart';
 import 'package:todo_app/pages/account_page.dart';
 import 'package:todo_app/pages/groups_page.dart';
 import 'package:todo_app/settings/app_version.dart';
+import 'package:todo_app/sync/providers.dart';
+import 'package:todo_app/sync/sync_controller.dart';
 import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/utils/surfaces.dart';
 import 'package:todo_app/widgets/page_header.dart';
@@ -25,54 +26,63 @@ class SettingsPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    // Null when nobody is signed in — and also when Supabase never came up, so
-    // the card reads the same on a device that has no account and on one that
-    // could not reach the server.
+    // Null when nobody is signed in.
     final user = ref.watch(currentUserProvider);
+    final syncing = ref.watch(syncActiveProvider);
+
+    final list = ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.only(bottom: 32),
+      children: [
+        const BackHeader(title: 'Настройки'),
+        _ProfileCard(
+          user: user,
+          // Syncing lives on the account screen, so the card is its way in.
+          onTap: () => Navigator.of(
+            context,
+          ).push(MaterialPageRoute<void>(builder: (_) => const AccountPage())),
+        ),
+        const AboutSection(),
+        const AppearanceSection(),
+        const AnalyticsSection(),
+        const NotificationsSection(),
+        // The block draws its own caption and card, and carries the margin
+        // of a list: 16 + its own 8 makes the caption's 24.
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: GroupsSection(),
+        ),
+        const SizedBox(height: 24),
+        Center(
+          child: Text(
+            // The build number arrives a moment after the page, or never
+            // where there is no platform to ask (tests).
+            ref
+                .watch(appVersionLabelProvider)
+                .maybeWhen(
+                  data: (v) => '$appName · Версия $v',
+                  orElse: () => appName,
+                ),
+            style: TextStyle(
+              fontSize: 12,
+              color: AppPalette.of(theme).textTertiary,
+            ),
+          ),
+        ),
+      ],
+    );
 
     return Scaffold(
       backgroundColor: pageSurface(theme),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.only(bottom: 32),
-          children: [
-            const BackHeader(title: 'Настройки'),
-            _ProfileCard(
-              user: user,
-              // Syncing lives on the account screen, so the card is its way in.
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const AccountPage()),
-              ),
-            ),
-            const AboutSection(),
-            const AppearanceSection(),
-            const AnalyticsSection(),
-            const NotificationsSection(),
-            // The block draws its own caption and card, and carries the margin
-            // of a list: 16 + its own 8 makes the caption's 24.
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: GroupsSection(),
-            ),
-            const SizedBox(height: 24),
-            Center(
-              child: Text(
-                // The build number arrives a moment after the page, or never
-                // where there is no platform to ask (tests).
-                ref
-                    .watch(appVersionLabelProvider)
-                    .maybeWhen(
-                      data: (v) => '$appName · Версия $v',
-                      orElse: () => appName,
-                    ),
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppPalette.of(theme).textTertiary,
-                ),
-              ),
-            ),
-          ],
-        ),
+        // Pull down to fetch the groups: opening this screen asks the server
+        // nothing, so a group joined from another phone shows up on request.
+        child: syncing
+            ? RefreshIndicator(
+                onRefresh: () => ref.read(syncControllerProvider).syncNow(),
+                child: list,
+              )
+            : list,
       ),
     );
   }
@@ -83,7 +93,7 @@ class SettingsPage extends ConsumerWidget {
 class _ProfileCard extends StatelessWidget {
   const _ProfileCard({required this.user, required this.onTap});
 
-  final User? user;
+  final AuthUser? user;
   final VoidCallback onTap;
 
   @override
@@ -95,14 +105,10 @@ class _ProfileCard extends StatelessWidget {
     // already says what it is. A sign-up by email carries no name, so the
     // address is the fallback, and then there is nothing for the second line
     // to add.
-    final title = user == null
-        ? 'Аккаунт'
-        : (user.displayName ?? user.email ?? 'Аккаунт');
+    final title = user == null ? 'Аккаунт' : (user.displayName ?? user.email);
     final subtitle = user == null
         ? 'Войти, чтобы синхронизировать'
-        : (user.displayName != null && user.email != null
-              ? user.email!
-              : 'Вы вошли');
+        : (user.displayName != null ? user.email : 'Вы вошли');
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
       child: Material(

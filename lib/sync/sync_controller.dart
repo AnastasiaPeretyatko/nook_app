@@ -2,9 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:todo_app/auth/supabase_init.dart';
+import 'package:todo_app/auth/providers.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
+import 'package:todo_app/settings/api_config.dart';
 import 'package:todo_app/settings/sync_settings.dart';
 import 'package:todo_app/sync/providers.dart';
 import 'package:todo_app/sync/realtime_listener.dart';
@@ -19,18 +20,20 @@ import 'package:todo_app/sync/sync_service.dart';
 ///
 /// ## What sets it off
 ///
-/// * The diary changed here — debounced, so a note saved keystroke by
-///   keystroke is one send rather than forty.
-/// * The app came back to the foreground, which is the moment a phone that has
-///   been in a pocket all morning is most likely to have missed something.
-/// * The server saying a watched row changed ([RealtimeListener]) — how a tick
-///   by another member of a group reaches this phone within a second or two.
-///   Only while the app is in front: Android drops the connection in the
-///   background, and coming back syncs anyway.
-/// * A quiet timer, because not every change announces itself (no connection,
-///   or the app was in the background). Deliberately slow: this is a diary, not
-///   a chat.
-/// * Sync being switched on, or an account appearing.
+/// * The connection to the server's doorbell opens — when the app starts or
+///   comes back to the front. A new connection hears nothing, so it is followed
+///   by one sync: that is how a phone that has been in a pocket all morning
+///   catches up.
+/// * The doorbell rings: another device changed something.
+/// * Something changed here — debounced, so a note saved keystroke by keystroke
+///   is one send rather than forty.
+/// * The app goes to the background: whatever is unsent goes now, without the
+///   debounce, and the connection is closed. Android may freeze the process
+///   straight after, so this is best effort; what does not make it stays marked
+///   and goes at the next start.
+///
+/// There is no timer. It used to ask every fifteen minutes and wake the
+/// database for nothing; the doorbell and the reconnection sync replace it.
 ///
 /// Over-calling is cheap by design — `SyncService.sync` returns immediately
 /// when there is nothing marked, when a run is already going, or when the last
@@ -42,7 +45,6 @@ class SyncController {
   final Ref _ref;
 
   Timer? _debounce;
-  Timer? _heartbeat;
   RealtimeListener? _realtime;
 
   /// Set by a failed run: no automatic run until the app is opened again, or the
@@ -60,53 +62,51 @@ class SyncController {
   /// enough that closing the app straight after a save still catches it.
   static const _debounceDelay = Duration(seconds: 3);
 
-  /// The other devices cannot tell this one they changed something, so it has
-  /// to ask. Rarely: a diary is not read by the minute.
-  static const _heartbeatPeriod = Duration(minutes: 15);
+  RealtimeListener _doorbell() => _realtime ??= RealtimeListener(
+    baseUrl: apiBaseUrl,
+    token: ({bool force = false}) =>
+        _ref.read(apiClientProvider).freshAccessToken(force: force),
+    deviceId: () => _ref.read(deviceIdProvider),
+    // A connection and a ring ask the same thing: what is new on the server?
+    onSignal: () => unawaited(_run(automatic: true)),
+    connector: _ref.read(realtimeConnectorProvider),
+  );
 
+  /// Brings the connection in line with the settings: open while syncing is on
+  /// and automatic, closed otherwise. Safe to call as often as like — an open
+  /// connection is left alone, so coming back from a notification shade costs
+  /// nothing.
   void start() {
-    _startHeartbeat();
-    // Once immediately: the app has just been opened, or sync has just been
-    // switched on, and both are moments where something is probably waiting.
-    unawaited(_run(automatic: true));
-    startRealtime();
-  }
-
-  void _startHeartbeat() {
-    _heartbeat?.cancel();
-    _heartbeat = Timer.periodic(_heartbeatPeriod, (_) => _run(automatic: true));
+    if (!_ref.read(syncActiveProvider) || !_ref.read(syncAutoProvider)) {
+      stop();
+      return;
+    }
+    final doorbell = _doorbell();
+    if (!doorbell.isRunning) doorbell.start();
   }
 
   void stop() {
-    stopRealtime();
     _stopWaitingForNetwork();
     _debounce?.cancel();
     _debounce = null;
-    _heartbeat?.cancel();
-    _heartbeat = null;
-  }
-
-  /// Opens the server's channel of changes. Does nothing when there is no
-  /// Supabase client (offline start, tests) or syncing is not active.
-  void startRealtime() {
-    stopRealtime();
-    final client = _ref.read(supabaseClientProvider);
-    if (client == null || !_ref.read(syncActiveProvider)) return;
-    _realtime = RealtimeListener(
-      client,
-      onSignal: () => unawaited(_run(automatic: true)),
-    )..start();
-  }
-
-  void stopRealtime() {
     _realtime?.stop();
-    _realtime = null;
+  }
+
+  /// The app is leaving the front: sends what is waiting at once and hangs up.
+  Future<void> sendAndDisconnect() async {
+    _realtime?.stop();
+    _debounce?.cancel();
+    _debounce = null;
+    await _run(automatic: true, onlyIfPending: true);
   }
 
   /// Something changed locally. Sends it, once the changes stop coming.
   void nudge() {
     _debounce?.cancel();
-    _debounce = Timer(_debounceDelay, () => _run(automatic: true));
+    _debounce = Timer(
+      _debounceDelay,
+      () => _run(automatic: true, onlyIfPending: true),
+    );
   }
 
   /// Sends now, waiting for the result — what the account screen's button
@@ -142,6 +142,7 @@ class SyncController {
   Future<SyncOutcome> _run({
     required bool automatic,
     bool force = false,
+    bool onlyIfPending = false,
   }) async {
     if (!_ref.read(syncActiveProvider)) return SyncOutcome.skipped;
     if (automatic) {
@@ -157,6 +158,12 @@ class SyncController {
 
     final status = _ref.read(syncStatusProvider.notifier);
     final service = _ref.read(syncServiceProvider);
+    // A local write sets this off, and so does the pull's own writing to the
+    // database. Nothing marked as unsent means the write was not the user's, and
+    // running again would only bring the same rows back — for ever.
+    if (onlyIfPending && !await service.hasPending()) {
+      return SyncOutcome.skipped;
+    }
     // Another run is on its way. Turned away *before* touching the status: a
     // skipped run reports idle, which used to replace the first run's
     // "Синхронизация…" with "Ещё не синхронизировалось" while it was still going.
@@ -169,9 +176,6 @@ class SyncController {
     // A run the user asked for, or one the returning network triggered, does
     // not wait out the engine's backoff.
     final outcome = await service.sync(force: !automatic || force);
-    // The user just did what the timer is for: count the fifteen minutes from
-    // now. Only while the timer exists, so a stopped controller stays stopped.
-    if (!automatic && _heartbeat != null) _startHeartbeat();
 
     switch (outcome) {
       case SyncOutcome.done:
@@ -242,19 +246,20 @@ class _SyncScopeState extends ConsumerState<SyncScope>
     // that is already there, and an app opening with sync already on has to
     // start it rather than wait for the setting to change. The same reasoning
     // the notification subscriptions in `main.dart` are built on.
-    ref.listenManual<bool>(syncActiveProvider, (_, active) {
-      final controller = ref.read(syncControllerProvider);
-      active ? controller.start() : controller.stop();
-    }, fireImmediately: true);
+    void connect(Object? _, Object? _) =>
+        ref.read(syncControllerProvider).start();
+    ref.listenManual<bool>(syncActiveProvider, connect, fireImmediately: true);
+    ref.listenManual<bool>(syncAutoProvider, connect);
 
     // Any write to the diary or to the tasks — by the user or by a pull —
-    // retriggers this. A pull's own writes cost one extra no-op run, which is
-    // cheaper than teaching the stream who wrote.
+    // retriggers this. A pull's own writes come back as a nudge too, which is
+    // cheaper than teaching the stream who wrote: the run it asks for returns
+    // at once when nothing is marked unsent, and sends no request.
     //
     // Three streams and not one, because they are three tables and a write to
     // any of them is something to send. The day marks need their own: ticking a
     // habit changes no task row, so without this a mark would wait for the
-    // fifteen-minute heartbeat while the note the user wrote a second later went
+    // next connection while the note the user wrote a second later went
     // straight up. All three are already watched by live screens, so none of
     // these opens a query that was not open anyway.
     void nudge(Object? _, Object? _) =>
@@ -274,15 +279,16 @@ class _SyncScopeState extends ConsumerState<SyncScope>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Coming back is the one moment worth asking unprompted: the phone may
-    // have been away for hours, and nothing on the other device could have
-    // told it so.
     final controller = ref.read(syncControllerProvider);
-    if (state == AppLifecycleState.resumed) {
-      unawaited(controller.syncIfAuto());
-      controller.startRealtime();
-    } else if (state == AppLifecycleState.paused) {
-      controller.stopRealtime();
+    switch (state) {
+      case AppLifecycleState.paused:
+        unawaited(controller.sendAndDisconnect());
+      case AppLifecycleState.resumed:
+        // Connecting is also the sync: the phone may have been away for hours,
+        // and nothing on the other device could have told it so.
+        controller.start();
+      default:
+        break;
     }
   }
 

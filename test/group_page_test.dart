@@ -28,7 +28,7 @@ class _FakeRepo implements GroupsRepository {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-/// Counts the manual syncs; the real controller would reach for Supabase.
+/// Counts the manual syncs; the real controller would reach for the server.
 class _FakeSync extends SyncController {
   _FakeSync(super.ref);
 

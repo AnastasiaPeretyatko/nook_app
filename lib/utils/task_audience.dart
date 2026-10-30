@@ -33,7 +33,7 @@ bool isMyTask(Task task, String? me) =>
 
 /// Whether [me] may edit or delete [task]: any personal task; a group task only
 /// as its author or as the owner of its group, [groupOwnerUid]. The server
-/// enforces the same — see `supabase/005_groups.sql`.
+/// enforces the same — see BACKEND_PLAN.md §4.3.
 bool canEditTaskAs(Task task, String? me, {String? groupOwnerUid}) {
   if (task.groupUid == null) return true;
   if (me == null) return false;

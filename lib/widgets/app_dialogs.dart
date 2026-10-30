@@ -50,6 +50,7 @@ Future<String?> showTextPromptDialog(
   required String action,
   String initial = '',
   int maxLength = 100,
+  bool obscure = false,
 }) async {
   final result = await showDialog<String>(
     context: context,
@@ -59,9 +60,11 @@ Future<String?> showTextPromptDialog(
       action: action,
       initial: initial,
       maxLength: maxLength,
+      obscure: obscure,
     ),
   );
-  final trimmed = result?.trim();
+  // A password is returned exactly as typed: trimming would change it.
+  final trimmed = obscure ? result : result?.trim();
   return trimmed == null || trimmed.isEmpty ? null : trimmed;
 }
 
@@ -545,6 +548,7 @@ class _PromptDialog extends StatefulWidget {
     required this.action,
     required this.initial,
     required this.maxLength,
+    required this.obscure,
   });
 
   final String title;
@@ -552,6 +556,7 @@ class _PromptDialog extends StatefulWidget {
   final String action;
   final String initial;
   final int maxLength;
+  final bool obscure;
 
   @override
   State<_PromptDialog> createState() => _PromptDialogState();
@@ -591,7 +596,10 @@ class _PromptDialogState extends State<_PromptDialog> {
           controller: _controller,
           autofocus: true,
           maxLength: widget.maxLength,
-          textCapitalization: TextCapitalization.sentences,
+          obscureText: widget.obscure,
+          textCapitalization: widget.obscure
+              ? TextCapitalization.none
+              : TextCapitalization.sentences,
           style: TextStyle(fontSize: 15, color: palette.textPrimary),
           onSubmitted: (_) => _submit(),
           decoration: InputDecoration(

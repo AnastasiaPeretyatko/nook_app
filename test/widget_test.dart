@@ -5,7 +5,6 @@ import 'package:todo_app/pages/settings_page.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:todo_app/auth/supabase_init.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/main.dart';
@@ -27,11 +26,8 @@ import 'package:todo_app/widgets/app_bottom_nav_bar.dart';
 /// startup — a provider nobody overrode, a subscription set up in the wrong
 /// order — would otherwise be found only by running the app.
 ///
-/// The two overrides are exactly the two `main()` passes.
-/// `sharedPreferencesProvider` throws if it is not given one, and
-/// `supabaseReadyProvider` stands in for a network call that must not happen in
-/// a test — false is the honest answer here, and it is also the state a launch
-/// with no connection reaches.
+/// The one override is exactly what `main()` passes: `sharedPreferencesProvider`
+/// throws if it is not given one.
 void main() {
   late SharedPreferences prefs;
 
@@ -44,10 +40,7 @@ void main() {
   testWidgets('the app boots on the day screen', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          sharedPreferencesProvider.overrideWithValue(prefs),
-          supabaseReadyProvider.overrideWithValue(false),
-        ],
+        overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
         child: const MyApp(),
       ),
     );
@@ -126,7 +119,6 @@ void main() {
       ProviderScope(
         overrides: [
           sharedPreferencesProvider.overrideWithValue(prefs),
-          supabaseReadyProvider.overrideWithValue(false),
           allTasksProvider.overrideWith((ref) => Stream.value([task])),
           allLogsProvider.overrideWith((ref) => Stream.value(const [])),
         ],
@@ -147,10 +139,7 @@ void main() {
   ) async {
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          sharedPreferencesProvider.overrideWithValue(prefs),
-          supabaseReadyProvider.overrideWithValue(false),
-        ],
+        overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
         child: const MyApp(),
       ),
     );
@@ -176,10 +165,7 @@ void main() {
   testWidgets('every tab opens', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          sharedPreferencesProvider.overrideWithValue(prefs),
-          supabaseReadyProvider.overrideWithValue(false),
-        ],
+        overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
         child: const MyApp(),
       ),
     );
@@ -237,10 +223,7 @@ void main() {
     final womans = await SharedPreferences.getInstance();
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          sharedPreferencesProvider.overrideWithValue(womans),
-          supabaseReadyProvider.overrideWithValue(false),
-        ],
+        overrides: [sharedPreferencesProvider.overrideWithValue(womans)],
         child: const MyApp(),
       ),
     );

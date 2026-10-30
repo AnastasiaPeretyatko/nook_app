@@ -3,7 +3,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:todo_app/auth/supabase_init.dart';
+import 'package:todo_app/api/warm_up.dart';
+import 'package:todo_app/auth/providers.dart';
 import 'package:todo_app/groups/group_events_provider.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/pages/create_note_page.dart';
@@ -42,17 +43,11 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('ru_RU', null);
+  warmUpServer();
   final prefs = await SharedPreferences.getInstance();
-  // Awaited, but it never throws and never waits on the network: an account is
-  // an extra, and a launch with no connection has to reach the same screens it
-  // always does.
-  final supabaseReady = await initSupabase();
   runApp(
     ProviderScope(
-      overrides: [
-        sharedPreferencesProvider.overrideWithValue(prefs),
-        supabaseReadyProvider.overrideWithValue(supabaseReady),
-      ],
+      overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
       child: const MyApp(),
     ),
   );
@@ -145,6 +140,9 @@ class _MainScreenState extends ConsumerState<MainScreen>
     super.initState();
     // Once per launch; the banner appears only if GitHub has a newer build.
     ref.read(updateProvider.notifier).check();
+    // Picks up a changed name or picture, and notices a session that ended.
+    // Quiet without a connection, and does nothing when nobody is signed in.
+    ref.read(authRepositoryProvider)?.refreshUser();
     // Taps on the home-screen widget that mean "open the app somewhere". They
     // are reported by `HomeWidgetScope` above this screen, because a launch has
     // to be caught before any screen is on it; acting on one needs a tab and a

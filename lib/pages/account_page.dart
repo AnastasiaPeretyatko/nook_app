@@ -2,14 +2,13 @@ import 'package:todo_app/widgets/app_dialogs.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:todo_app/auth/auth_errors.dart';
-import 'package:todo_app/auth/auth_repository.dart';
 import 'package:todo_app/auth/providers.dart';
-import 'package:todo_app/auth/supabase_init.dart';
-import 'package:todo_app/auth/user_profile.dart';
+import 'package:todo_app/auth/auth_user.dart';
+import 'package:todo_app/auth/google_id_token.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/push/push_registration.dart';
+import 'package:todo_app/push/push_service.dart';
 import 'package:todo_app/sync/first_sync.dart';
 import 'package:todo_app/sync/providers.dart';
 import 'package:todo_app/sync/sync_controller.dart';
@@ -44,6 +43,9 @@ class AccountPage extends ConsumerStatefulWidget {
 
 enum _Mode { signIn, signUp }
 
+/// How the user proves it is them before the account is deleted.
+enum _ConfirmWith { password, google }
+
 /// What "выйти" was asked to do with what is on the phone.
 enum _SignOutChoice { keep, wipe }
 
@@ -54,6 +56,15 @@ class _AccountPageState extends ConsumerState<AccountPage> {
 
   _Mode _mode = _Mode.signIn;
   bool _isBusy = false;
+
+  /// What the full-screen spinner says while [_isBusy].
+  String _busyLabel = '';
+
+  /// Signed in and on the way out of this screen. The session has already
+  /// landed, so the screen would redraw itself as the account card for the few
+  /// frames the closing animation takes — a flash of a page nobody asked for.
+  /// While this is set it keeps showing the form (under the spinner) instead.
+  bool _leaving = false;
   bool _obscure = true;
   String? _error;
 
@@ -82,6 +93,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
 
     setState(() {
       _isBusy = true;
+      _busyLabel = _isSignUp ? 'Создаём аккаунт…' : 'Входим…';
       _error = null;
     });
     try {
@@ -92,14 +104,22 @@ class _AccountPageState extends ConsumerState<AccountPage> {
       } else {
         await repo.signInWithPassword(email: email, password: password);
       }
-      // Nothing to pop to a result: the screen watches currentUserProvider and
-      // redraws itself as the account card the moment the session lands.
       _password.clear();
+      _leaveToApp();
     } catch (error) {
       if (mounted) setState(() => _error = authErrorMessage(error));
     } finally {
-      if (mounted) setState(() => _isBusy = false);
+      if (mounted && !_leaving) setState(() => _isBusy = false);
     }
+  }
+
+  /// Signed in: back to the app itself (the settings and this screen are pushed
+  /// on top of it), rather than leaving the user looking at the form they just
+  /// filled in. Syncing is switched on from the account screen, one tap away.
+  void _leaveToApp() {
+    if (!mounted) return;
+    setState(() => _leaving = true);
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   Future<void> _google() async {
@@ -108,19 +128,20 @@ class _AccountPageState extends ConsumerState<AccountPage> {
 
     setState(() {
       _isBusy = true;
+      _busyLabel = 'Входим через Google…';
       _error = null;
     });
     try {
-      final opened = await repo.signInWithGoogle();
-      if (!opened && mounted) {
-        setState(() => _error = 'Не удалось открыть браузер');
+      final idToken = await ref.read(googleIdTokenProvider)();
+      // Null: the user closed the sheet. Not an error, so nothing is shown.
+      if (idToken != null) {
+        await repo.signInWithGoogle(idToken);
+        _leaveToApp();
       }
-      // A successful launch says nothing about the sign-in: the session comes
-      // back over the deep link and arrives through currentUserProvider.
     } catch (error) {
       if (mounted) setState(() => _error = authErrorMessage(error));
     } finally {
-      if (mounted) setState(() => _isBusy = false);
+      if (mounted && !_leaving) setState(() => _isBusy = false);
     }
   }
 
@@ -138,21 +159,126 @@ class _AccountPageState extends ConsumerState<AccountPage> {
   Future<void> _signOut() async {
     final repo = ref.read(authRepositoryProvider);
     if (repo == null) return;
+    final overlay = Overlay.of(context, rootOverlay: true);
 
     final choice = await _askHowToLeave();
     if (choice == null) return;
 
+    setState(() => _error = null);
+    try {
+      if (choice == _SignOutChoice.wipe && !await _clearDevice()) return;
+      _setBusy('Выходим…');
+      // While the session still authorises it: afterwards the phone would keep
+      // getting this account's pushes.
+      await unregisterDevice(
+        ref.read(syncApiProvider),
+        ref.read(pushServiceProvider),
+      );
+      await repo.signOut();
+      showAppToast(
+        overlay,
+        message: 'Вы вышли из аккаунта',
+        icon: LucideIcons.log_out,
+        duration: const Duration(seconds: 3),
+      );
+    } catch (error) {
+      if (mounted) setState(() => _error = authErrorMessage(error));
+    } finally {
+      _setBusy(null);
+    }
+  }
+
+  /// Shows (or hides) the full-screen spinner. Only around work that is being
+  /// done — never while a dialog waits for the user, who would be looking at a
+  /// spinner that is not spinning for anything.
+  void _setBusy(String? label) {
+    if (!mounted) return;
+    setState(() {
+      _isBusy = label != null;
+      _busyLabel = label ?? '';
+    });
+  }
+
+  /// Deleting the account for good: a warning, then the password.
+  ///
+  /// The server is asked first and the phone wiped only once it has agreed —
+  /// the other order would leave a signed-in account with an empty phone if the
+  /// request failed. The data goes from the phone as well, or the next sign-in
+  /// would offer "another account's data" that no account owns any more.
+  Future<void> _deleteAccount() async {
+    final repo = ref.read(authRepositoryProvider);
+    if (repo == null) return;
+    final overlay = Overlay.of(context, rootOverlay: true);
+
+    final sure = await showConfirmDialog(
+      context,
+      icon: DialogIcons.delete,
+      title: 'Удалить аккаунт?',
+      body:
+          'Аккаунт, его данные на сервере и данные на этом телефоне будут '
+          'стёрты без возможности вернуть.\n\nГруппы, которые вы вели, '
+          'удалятся; в остальных группах ваши задачи останутся без имени.',
+      action: 'Продолжить',
+      cancel: 'Не удалять',
+    );
+    if (!sure || !mounted) return;
+
+    // The app does not know whether this account has a password or is Google's,
+    // so the user says how to prove it.
+    final how = await showActionsSheet<_ConfirmWith>(
+      context,
+      title: 'Подтвердите удаление',
+      actions: const [
+        SheetAction(
+          icon: LucideIcons.lock,
+          label: 'Ввести пароль',
+          description: 'Если вы входили по почте',
+          value: _ConfirmWith.password,
+        ),
+        SheetAction(
+          icon: LucideIcons.user,
+          label: 'Войти через Google',
+          description: 'Если вы входили через Google',
+          value: _ConfirmWith.google,
+        ),
+      ],
+    );
+    if (how == null || !mounted) return;
+
+    String? password;
+    if (how == _ConfirmWith.password) {
+      password = await showTextPromptDialog(
+        context,
+        title: 'Введите пароль',
+        hint: 'Пароль',
+        action: 'Удалить аккаунт',
+        maxLength: 128,
+        obscure: true,
+      );
+      if (password == null) return;
+    }
+
     setState(() {
       _isBusy = true;
+      _busyLabel = 'Удаляем аккаунт…';
       _error = null;
     });
     try {
-      if (choice == _SignOutChoice.wipe && !await _clearDevice()) return;
-      // Before the session goes: afterwards nothing authorises the call.
-      await unregisterDevice(ref.read(supabaseClientProvider));
-      await repo.signOut();
+      String? idToken;
+      if (how == _ConfirmWith.google) {
+        // Fresh from Google: the server will not take an old one for this.
+        idToken = await ref.read(googleIdTokenProvider)();
+        if (idToken == null) return; // closed the sheet
+      }
+      await repo.deleteAccount(password: password, idToken: idToken);
+      await forgetAccountData(ref);
+      showAppToast(
+        overlay,
+        message: 'Аккаунт удалён',
+        duration: const Duration(seconds: 4),
+      );
     } catch (error) {
-      if (mounted) setState(() => _error = authErrorMessage(error));
+      if (mounted) setState(() => _error = deleteAccountErrorMessage(error));
     } finally {
       if (mounted) setState(() => _isBusy = false);
     }
@@ -196,7 +322,9 @@ class _AccountPageState extends ConsumerState<AccountPage> {
   /// false reassurance.
   Future<bool> _clearDevice() async {
     if (ref.read(syncActiveProvider)) {
+      _setBusy('Отправляем изменения…');
       final outcome = await ref.read(syncControllerProvider).syncNow();
+      _setBusy(null);
       if (outcome != SyncOutcome.done) {
         if (!mounted) return false;
         if (!await _confirmWipeAfterFailure(outcome)) return false;
@@ -211,6 +339,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
     }
 
     if (!mounted) return false;
+    _setBusy('Стираем данные…');
     await forgetAccountData(ref);
     return true;
   }
@@ -272,8 +401,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final ready = ref.watch(supabaseReadyProvider);
-    final user = ref.watch(currentUserProvider);
+    final user = _leaving ? null : ref.watch(currentUserProvider);
 
     final title = user != null
         ? 'Аккаунт'
@@ -282,44 +410,45 @@ class _AccountPageState extends ConsumerState<AccountPage> {
     // A pushed route with its own header, like the group screen: a round back
     // button, the title in the middle. Deliberately **not** a gate in front of
     // the app, so the way back is always there.
-    return Scaffold(
-      backgroundColor: pageSurface(theme),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.only(bottom: 32),
+    return PopScope(
+      // Mid-request the way back is shut: leaving would not stop the request,
+      // only hide what it did.
+      canPop: !_isBusy,
+      child: Scaffold(
+        backgroundColor: pageSurface(theme),
+        body: Stack(
           children: [
-            BackHeader(title: title),
-            if (!ready)
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 16, 16, 0),
-                child: _Callout(
-                  icon: LucideIcons.cloud_off,
-                  tone: Color(0xFFF59E0B),
-                  title: 'Сервер недоступен',
-                  subtitle:
-                      'Не удалось связаться с Supabase. Всё остальное '
-                      'работает как обычно',
-                ),
-              )
-            else if (user != null) ...[
-              _Profile(user: user),
-              _SyncCard(onEnable: _enableSync, onDecide: _decideAgain),
-              const _SyncToggles(),
-              _SignOutBlock(onSignOut: _isBusy ? null : _signOut),
-            ] else
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                child: _buildForm(theme),
+            SafeArea(
+              child: ListView(
+                padding: const EdgeInsets.only(bottom: 32),
+                children: [
+                  BackHeader(title: title),
+                  if (user != null) ...[
+                    _Profile(user: user),
+                    _SyncCard(onEnable: _enableSync, onDecide: _decideAgain),
+                    const _SyncToggles(),
+                    _SignOutBlock(
+                      onSignOut: _isBusy ? null : _signOut,
+                      onDelete: _isBusy ? null : _deleteAccount,
+                    ),
+                  ] else
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                      child: _buildForm(theme),
+                    ),
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                      child: _Callout(
+                        icon: LucideIcons.triangle_alert,
+                        tone: const Color(0xFFE05252),
+                        title: _error!,
+                      ),
+                    ),
+                ],
               ),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                child: _Callout(
-                  icon: LucideIcons.triangle_alert,
-                  tone: const Color(0xFFE05252),
-                  title: _error!,
-                ),
-              ),
+            ),
+            if (_isBusy && _busyLabel.isNotEmpty) _BusyOverlay(_busyLabel),
           ],
         ),
       ),
@@ -487,7 +616,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
 class _Profile extends StatelessWidget {
   const _Profile({required this.user});
 
-  final User user;
+  final AuthUser user;
 
   @override
   Widget build(BuildContext context) {
@@ -502,7 +631,7 @@ class _Profile extends StatelessWidget {
           // The name when the provider gave one, the address when it did not —
           // a sign-up with an email carries no name at all.
           Text(
-            user.displayName ?? user.email ?? 'Вы вошли',
+            user.displayName ?? user.email,
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 20,
@@ -511,15 +640,64 @@ class _Profile extends StatelessWidget {
             ),
           ),
           // Only worth a second line when the first one is not already it.
-          if (user.displayName != null && user.email != null) ...[
+          if (user.displayName != null) ...[
             const SizedBox(height: 2),
             Text(
-              user.email!,
+              user.email,
               style: TextStyle(fontSize: 14, color: palette.textSecondary),
             ),
           ],
         ],
       ),
+    );
+  }
+}
+
+/// A dimmed screen with a spinner and one line, over everything while a request
+/// is in flight. A server that was asleep takes seconds to answer, and the small
+/// spinner on a button is easy to miss — this one says plainly that the tap
+/// worked and something is happening.
+class _BusyOverlay extends StatelessWidget {
+  const _BusyOverlay(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final palette = AppPalette.of(theme);
+    return Stack(
+      children: [
+        const ModalBarrier(color: Color(0x66000000), dismissible: false),
+        Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+            decoration: BoxDecoration(
+              color: raisedSurface(theme),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 32,
+                  height: 32,
+                  child: CircularProgressIndicator(strokeWidth: 3),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                    color: palette.textPrimary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -802,9 +980,10 @@ class _SyncToggles extends ConsumerWidget {
 
 /// "Выйти из аккаунта" and what it does to the data.
 class _SignOutBlock extends StatelessWidget {
-  const _SignOutBlock({required this.onSignOut});
+  const _SignOutBlock({required this.onSignOut, required this.onDelete});
 
   final VoidCallback? onSignOut;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -849,6 +1028,20 @@ class _SignOutBlock extends StatelessWidget {
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: palette.textSecondary),
           ),
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: onDelete,
+            child: Text(
+              'Удалить аккаунт',
+              style: TextStyle(
+                fontSize: 14,
+                color: inkOn(
+                  palette.surface,
+                  Theme.of(context).colorScheme.error,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -866,17 +1059,11 @@ BoxDecoration _cardDecoration(ThemeData theme) => BoxDecoration(
 /// one is private to its own screen and carries a button this one has no use
 /// for.
 class _Callout extends StatelessWidget {
-  const _Callout({
-    required this.icon,
-    required this.tone,
-    required this.title,
-    this.subtitle,
-  });
+  const _Callout({required this.icon, required this.tone, required this.title});
 
   final IconData icon;
   final Color tone;
   final String title;
-  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -908,15 +1095,6 @@ class _Callout extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle!,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
               ],
             ),
           ),

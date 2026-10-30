@@ -21,7 +21,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
 
-    <!-- Signing in talks to Supabase, and that is the app's only network call.
+    <!-- Sign-in, sync and the live connection all talk to the app's own server.
          The Flutter template declares INTERNET in src/debug for hot reload, so
          a debug build had it all along and a release build would not — this is
          the declaration that makes the account work on a real APK. -->
@@ -56,25 +56,6 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <!-- Where Google sends the browser back after an OAuth sign-in.
-                 The scheme is reverse-DNS and not the applicationId
-                 (com.yourname.todo_app): a URI scheme may hold only letters,
-                 digits, '+', '-' and '.', so the underscore rules that one
-                 out, and Android silently fails to match a filter whose
-                 scheme is invalid. It is spelled again
-                 as `authRedirectUrl` in lib/settings/supabase_config.dart, in
-                 ios/Runner/Info.plist, and in the Supabase dashboard's
-                 Redirect URLs — all four have to agree.
-
-                 android:launchMode="singleTop" above is what delivers this to
-                 the running activity instead of starting a second one. -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW"/>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="io.supabase.nook" android:host="login-callback"/>
-            </intent-filter>
-
             <!-- How a tap on the home-screen widget opens the app. The intent
                  the widget sends is explicit — it names this class — so the
                  filter is not what routes it; what it does is make the action
