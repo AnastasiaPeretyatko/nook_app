@@ -2,7 +2,7 @@ name: todo_app
 description: "Recurring tasks tracker with analytics."
 publish_to: "none"
 
-version: 2.1.0+9
+version: 3.1.0+10
 
 environment:
   sdk: ^3.12.2
