@@ -36,7 +36,7 @@ class AppNotifications {
   static const _reminderChannelId = 'task_reminders';
 
   /// The channel a group push is filed under. Spelled out on the server too
-  /// (`CHANNEL_ID` in `supabase/functions/push/index.ts`): change both.
+  /// (`channel_id` in the push message, BACKEND_PLAN.md §6): change both.
   static const groupChannelId = 'group_activity';
 
   /// Two ids per task out of one counter, so the ongoing entry and the alert

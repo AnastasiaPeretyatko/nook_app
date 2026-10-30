@@ -8,7 +8,7 @@ import 'package:flutter/foundation.dart';
 
 /// Brings Firebase up for push, and never throws.
 ///
-/// Same bargain as `initSupabase`: push is an extra, and a launch on a phone
+/// Push is an extra, and a launch on a phone
 /// without Google Play services, or with a broken config, has to end in a
 /// running app. Android only — `google-services.json` is the one config there
 /// is; other platforms have none.

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:todo_app/notifications/permission_prompt.dart';
 import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
@@ -427,6 +428,11 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
       // A duplicate's subtasks come through the form's own rows, seeded from the
       // source in [_loadSubtasks] — copying them again here would double them up.
       await _saveSubtasks(dao, newId, subtaskLogDate);
+      // The first thing worth a notification now exists: ask while the user is
+      // still looking at the app.
+      unawaited(
+        ref.read(offerNotificationPermissionProvider)(NotificationAsk.task),
+      );
     }
 
     if (mounted) Navigator.of(context).pop();

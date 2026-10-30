@@ -2,32 +2,39 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:todo_app/api/api_exception.dart';
+import 'package:todo_app/api/sync_api.dart';
 import 'package:todo_app/auth/providers.dart';
-import 'package:todo_app/auth/supabase_init.dart';
 import 'package:todo_app/notifications/providers.dart';
-import 'package:todo_app/push/push_init.dart';
+import 'package:todo_app/push/push_service.dart';
 import 'package:todo_app/push/push_tap.dart';
+import 'package:todo_app/sync/providers.dart';
 
-/// Keeps this phone's push token on the server under whoever is signed in.
+/// Keeps this phone's push token on our server under whoever is signed in.
 ///
-/// Rebuilt when the account changes (keyed on the id, not on the `User`, which
-/// is a new object at every hourly session refresh), so a second account
-/// signing in on this phone takes the token over — `register_device` in
-/// `supabase/011_device_tokens.sql` moves the row. Does nothing without a
-/// client or a signed-in user, which is also every widget test.
+/// Rebuilt when the account changes (keyed on the id, not on the user object,
+/// which is a new one whenever the profile is re-read), so a second account
+/// signing in on this phone takes the token over: the server gives a token to
+/// whoever registered it last. Does nothing without a signed-in user, which is
+/// also every widget test.
 ///
-/// Best effort: a failed call is dropped. The next launch, or a new token,
-/// registers again, and a phone that cannot reach the server has no use for one.
+/// Registers after the sign-in, at every launch and at every new token — a
+/// repeat changes nothing on the server. Best effort: a failed call is dropped,
+/// and a phone that cannot reach the server has no use for a token anyway. The
+/// next launch or token registers again.
 final pushRegistrationProvider = Provider<void>((ref) {
-  final client = ref.watch(supabaseClientProvider);
   final uid = ref.watch(currentUserProvider.select((user) => user?.id));
-  if (client == null || uid == null) return;
+  if (uid == null) return;
+  final api = ref.watch(syncApiProvider);
+  final push = ref.watch(pushServiceProvider);
 
   Future<void> register(String? token) async {
     if (token == null) return;
     try {
-      await client.rpc('register_device', params: {'p_token': token});
+      await api.registerDevice(token);
+    } on ApiException catch (e) {
+      // `bad_token` means this token will never do; asking again is no use.
+      debugPrint('Push token not registered: $e');
     } catch (e) {
       debugPrint('Push token not registered: $e');
     }
@@ -40,10 +47,10 @@ final pushRegistrationProvider = Provider<void>((ref) {
   StreamSubscription<String>? refreshes;
   StreamSubscription<String>? taps;
   unawaited(
-    initPush().then((token) {
+    push.init().then((token) {
       if (disposed || token == null) return;
       unawaited(register(token));
-      refreshes = pushTokenRefreshes().listen(register);
+      refreshes = push.tokenRefreshes().listen(register);
 
       // A tap on a push opens its group: from the background by the stream,
       // from a closed app by the launch message.
@@ -51,8 +58,8 @@ final pushRegistrationProvider = Provider<void>((ref) {
         if (!disposed) ref.read(pushTapProvider.notifier).report(group);
       }
 
-      taps = pushOpenedGroups().listen(open);
-      unawaited(pushLaunchedGroup().then(open));
+      taps = push.openedGroups().listen(open);
+      unawaited(push.launchedGroup().then(open));
     }),
   );
   ref.onDispose(() {
@@ -66,16 +73,18 @@ final pushRegistrationProvider = Provider<void>((ref) {
 /// afterwards there is no session left to authorise the call.
 ///
 /// Best effort and quick — leaving must not wait on a bad connection. If the
-/// server row stays behind, the token is dead anyway ([releasePushToken]).
-Future<void> unregisterDevice(SupabaseClient? client) async {
-  if (client == null) return;
+/// server row stays behind, the token is dead anyway: [PushService.releaseToken]
+/// has thrown it away, so a push sent to it goes nowhere.
+Future<void> unregisterDevice(
+  SyncApi api,
+  PushService push, {
+  Duration timeout = const Duration(seconds: 2),
+}) async {
   try {
     await () async {
-      final token = await releasePushToken();
-      if (token != null) {
-        await client.rpc('unregister_device', params: {'p_token': token});
-      }
-    }().timeout(const Duration(seconds: 5));
+      final token = await push.releaseToken();
+      if (token != null) await api.unregisterDevice(token);
+    }().timeout(timeout);
   } catch (e) {
     debugPrint('Push token not unregistered: $e');
   }
