@@ -1,18 +1,22 @@
 import 'dart:async';
 
 import 'package:drift/native.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:todo_app/api/token_store.dart';
+import 'package:todo_app/auth/auth_user.dart';
 import 'package:todo_app/auth/providers.dart';
-import 'package:todo_app/auth/supabase_init.dart';
 import 'package:todo_app/database/app_database.dart';
+import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/settings/sync_settings.dart';
 import 'package:todo_app/settings/theme_provider.dart';
 import 'package:todo_app/sync/providers.dart';
+import 'package:todo_app/sync/realtime_listener.dart';
 import 'package:todo_app/sync/sync_controller.dart';
 import 'package:todo_app/sync/sync_service.dart';
+import 'support/fake_sync_api.dart';
 import 'package:todo_app/sync/sync_status.dart';
 
 /// A service that only counts: the question here is whether the controller asked
@@ -23,7 +27,8 @@ class _CountingService extends SyncService {
         dao: db.diaryDao,
         tasksDao: db.tasksDao,
         cycleDao: db.cycleDao,
-        client: null,
+        api: FakeSyncApi(),
+        userId: () => null,
       );
 
   int runs = 0;
@@ -43,40 +48,65 @@ class _CountingService extends SyncService {
   }
 }
 
+class _FakeSocket implements WsConnection {
+  final _incoming = StreamController<String>();
+  bool closed = false;
+
+  @override
+  Stream<String> get messages => _incoming.stream;
+
+  @override
+  void send(String text) {}
+
+  @override
+  Future<void> close() async {
+    closed = true;
+    if (!_incoming.isClosed) await _incoming.close();
+  }
+
+  void ring() => _incoming.add('{"t":"changed"}');
+}
+
 /// When the controller sends: by itself, only on Wi-Fi, or only when asked.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  final someone = User(
-    id: 'a-user-id',
-    appMetadata: const {},
-    userMetadata: const {},
-    aud: 'authenticated',
-    createdAt: DateTime.utc(2026).toIso8601String(),
-  );
+  final someone = AuthUser(id: 'a-user-id', email: 'me@example.com');
 
   late AppDatabase db;
   late _CountingService service;
   var onWifi = true;
   late StreamController<bool> network;
+  late List<_FakeSocket> sockets;
 
-  Future<ProviderContainer> container(Map<String, Object> stored) async {
+  Future<List<Override>> overridesFor(Map<String, Object> stored) async {
     SharedPreferences.setMockInitialValues({
       'sync_enabled': true,
       'sync_claimed_for': 'a-user-id',
       ...stored,
     });
     final prefs = await SharedPreferences.getInstance();
-    final c = ProviderContainer(
-      overrides: [
-        sharedPreferencesProvider.overrideWithValue(prefs),
-        supabaseReadyProvider.overrideWithValue(true),
-        currentUserProvider.overrideWithValue(someone),
-        syncServiceProvider.overrideWithValue(service),
-        onWifiProvider.overrideWithValue(() async => onWifi),
-        networkAvailableChangesProvider.overrideWithValue(network.stream),
-      ],
-    );
+    return [
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      currentUserProvider.overrideWithValue(someone),
+      syncServiceProvider.overrideWithValue(service),
+      onWifiProvider.overrideWithValue(() async => onWifi),
+      networkAvailableChangesProvider.overrideWithValue(network.stream),
+      // A token that needs no refresh, and a socket that goes nowhere.
+      tokenStoreProvider.overrideWithValue(
+        MemoryTokenStore(accessToken: 'tok'),
+      ),
+      deviceIdProvider.overrideWithValue('phone-1'),
+      realtimeConnectorProvider.overrideWithValue((url) async {
+        final socket = _FakeSocket();
+        sockets.add(socket);
+        return socket;
+      }),
+    ];
+  }
+
+  Future<ProviderContainer> container(Map<String, Object> stored) async {
+    final c = ProviderContainer(overrides: await overridesFor(stored));
     addTearDown(c.dispose);
     return c;
   }
@@ -86,6 +116,7 @@ void main() {
     addTearDown(db.close);
     service = _CountingService(db);
     onWifi = true;
+    sockets = [];
     network = StreamController<bool>.broadcast();
     addTearDown(network.close);
   });
@@ -269,6 +300,171 @@ void main() {
     await c.read(syncControllerProvider).syncNow();
 
     expect(service.runs, 0);
+  });
+
+  group('the connection to the server\'s doorbell', () {
+    Future<void> settle() => Future<void>.delayed(Duration.zero);
+
+    test('opening it is the sync: one connection, one run', () async {
+      final c = await container({});
+      c.read(syncControllerProvider).start();
+      await settle();
+
+      expect(sockets, hasLength(1));
+      expect(service.runs, 1);
+    });
+
+    test('starting again leaves the open connection alone', () async {
+      final c = await container({});
+      final controller = c.read(syncControllerProvider);
+      controller.start();
+      await settle();
+      controller.start();
+      controller.start();
+      await settle();
+
+      expect(sockets, hasLength(1));
+      expect(service.runs, 1);
+    });
+
+    test('a ring runs a sync', () async {
+      final c = await container({});
+      c.read(syncControllerProvider).start();
+      await settle();
+
+      sockets.single.ring();
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
+
+      expect(service.runs, 2);
+    });
+
+    test('with "Автоматически" off there is no connection', () async {
+      final c = await container({'sync_auto': false});
+      c.read(syncControllerProvider).start();
+      await settle();
+
+      expect(sockets, isEmpty);
+      expect(service.runs, 0);
+    });
+
+    test('with syncing off there is no connection', () async {
+      final c = await container({'sync_enabled': false});
+      c.read(syncControllerProvider).start();
+      await settle();
+
+      expect(sockets, isEmpty);
+    });
+
+    test('stopping hangs up', () async {
+      final c = await container({});
+      final controller = c.read(syncControllerProvider);
+      controller.start();
+      await settle();
+
+      controller.stop();
+      await settle();
+
+      expect(sockets.single.closed, isTrue);
+    });
+
+    test('leaving the front sends what is waiting and hangs up', () async {
+      final c = await container({});
+      final controller = c.read(syncControllerProvider);
+      controller.start();
+      await settle();
+      service.runs = 0;
+      await db.tasksDao.insertTask(
+        TasksCompanion.insert(title: 'Не отправлено'),
+      );
+
+      await controller.sendAndDisconnect();
+
+      expect(sockets.single.closed, isTrue);
+      expect(service.runs, 1, reason: 'sent at once, not after the 3 s');
+    });
+
+    test('leaving the front with nothing to send only hangs up', () async {
+      final c = await container({});
+      final controller = c.read(syncControllerProvider);
+      controller.start();
+      await settle();
+      service.runs = 0;
+
+      await controller.sendAndDisconnect();
+
+      expect(sockets.single.closed, isTrue);
+      expect(service.runs, 0);
+    });
+
+    testWidgets('no timer asks on its own, however long it is left', (
+      tester,
+    ) async {
+      final c = ProviderContainer(overrides: await overridesFor({}));
+      addTearDown(c.dispose);
+      c.read(syncControllerProvider).start();
+      await tester.pump();
+      expect(service.runs, 1);
+
+      await tester.pump(const Duration(hours: 2));
+
+      expect(service.runs, 1);
+      c.read(syncControllerProvider).stop();
+      await tester.pump();
+    });
+  });
+
+  group('the app going away and coming back', () {
+    Future<void> open(WidgetTester tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            ...await overridesFor({}),
+            diaryEntriesProvider.overrideWith((ref) => Stream.value(const [])),
+            allTasksProvider.overrideWith((ref) => Stream.value(const [])),
+            allLogsProvider.overrideWith((ref) => Stream.value(const [])),
+            cycleDaysProvider.overrideWith((ref) => Stream.value(const [])),
+          ],
+          child: const SyncScope(child: SizedBox()),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('opening the app connects, once', (tester) async {
+      await open(tester);
+
+      expect(sockets, hasLength(1));
+      expect(service.runs, 1);
+    });
+
+    testWidgets('going to the background hangs up; coming back connects', (
+      tester,
+    ) async {
+      await open(tester);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      expect(sockets.single.closed, isTrue);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(sockets, hasLength(2));
+      expect(sockets.last.closed, isFalse);
+      expect(service.runs, 2, reason: 'one sync per connection');
+    });
+
+    testWidgets('coming back when it never left does not reconnect', (
+      tester,
+    ) async {
+      await open(tester);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+
+      expect(sockets, hasLength(1));
+      expect(service.runs, 1);
+    });
   });
 
   group('the diary switch', () {
