@@ -58,8 +58,8 @@ const defaultNoteMoods = <NoteMoodPreset>[
 /// app — it lives in the list above, it arrives with the install, and nothing
 /// in the app can rename or delete it — so the server holds one shared row for
 /// each, owned by nobody, and a device that sent its own copy would be claiming
-/// a constant as its data. `supabase/004_shared_moods.sql` is the other half of
-/// this; the two lists must stay identical.
+/// a constant as its data. The server's list of shared moods (BACKEND_PLAN.md §4.2)
+/// is the other half of this; the two lists must stay identical.
 final defaultNoteMoodUids = <String>{
   for (final mood in defaultNoteMoods) mood.uid,
 };
