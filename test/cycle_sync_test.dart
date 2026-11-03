@@ -183,9 +183,12 @@ void main() {
 
   group('the payload', () {
     test('a day goes up with its calendar date and no account', () async {
+    test('a day goes up with its calendar date and no account', () async {
       await dao.saveDay(day, flow: 2, mood: 3, symptoms: {4, 1}, sex: 2);
       final row = cycleDayToRow((await dao.getDay(day))!);
+      final row = cycleDayToRow((await dao.getDay(day))!);
 
+      expect(row.containsKey('user_id'), isFalse);
       expect(row.containsKey('user_id'), isFalse);
       expect(row['date'], '2026-10-16');
       expect(row['is_period'], isTrue);
@@ -200,6 +203,7 @@ void main() {
 
     test('and comes back as the same day', () async {
       await dao.saveDay(day, flow: 2, mood: 3, symptoms: {4, 1}, note: 'n');
+      final row = cycleDayToRow((await dao.getDay(day))!);
       final row = cycleDayToRow((await dao.getDay(day))!);
       final back = cycleDayFromRow(row);
 
