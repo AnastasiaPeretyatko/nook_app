@@ -90,7 +90,8 @@ class EmptyScreen extends StatelessWidget {
               const SizedBox(height: 8),
               Wrap(
                 alignment: WrapAlignment.center,
-                spacing: 8,
+                direction: Axis.horizontal,
+                spacing: 4,
                 runSpacing: 8,
                 children: [
                   for (final name in presets)
@@ -100,15 +101,19 @@ class EmptyScreen extends StatelessWidget {
                       child: InkWell(
                         customBorder: const StadiumBorder(),
                         onTap: onPreset == null ? null : () => onPreset!(name),
-                        child: Container(
+                        child: SizedBox(
                           height: 36,
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                          alignment: Alignment.center,
-                          child: Text(
-                            name,
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: p.textPrimary,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                            child: Center(
+                              widthFactor: 1,
+                              child: Text(
+                                name,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: p.textPrimary,
+                                ),
+                              ),
                             ),
                           ),
                         ),

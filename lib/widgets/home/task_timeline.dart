@@ -581,6 +581,10 @@ class _UntimedCard extends ConsumerWidget {
     final folded = ref.watch(untimedFoldedProvider);
     void toggle() => ref.read(untimedFoldedProvider.notifier).state = !folded;
 
+    final habitList = entries.where((e) => e.task.repeatType != null).toList();
+
+    final tasksList = entries.where((e) => e.task.repeatType == null).toList();
+
     return _Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -641,7 +645,15 @@ class _UntimedCard extends ConsumerWidget {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        for (final e in entries) _UntimedSlot(entry: e),
+                        for (final e in tasksList) _UntimedSlot(entry: e),
+                        if (tasksList.isNotEmpty && habitList.isNotEmpty)
+                          Container(
+                            width: 1,
+                            height: 60,
+                            margin: const EdgeInsets.symmetric(horizontal: 10),
+                            color: p.divider,
+                          ),
+                        for (final e in habitList) _UntimedSlot(entry: e),
                       ],
                     ),
                   ),
@@ -1703,15 +1715,21 @@ class _EmptyState extends StatelessWidget {
             constraints: const BoxConstraints(minHeight: 150),
             child: Stack(
               children: [
-                Positioned(
-                  left: _Axis.lineX - 0.75,
-                  top: 0,
-                  bottom: 0,
-                  width: 1.5,
-                  child: CustomPaint(painter: _DashedLine(p.outline)),
-                ),
+                if (now != null)
+                  Positioned(
+                    left: _Axis.lineX - 0.75,
+                    top: 0,
+                    bottom: 0,
+                    width: 1.5,
+                    child: CustomPaint(painter: _DashedLine(p.outline)),
+                  ),
                 Padding(
-                  padding: EdgeInsets.fromLTRB(_Axis.bodyLeft, 16, 16, 18),
+                  padding: EdgeInsets.fromLTRB(
+                    now != null ? _Axis.bodyLeft : _Axis.left,
+                    16,
+                    16,
+                    18,
+                  ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,

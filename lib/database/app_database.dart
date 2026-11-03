@@ -46,7 +46,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forExecutor(super.executor);
 
   @override
-  int get schemaVersion => 19;
+  int get schemaVersion => 20;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -320,6 +320,17 @@ class AppDatabase extends _$AppDatabase {
       if (from < 19) {
         await m.createTable(cycleDays);
         await createIndexIfMissing(cycleDaysDate);
+      }
+      if (from < 20) {
+        final columns = await _tableColumns(cycleDays.actualTableName);
+        if (!columns.contains(cycleDays.isPeriod.name)) {
+          await m.addColumn(cycleDays, cycleDays.isPeriod);
+        }
+        // Before v20 a positive flow was also the only period marker.
+        await customUpdate(
+          'UPDATE cycle_days SET is_period = 1 WHERE flow > 0',
+          updates: {cycleDays},
+        );
       }
     },
   );

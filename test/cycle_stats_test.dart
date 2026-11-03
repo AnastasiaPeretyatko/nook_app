@@ -2,9 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/utils/cycle_stats.dart';
 
-CycleDay _day(DateTime date, {int flow = 2}) => CycleDay(
+CycleDay _day(DateTime date, {bool isPeriod = true, int flow = 2}) => CycleDay(
   id: 0,
   date: date,
+  isPeriod: isPeriod,
   flow: flow,
   symptoms: '',
   pill: false,
@@ -61,11 +62,16 @@ void main() {
       },
     );
 
-    test('flow 0 is not a day of a period', () {
+    test('an unmarked day is not a day of a period', () {
       final s = cycleStats([
         _day(DateTime(2026, 9, 1)),
-        _day(DateTime(2026, 9, 2), flow: 0),
+        _day(DateTime(2026, 9, 2), isPeriod: false, flow: 0),
       ]);
+      expect(s.periodLength, 1);
+    });
+
+    test('a period day without intensity still counts', () {
+      final s = cycleStats([_day(DateTime(2026, 9, 1), flow: 0)]);
       expect(s.periodLength, 1);
     });
 

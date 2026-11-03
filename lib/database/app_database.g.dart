@@ -638,7 +638,7 @@ class Task extends DataClass implements Insertable<Task> {
 
   /// The [TaskGroups.uid] this task is shared in; null for a personal task.
   /// Fixed at creation — the server ignores a change, see
-  /// `supabase/005_groups.sql`.
+  /// BACKEND_PLAN.md §4.3.
   final String? groupUid;
 
   /// Which member the group task is handed to; null means "for everyone",
@@ -5834,6 +5834,21 @@ class $CycleDaysTable extends CycleDays
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _isPeriodMeta = const VerificationMeta(
+    'isPeriod',
+  );
+  @override
+  late final GeneratedColumn<bool> isPeriod = GeneratedColumn<bool>(
+    'is_period',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_period" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   static const VerificationMeta _flowMeta = const VerificationMeta('flow');
   @override
   late final GeneratedColumn<int> flow = GeneratedColumn<int>(
@@ -5936,6 +5951,7 @@ class $CycleDaysTable extends CycleDays
   List<GeneratedColumn> get $columns => [
     id,
     date,
+    isPeriod,
     flow,
     mood,
     symptoms,
@@ -5968,6 +5984,12 @@ class $CycleDaysTable extends CycleDays
       );
     } else if (isInserting) {
       context.missing(_dateMeta);
+    }
+    if (data.containsKey('is_period')) {
+      context.handle(
+        _isPeriodMeta,
+        isPeriod.isAcceptableOrUnknown(data['is_period']!, _isPeriodMeta),
+      );
     }
     if (data.containsKey('flow')) {
       context.handle(
@@ -6040,6 +6062,10 @@ class $CycleDaysTable extends CycleDays
         DriftSqlType.dateTime,
         data['${effectivePrefix}date'],
       )!,
+      isPeriod: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_period'],
+      )!,
       flow: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}flow'],
@@ -6091,7 +6117,11 @@ class CycleDay extends DataClass implements Insertable<CycleDay> {
   /// The calendar day, as **local midnight** — see [TaskLogs.date].
   final DateTime date;
 
-  /// 0 = none … 4 = heavy.
+  /// Whether this day was marked as a menstruation day. This is deliberately
+  /// separate from [flow]: a user can mark the day without choosing intensity.
+  final bool isPeriod;
+
+  /// 0 = intensity not specified, 1 = spotting … 4 = heavy.
   final int flow;
 
   /// Null = not marked.
@@ -6116,6 +6146,7 @@ class CycleDay extends DataClass implements Insertable<CycleDay> {
   const CycleDay({
     required this.id,
     required this.date,
+    required this.isPeriod,
     required this.flow,
     this.mood,
     required this.symptoms,
@@ -6131,6 +6162,7 @@ class CycleDay extends DataClass implements Insertable<CycleDay> {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
     map['date'] = Variable<DateTime>(date);
+    map['is_period'] = Variable<bool>(isPeriod);
     map['flow'] = Variable<int>(flow);
     if (!nullToAbsent || mood != null) {
       map['mood'] = Variable<int>(mood);
@@ -6155,6 +6187,7 @@ class CycleDay extends DataClass implements Insertable<CycleDay> {
     return CycleDaysCompanion(
       id: Value(id),
       date: Value(date),
+      isPeriod: Value(isPeriod),
       flow: Value(flow),
       mood: mood == null && nullToAbsent ? const Value.absent() : Value(mood),
       symptoms: Value(symptoms),
@@ -6177,6 +6210,7 @@ class CycleDay extends DataClass implements Insertable<CycleDay> {
     return CycleDay(
       id: serializer.fromJson<int>(json['id']),
       date: serializer.fromJson<DateTime>(json['date']),
+      isPeriod: serializer.fromJson<bool>(json['isPeriod']),
       flow: serializer.fromJson<int>(json['flow']),
       mood: serializer.fromJson<int?>(json['mood']),
       symptoms: serializer.fromJson<String>(json['symptoms']),
@@ -6194,6 +6228,7 @@ class CycleDay extends DataClass implements Insertable<CycleDay> {
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
       'date': serializer.toJson<DateTime>(date),
+      'isPeriod': serializer.toJson<bool>(isPeriod),
       'flow': serializer.toJson<int>(flow),
       'mood': serializer.toJson<int?>(mood),
       'symptoms': serializer.toJson<String>(symptoms),
@@ -6209,6 +6244,7 @@ class CycleDay extends DataClass implements Insertable<CycleDay> {
   CycleDay copyWith({
     int? id,
     DateTime? date,
+    bool? isPeriod,
     int? flow,
     Value<int?> mood = const Value.absent(),
     String? symptoms,
@@ -6221,6 +6257,7 @@ class CycleDay extends DataClass implements Insertable<CycleDay> {
   }) => CycleDay(
     id: id ?? this.id,
     date: date ?? this.date,
+    isPeriod: isPeriod ?? this.isPeriod,
     flow: flow ?? this.flow,
     mood: mood.present ? mood.value : this.mood,
     symptoms: symptoms ?? this.symptoms,
@@ -6235,6 +6272,7 @@ class CycleDay extends DataClass implements Insertable<CycleDay> {
     return CycleDay(
       id: data.id.present ? data.id.value : this.id,
       date: data.date.present ? data.date.value : this.date,
+      isPeriod: data.isPeriod.present ? data.isPeriod.value : this.isPeriod,
       flow: data.flow.present ? data.flow.value : this.flow,
       mood: data.mood.present ? data.mood.value : this.mood,
       symptoms: data.symptoms.present ? data.symptoms.value : this.symptoms,
@@ -6252,6 +6290,7 @@ class CycleDay extends DataClass implements Insertable<CycleDay> {
     return (StringBuffer('CycleDay(')
           ..write('id: $id, ')
           ..write('date: $date, ')
+          ..write('isPeriod: $isPeriod, ')
           ..write('flow: $flow, ')
           ..write('mood: $mood, ')
           ..write('symptoms: $symptoms, ')
@@ -6269,6 +6308,7 @@ class CycleDay extends DataClass implements Insertable<CycleDay> {
   int get hashCode => Object.hash(
     id,
     date,
+    isPeriod,
     flow,
     mood,
     symptoms,
@@ -6285,6 +6325,7 @@ class CycleDay extends DataClass implements Insertable<CycleDay> {
       (other is CycleDay &&
           other.id == this.id &&
           other.date == this.date &&
+          other.isPeriod == this.isPeriod &&
           other.flow == this.flow &&
           other.mood == this.mood &&
           other.symptoms == this.symptoms &&
@@ -6299,6 +6340,7 @@ class CycleDay extends DataClass implements Insertable<CycleDay> {
 class CycleDaysCompanion extends UpdateCompanion<CycleDay> {
   final Value<int> id;
   final Value<DateTime> date;
+  final Value<bool> isPeriod;
   final Value<int> flow;
   final Value<int?> mood;
   final Value<String> symptoms;
@@ -6311,6 +6353,7 @@ class CycleDaysCompanion extends UpdateCompanion<CycleDay> {
   const CycleDaysCompanion({
     this.id = const Value.absent(),
     this.date = const Value.absent(),
+    this.isPeriod = const Value.absent(),
     this.flow = const Value.absent(),
     this.mood = const Value.absent(),
     this.symptoms = const Value.absent(),
@@ -6324,6 +6367,7 @@ class CycleDaysCompanion extends UpdateCompanion<CycleDay> {
   CycleDaysCompanion.insert({
     this.id = const Value.absent(),
     required DateTime date,
+    this.isPeriod = const Value.absent(),
     this.flow = const Value.absent(),
     this.mood = const Value.absent(),
     this.symptoms = const Value.absent(),
@@ -6337,6 +6381,7 @@ class CycleDaysCompanion extends UpdateCompanion<CycleDay> {
   static Insertable<CycleDay> custom({
     Expression<int>? id,
     Expression<DateTime>? date,
+    Expression<bool>? isPeriod,
     Expression<int>? flow,
     Expression<int>? mood,
     Expression<String>? symptoms,
@@ -6350,6 +6395,7 @@ class CycleDaysCompanion extends UpdateCompanion<CycleDay> {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (date != null) 'date': date,
+      if (isPeriod != null) 'is_period': isPeriod,
       if (flow != null) 'flow': flow,
       if (mood != null) 'mood': mood,
       if (symptoms != null) 'symptoms': symptoms,
@@ -6365,6 +6411,7 @@ class CycleDaysCompanion extends UpdateCompanion<CycleDay> {
   CycleDaysCompanion copyWith({
     Value<int>? id,
     Value<DateTime>? date,
+    Value<bool>? isPeriod,
     Value<int>? flow,
     Value<int?>? mood,
     Value<String>? symptoms,
@@ -6378,6 +6425,7 @@ class CycleDaysCompanion extends UpdateCompanion<CycleDay> {
     return CycleDaysCompanion(
       id: id ?? this.id,
       date: date ?? this.date,
+      isPeriod: isPeriod ?? this.isPeriod,
       flow: flow ?? this.flow,
       mood: mood ?? this.mood,
       symptoms: symptoms ?? this.symptoms,
@@ -6398,6 +6446,9 @@ class CycleDaysCompanion extends UpdateCompanion<CycleDay> {
     }
     if (date.present) {
       map['date'] = Variable<DateTime>(date.value);
+    }
+    if (isPeriod.present) {
+      map['is_period'] = Variable<bool>(isPeriod.value);
     }
     if (flow.present) {
       map['flow'] = Variable<int>(flow.value);
@@ -6434,6 +6485,7 @@ class CycleDaysCompanion extends UpdateCompanion<CycleDay> {
     return (StringBuffer('CycleDaysCompanion(')
           ..write('id: $id, ')
           ..write('date: $date, ')
+          ..write('isPeriod: $isPeriod, ')
           ..write('flow: $flow, ')
           ..write('mood: $mood, ')
           ..write('symptoms: $symptoms, ')
@@ -11066,6 +11118,7 @@ typedef $$CycleDaysTableCreateCompanionBuilder =
     CycleDaysCompanion Function({
       Value<int> id,
       required DateTime date,
+      Value<bool> isPeriod,
       Value<int> flow,
       Value<int?> mood,
       Value<String> symptoms,
@@ -11080,6 +11133,7 @@ typedef $$CycleDaysTableUpdateCompanionBuilder =
     CycleDaysCompanion Function({
       Value<int> id,
       Value<DateTime> date,
+      Value<bool> isPeriod,
       Value<int> flow,
       Value<int?> mood,
       Value<String> symptoms,
@@ -11107,6 +11161,11 @@ class $$CycleDaysTableFilterComposer
 
   ColumnFilters<DateTime> get date => $composableBuilder(
     column: $table.date,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isPeriod => $composableBuilder(
+    column: $table.isPeriod,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -11175,6 +11234,11 @@ class $$CycleDaysTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get isPeriod => $composableBuilder(
+    column: $table.isPeriod,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get flow => $composableBuilder(
     column: $table.flow,
     builder: (column) => ColumnOrderings(column),
@@ -11236,6 +11300,9 @@ class $$CycleDaysTableAnnotationComposer
   GeneratedColumn<DateTime> get date =>
       $composableBuilder(column: $table.date, builder: (column) => column);
 
+  GeneratedColumn<bool> get isPeriod =>
+      $composableBuilder(column: $table.isPeriod, builder: (column) => column);
+
   GeneratedColumn<int> get flow =>
       $composableBuilder(column: $table.flow, builder: (column) => column);
 
@@ -11294,6 +11361,7 @@ class $$CycleDaysTableTableManager
               ({
                 Value<int> id = const Value.absent(),
                 Value<DateTime> date = const Value.absent(),
+                Value<bool> isPeriod = const Value.absent(),
                 Value<int> flow = const Value.absent(),
                 Value<int?> mood = const Value.absent(),
                 Value<String> symptoms = const Value.absent(),
@@ -11306,6 +11374,7 @@ class $$CycleDaysTableTableManager
               }) => CycleDaysCompanion(
                 id: id,
                 date: date,
+                isPeriod: isPeriod,
                 flow: flow,
                 mood: mood,
                 symptoms: symptoms,
@@ -11320,6 +11389,7 @@ class $$CycleDaysTableTableManager
               ({
                 Value<int> id = const Value.absent(),
                 required DateTime date,
+                Value<bool> isPeriod = const Value.absent(),
                 Value<int> flow = const Value.absent(),
                 Value<int?> mood = const Value.absent(),
                 Value<String> symptoms = const Value.absent(),
@@ -11332,6 +11402,7 @@ class $$CycleDaysTableTableManager
               }) => CycleDaysCompanion.insert(
                 id: id,
                 date: date,
+                isPeriod: isPeriod,
                 flow: flow,
                 mood: mood,
                 symptoms: symptoms,

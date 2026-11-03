@@ -11,9 +11,11 @@ import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/pages/cycle_page.dart';
 import 'package:todo_app/settings/about_settings.dart';
 import 'package:todo_app/settings/theme_provider.dart';
+import 'package:todo_app/theme/app_palette.dart';
+import 'package:todo_app/utils/task_colors.dart' show onTaskColor;
 import 'package:todo_app/widgets/app_bottom_nav_bar.dart';
 import 'package:todo_app/widgets/app_dialogs.dart' show AppSheet;
-import 'package:todo_app/widgets/cycle/cycle_colors.dart' show todayBlue;
+import 'package:todo_app/widgets/cycle/cycle_colors.dart';
 import 'package:todo_app/widgets/cycle/cycle_heart.dart';
 import 'package:todo_app/widgets/habits/habits_week.dart' show DashedBox;
 
@@ -153,7 +155,8 @@ void main() {
       (w) =>
           w is Container &&
           w.decoration is BoxDecoration &&
-          (w.decoration as BoxDecoration).color == todayBlue &&
+          (w.decoration as BoxDecoration).borderRadius ==
+              BorderRadius.circular(11) &&
           w.constraints?.minWidth == 22,
     );
 
@@ -190,10 +193,18 @@ void main() {
           (w) =>
               w is Container &&
               w.decoration is BoxDecoration &&
-              (w.decoration as BoxDecoration).border?.top.color == todayBlue,
+              (w.decoration as BoxDecoration).border?.top.width == 3,
         ),
       );
       final badgeRect = tester.getRect(badge);
+      final numberRect = tester.getRect(
+        find.descendant(of: badge, matching: find.text('$d')),
+      );
+      expect(
+        numberRect.center.dx,
+        closeTo(badgeRect.center.dx, 0.01),
+        reason: 'day $d: the number is not centred in its badge',
+      );
       expect(badgeRect.overlaps(marker), isFalse, reason: 'day $d');
       final toMarker = marker.center - ringRect.center;
       final toBadge = badgeRect.center - ringRect.center;
@@ -213,6 +224,64 @@ void main() {
         tester.getRect(card).contains(tester.getRect(badge).bottomRight),
         isTrue,
         reason: 'day $d',
+      );
+    }
+  });
+
+  testWidgets('the picked ring day uses its phase colour', (tester) async {
+    await pump(tester);
+    final badge = find.byWidgetPredicate(
+      (w) =>
+          w is Container &&
+          w.decoration is BoxDecoration &&
+          (w.decoration as BoxDecoration).borderRadius ==
+              BorderRadius.circular(11) &&
+          w.constraints?.minWidth == 22,
+    );
+    final marker = find.byWidgetPredicate(
+      (w) =>
+          w is Container &&
+          w.decoration is BoxDecoration &&
+          (w.decoration as BoxDecoration).border?.top.width == 3,
+    );
+
+    for (final (day, expected, expectedInk) in [
+      (2, periodColor, Colors.white),
+      (11, fertileColor, Colors.white),
+      (14, ovulationColor, Colors.white),
+      (
+        20,
+        otherDayColor(AppPalette.light),
+        onTaskColor(otherDayColor(AppPalette.light)),
+      ),
+    ]) {
+      await container
+          .read(aboutSettingsProvider.notifier)
+          .setLastStart(
+            DateTime(today.year, today.month, today.day - (day - 1)),
+          );
+      await tester.pumpAndSettle();
+
+      expect(
+        (tester.widget<Container>(badge).decoration as BoxDecoration).color,
+        expected,
+        reason: 'day $day badge',
+      );
+      expect(
+        (tester.widget<Container>(marker).decoration as BoxDecoration)
+            .border
+            ?.top
+            .color,
+        expected,
+        reason: 'day $day marker',
+      );
+      final number = tester.widget<Text>(
+        find.descendant(of: badge, matching: find.text('$day')),
+      );
+      expect(
+        number.style?.color,
+        expectedInk,
+        reason: 'day $day number contrast',
       );
     }
   });

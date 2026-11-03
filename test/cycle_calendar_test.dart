@@ -10,8 +10,10 @@ import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/pages/cycle_calendar_page.dart';
 import 'package:todo_app/settings/about_settings.dart';
 import 'package:todo_app/settings/theme_provider.dart';
+import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/widgets/app_dialogs.dart' show AppSheet;
-import 'package:todo_app/widgets/cycle/cycle_colors.dart' show todayBlue;
+import 'package:todo_app/widgets/cycle/cycle_colors.dart'
+    show periodColor, todayBlue;
 import 'package:todo_app/widgets/cycle/cycle_day_info.dart' show CycleChip;
 import 'package:todo_app/widgets/cycle/cycle_heart.dart';
 
@@ -67,6 +69,135 @@ void main() {
     return first.year == today.year ? capital : '$capital ${first.year}';
   }
 
+  testWidgets('day circles keep space around their borders', (tester) async {
+    await pump(tester);
+    final day = find.descendant(
+      of: month(DateTime(today.year, today.month)),
+      matching: find.text('${today.day}'),
+    );
+    final margin = find.ancestor(
+      of: day,
+      matching: find.byWidgetPredicate(
+        (w) => w is Padding && w.padding == const EdgeInsets.all(6),
+      ),
+    );
+    expect(margin, findsOneWidget);
+
+    final cellRect = tester.getRect(margin);
+    final circleRect = tester.getRect(
+      find.descendant(of: margin, matching: find.byType(CustomPaint)).first,
+    );
+    expect(circleRect.left - cellRect.left, 6);
+    expect(circleRect.top - cellRect.top, 6);
+    expect(cellRect.right - circleRect.right, 6);
+    expect(cellRect.bottom - circleRect.bottom, 6);
+  });
+
+  testWidgets('today is labelled and bold without a border', (tester) async {
+    await pump(tester);
+    final currentMonth = month(DateTime(today.year, today.month));
+    final number = find.descendant(
+      of: currentMonth,
+      matching: find.text('${today.day}'),
+    );
+    final label = find.descendant(
+      of: currentMonth,
+      matching: find.text('сегодня'),
+    );
+    final cell = tester.widget<Container>(
+      find.ancestor(of: number, matching: find.byType(Container)).first,
+    );
+    final circle = find
+        .ancestor(of: number, matching: find.byType(CustomPaint))
+        .first;
+
+    expect(label, findsOneWidget);
+    expect(
+      tester.getBottomLeft(label).dy,
+      lessThanOrEqualTo(tester.getTopLeft(circle).dy),
+    );
+    expect(tester.widget<Text>(label).style?.color, Colors.black);
+    expect(tester.widget<Text>(number).style?.fontWeight, FontWeight.w700);
+    expect(cell.foregroundDecoration, isNull);
+  });
+
+  testWidgets('cycle phases have distinct calendar treatments', (tester) async {
+    await pump(tester);
+
+    Finder dayIn(DateTime day) => find.descendant(
+      of: month(DateTime(day.year, day.month)),
+      matching: find.text('${day.day}'),
+    );
+    Color? fillOf(DateTime day) =>
+        (tester
+                    .widget<Container>(
+                      find
+                          .ancestor(
+                            of: dayIn(day),
+                            matching: find.byType(Container),
+                          )
+                          .first,
+                    )
+                    .decoration
+                as BoxDecoration?)
+            ?.color;
+    Color? inkOf(DateTime day) => tester.widget<Text>(dayIn(day)).style?.color;
+    CustomPainter? painterOf(DateTime day) => tester
+        .widget<CustomPaint>(
+          find
+              .ancestor(of: dayIn(day), matching: find.byType(CustomPaint))
+              .first,
+        )
+        .painter;
+    Color? dashOf(DateTime day) {
+      final painter = painterOf(day);
+      return painter == null ? null : (painter as dynamic).color as Color?;
+    }
+
+    final settings = container.read(aboutSettingsProvider.notifier);
+
+    // An arrived period day is solid red with a white number.
+    await settings.setLastStart(today);
+    await tester.pumpAndSettle();
+    expect(fillOf(today), periodColor);
+    expect(inkOf(today), Colors.white);
+    expect(painterOf(today), isNull);
+
+    // Fertile days have only a blue number.
+    await settings.setLastStart(
+      DateTime(today.year, today.month, today.day - 8),
+    );
+    await tester.pumpAndSettle();
+    expect(fillOf(today), isNull);
+    expect(inkOf(today), todayBlue);
+    expect(painterOf(today), isNull);
+
+    // Ovulation has a blue number and a blue dashed outline.
+    await settings.setLastStart(
+      DateTime(today.year, today.month, today.day - 13),
+    );
+    await tester.pumpAndSettle();
+    expect(fillOf(today), isNull);
+    expect(inkOf(today), todayBlue);
+    expect(dashOf(today), todayBlue);
+
+    // A period day that has not happened yet stays unfilled and dashed, even
+    // when it is still inside the first configured cycle.
+    final tomorrow = DateTime(today.year, today.month, today.day + 1);
+    await settings.setLastStart(today);
+    await tester.pumpAndSettle();
+    if (month(DateTime(tomorrow.year, tomorrow.month)).evaluate().isEmpty) {
+      await tester.dragUntilVisible(
+        month(DateTime(tomorrow.year, tomorrow.month)),
+        find.byType(CustomScrollView),
+        const Offset(0, -300),
+      );
+    }
+    expect(fillOf(tomorrow), isNull);
+    expect(inkOf(tomorrow), periodColor);
+    expect(dashOf(tomorrow), periodColor);
+  });
+
   testWidgets('the legend and the weekday names stay put while it scrolls', (
     tester,
   ) async {
@@ -91,68 +222,92 @@ void main() {
     expect(tester.getTopLeft(monday.first).dy, mondayTop);
   });
 
-  group('"Отметить день"', () {
+  group('a calendar day tap', () {
     Finder dayIn(DateTime day) => find.descendant(
       of: month(DateTime(day.year, day.month)),
       matching: find.text('${day.day}'),
     );
 
-    testWidgets('sits beside "Изменить даты", on one line', (tester) async {
-      await pump(tester);
-      final edit = tester.getRect(find.text('Изменить даты'));
-      final mark = tester.getRect(find.text('Отметить день'));
-      expect(edit.center.dy, mark.center.dy);
-      expect(edit.right, lessThan(mark.left));
-    });
-
-    testWidgets('opens the sheet of the picked day, not of today', (
+    testWidgets('leaves only the full-width "Изменить даты" action', (
       tester,
     ) async {
-      final picked = DateTime(today.year, today.month, 1);
       await pump(tester);
-      // The first tap only picks the day — nothing opens.
-      await tester.tap(dayIn(picked));
-      await tester.pumpAndSettle();
-      if (picked != today) expect(find.byType(AppSheet), findsNothing);
-
-      await tester.tap(find.text('Отметить день'));
-      await tester.pumpAndSettle();
-      expect(
-        find.descendant(
-          of: find.byType(AppSheet),
-          matching: find.text(DateFormat.MMMMd('ru_RU').format(picked)),
-        ),
-        findsOneWidget,
+      expect(find.text('Изменить даты'), findsOneWidget);
+      expect(find.text('Отметить день'), findsNothing);
+      final action = find.ancestor(
+        of: find.text('Изменить даты'),
+        matching: find.byType(InkWell),
       );
+      expect(tester.getSize(action).width, greaterThan(700));
     });
 
-    testWidgets('a tap on the picked day shows what is on it', (tester) async {
+    testWidgets('opens the information sheet on the first tap', (tester) async {
       final picked = DateTime(today.year, today.month, 1);
       await pump(tester);
+      final barriersBefore = find.byType(ModalBarrier).evaluate().length;
       await tester.tap(dayIn(picked));
       await tester.pumpAndSettle();
-      await tester.tap(dayIn(picked));
-      await tester.pumpAndSettle();
-
+      expect(find.byType(ModalBarrier).evaluate().length, barriersBefore);
       expect(
         find.descendant(
           of: find.byType(BottomSheet),
-          matching: find.text('Пока ничего не отмечено'),
+          matching: find.textContaining('${picked.day} '),
         ),
-        findsOneWidget,
+        findsWidgets,
       );
+      expect(find.text('Пока ничего не отмечено'), findsOneWidget);
     });
 
-    testWidgets('is off for a day that has not come', (tester) async {
+    testWidgets('updates the open panel when another day is tapped', (
+      tester,
+    ) async {
+      final first = DateTime(today.year, today.month, 1);
+      final second = DateTime(today.year, today.month, 2);
+      String heading(DateTime day) {
+        final text = DateFormat('EEEE, d MMMM', 'ru_RU').format(day);
+        return text[0].toUpperCase() + text.substring(1);
+      }
+
+      await pump(tester);
+      await tester.tap(dayIn(first));
+      await tester.pumpAndSettle();
+      expect(find.byType(BottomSheet), findsOneWidget);
+      expect(find.text(heading(first)), findsOneWidget);
+      Color? fillOf(DateTime day) =>
+          (tester
+                      .widget<Container>(
+                        find
+                            .ancestor(
+                              of: dayIn(day),
+                              matching: find.byType(Container),
+                            )
+                            .first,
+                      )
+                      .decoration
+                  as BoxDecoration?)
+              ?.color;
+      expect(fillOf(first), AppPalette.light.chip);
+
+      await tester.tap(dayIn(second));
+      await tester.pumpAndSettle();
+      expect(find.byType(BottomSheet), findsOneWidget);
+      expect(find.text(heading(first)), findsNothing);
+      expect(find.text(heading(second)), findsOneWidget);
+      expect(fillOf(first), isNot(AppPalette.light.chip));
+      expect(fillOf(second), AppPalette.light.chip);
+    });
+
+    testWidgets('shows future information without a mark action', (
+      tester,
+    ) async {
       final tomorrow = DateTime(today.year, today.month, today.day + 1);
       if (tomorrow.month != today.month) return; // last day of the month
       await pump(tester);
       await tester.tap(dayIn(tomorrow));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Отметить день'));
-      await tester.pumpAndSettle();
-      expect(find.byType(AppSheet), findsNothing);
+      expect(find.byType(BottomSheet), findsOneWidget);
+      expect(find.text('Отметить день'), findsNothing);
     });
   });
 
@@ -168,9 +323,12 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    Future<int?> flowOf(WidgetTester tester, DateTime day) async {
-      final row = await tester.runAsync(() => db.cycleDao.getDay(day));
-      return row?.flow;
+    Future<CycleDay?> rowOf(WidgetTester tester, DateTime day) async {
+      CycleDay? result;
+      await tester.runAsync(() async {
+        result = await db.cycleDao.getDay(day);
+      });
+      return result;
     }
 
     testWidgets('a tap marks a day, another takes the mark back', (
@@ -183,7 +341,10 @@ void main() {
 
       await tester.tap(dayIn(today));
       await settle(tester);
-      expect(await flowOf(tester, today), CycleDao.defaultFlow);
+      final marked = await rowOf(tester, today);
+      expect(marked?.isPeriod, isTrue);
+      expect(marked?.flow, 0);
+      expect(find.byType(BottomSheet), findsNothing);
       // Drawn as a solid period day at once, whatever the forecast says.
       Color? fillOf(DateTime d) =>
           (tester
@@ -198,11 +359,13 @@ void main() {
                       .decoration
                   as BoxDecoration?)
               ?.color;
-      expect(fillOf(today), const Color(0xFFF3DDE6));
+      expect(fillOf(today), periodColor);
 
       await tester.tap(dayIn(today));
       await settle(tester);
-      expect(await flowOf(tester, today), 0);
+      final cleared = await rowOf(tester, today);
+      expect(cleared?.isPeriod, isFalse);
+      expect(cleared?.flow, 0);
 
       // Done: a tap opens what is on the day again.
       await tester.tap(find.text('Готово'));
@@ -210,6 +373,36 @@ void main() {
       await tester.tap(dayIn(today));
       await tester.pumpAndSettle();
       expect(find.byType(BottomSheet), findsOneWidget);
+    });
+
+    testWidgets('a calendar mark has no default intensity', (tester) async {
+      await pump(tester);
+      await tester.tap(find.text('Изменить даты'));
+      await tester.pumpAndSettle();
+      await tester.tap(dayIn(today));
+      await settle(tester);
+
+      await tester.tap(find.text('Готово'));
+      await tester.pumpAndSettle();
+      await tester.tap(dayIn(today));
+      await tester.pumpAndSettle();
+
+      final sheet = find.byType(BottomSheet);
+      expect(
+        find.descendant(of: sheet, matching: find.text('Месячные')),
+        findsWidgets,
+      );
+      expect(
+        find.descendant(of: sheet, matching: find.text('Средние')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: sheet,
+          matching: find.textContaining('Интенсивность'),
+        ),
+        findsNothing,
+      );
     });
 
     testWidgets('a period day from the forecast comes off, and back on', (
@@ -233,18 +426,17 @@ void main() {
                       .decoration
                   as BoxDecoration?)
               ?.color;
-      const period = Color(0xFFF3DDE6);
-      expect(fillOf(first), period);
+      expect(fillOf(first), periodColor);
 
       await tester.tap(find.text('Изменить даты'));
       await tester.pumpAndSettle();
       await tester.tap(dayIn(first));
       await settle(tester);
-      expect(fillOf(first), isNot(period), reason: 'the tap takes it off');
+      expect(fillOf(first), isNot(periodColor), reason: 'the tap takes it off');
 
       await tester.tap(dayIn(first));
       await settle(tester);
-      expect(fillOf(first), period, reason: 'and the next puts it back');
+      expect(fillOf(first), periodColor, reason: 'and the next puts it back');
     });
 
     test(
@@ -274,12 +466,14 @@ void main() {
         await settle(tester);
       }
       for (final d in days) {
-        expect(await flowOf(tester, d), CycleDao.defaultFlow, reason: '$d');
+        final row = await rowOf(tester, d);
+        expect(row?.isPeriod, isTrue, reason: '$d');
+        expect(row?.flow, 0, reason: '$d');
       }
       // And no day beyond them.
       final before = DateTime(today.year, today.month, today.day - 5);
       if (before.month == today.month) {
-        expect(await flowOf(tester, before), isNull);
+        expect(await rowOf(tester, before), isNull);
       }
     });
 
@@ -292,7 +486,7 @@ void main() {
 
       await tester.tap(dayIn(tomorrow));
       await settle(tester);
-      expect(await flowOf(tester, tomorrow), isNull);
+      expect(await rowOf(tester, tomorrow), isNull);
     });
 
     testWidgets('marking keeps everything else on the day', (tester) async {
@@ -309,7 +503,8 @@ void main() {
       await tester.tap(dayIn(today));
       await settle(tester);
       final row = await tester.runAsync(() => db.cycleDao.getDay(today));
-      expect(row!.flow, CycleDao.defaultFlow);
+      expect(row!.isPeriod, isTrue);
+      expect(row.flow, 0);
       expect(row.mood, 2);
       expect(row.symptoms, '1,3');
       expect(row.note, 'Устала');
@@ -320,7 +515,19 @@ void main() {
     tester,
   ) async {
     await pump(tester);
-    await tester.tap(find.text('Отметить день'));
+    await tester.tap(
+      find.descendant(
+        of: month(DateTime(today.year, today.month)),
+        matching: find.text('${today.day}'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(BottomSheet),
+        matching: find.text('Отметить день'),
+      ),
+    );
     await tester.pumpAndSettle();
 
     // Each choice is as wide as its own text, so they follow one another along
@@ -606,14 +813,7 @@ void main() {
       final tomorrow = DateTime(today.year, today.month, today.day + 1);
       expect(find.text(heading(tomorrow)), findsOneWidget);
       // A day that has not come cannot be marked: no buttons.
-      expect(find.text('Отметить день'), findsOneWidget); // the page's own
-      expect(
-        find.descendant(
-          of: find.byType(BottomSheet),
-          matching: find.text('Отметить день'),
-        ),
-        findsNothing,
-      );
+      expect(find.text('Отметить день'), findsNothing);
     });
 
     testWidgets('the calendar behind follows the arrows', (tester) async {
@@ -623,35 +823,30 @@ void main() {
         of: month(DateTime(d.year, d.month)),
         matching: find.text('${d.day}'),
       );
-      // The picked day wears the blue ring.
-      bool ringed(DateTime d) {
+      // The picked day has a neutral fill and no border.
+      bool selected(DateTime d) {
         final cell = tester.widget<Container>(
           find.ancestor(of: dayIn(d), matching: find.byType(Container)).first,
         );
-        final border = (cell.foregroundDecoration as BoxDecoration?)?.border;
-        return border?.top.color == todayBlue;
+        final fill = (cell.decoration as BoxDecoration?)?.color;
+        return fill == AppPalette.light.chip &&
+            cell.foregroundDecoration == null;
       }
 
       await tester.tap(dayIn(first));
       await tester.pumpAndSettle();
-      // The first tap picks the day, the second opens it — unless it was
-      // already the picked one (the 1st is today) and the first tap opened it.
-      if (find.byType(BottomSheet).evaluate().isEmpty) {
-        await tester.tap(dayIn(first));
-        await tester.pumpAndSettle();
-      }
       final second = DateTime(today.year, today.month, 2);
-      expect(ringed(first), isTrue);
+      expect(selected(first), isTrue);
 
       await tester.tap(find.byTooltip('Следующий день'));
       await tester.pumpAndSettle();
-      expect(ringed(second), isTrue);
-      expect(ringed(first), isFalse);
+      expect(selected(second), isTrue);
+      expect(selected(first), isFalse);
 
       await tester.tap(find.byTooltip('Предыдущий день'));
       await tester.pumpAndSettle();
-      expect(ringed(first), isTrue);
-      expect(ringed(second), isFalse);
+      expect(selected(first), isTrue);
+      expect(selected(second), isFalse);
     });
 
     testWidgets('the trash takes every mark off the day, after asking', (
