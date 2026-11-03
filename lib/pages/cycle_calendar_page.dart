@@ -301,52 +301,6 @@ bool _forecastPeriod(CycleModel? model, DateTime day) =>
     !model.isForecast(day) &&
     model.phaseOn(day) == CyclePhase.period;
 
-  @override
-  Widget build(BuildContext context) {
-    final p = AppPalette.of(Theme.of(context));
-    Widget item(Widget mark, String label) => Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        mark,
-        const SizedBox(width: 6),
-        Text(label, style: TextStyle(fontSize: 12, color: p.textSecondary)),
-      ],
-    );
-    Widget dot(Color c) => Container(
-      width: 8,
-      height: 8,
-      decoration: BoxDecoration(shape: BoxShape.circle, color: c),
-    );
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Wrap(
-        spacing: 16,
-        runSpacing: 6,
-        children: [
-          item(dot(periodColor), 'Месячные'),
-          item(dot(todayBlue), 'Фертильные'),
-          item(
-            CustomPaint(
-              size: const Size(8, 8),
-              painter: _DashedCirclePainter(color: todayBlue, width: 1),
-            ),
-            'Овуляция',
-          ),
-          item(
-            CustomPaint(
-              size: const Size(8, 8),
-              painter: _DashedCirclePainter(color: p.textSecondary, width: 1),
-            ),
-            'Прогноз',
-          ),
-          item(const CycleHeart(sex: 1, size: 11), 'Секс с защитой'),
-          item(const CycleHeart(sex: 2, size: 11), 'без защиты'),
-        ],
-      ),
-    );
-  }
-}
-
 class _WeekdayRow extends StatelessWidget {
   const _WeekdayRow({required this.weekStart});
 
