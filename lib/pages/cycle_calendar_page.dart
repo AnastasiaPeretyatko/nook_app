@@ -13,7 +13,6 @@ import 'package:todo_app/utils/last_done.dart' show pluralRu;
 import 'package:todo_app/utils/surfaces.dart';
 import 'package:todo_app/widgets/cycle/cycle_colors.dart';
 import 'package:todo_app/widgets/cycle/cycle_day_info.dart';
-import 'package:todo_app/widgets/cycle/cycle_day_sheet.dart';
 import 'package:todo_app/widgets/cycle/cycle_heart.dart';
 import 'package:todo_app/widgets/page_header.dart';
 
@@ -40,13 +39,16 @@ class CycleCalendarPage extends ConsumerStatefulWidget {
 
 class _CycleCalendarPageState extends ConsumerState<CycleCalendarPage> {
   final _scroll = ScrollController();
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+  final _infoDay = ValueNotifier<DateTime?>(null);
+  PersistentBottomSheetController? _infoSheet;
 
   /// "Изменить даты": a tap on a day marks it as a period day, or takes that
   /// back, instead of opening what is on it.
   bool _editing = false;
 
-  /// The day "Отметить день" is about; null is today, kept as null so it still
-  /// follows the clock past midnight when nothing was picked.
+  /// The day highlighted behind the information sheet; null is today, kept as
+  /// null so it still follows the clock past midnight when nothing was picked.
   DateTime? _selected;
 
   /// The first of the downward sliver: this month is its first child, which is
@@ -56,7 +58,44 @@ class _CycleCalendarPageState extends ConsumerState<CycleCalendarPage> {
   @override
   void dispose() {
     _scroll.dispose();
+    _infoDay.dispose();
     super.dispose();
+  }
+
+  void _showDayInfo(DateTime day, CycleModel? model, DateTime today) {
+    setState(() => _selected = day);
+    _infoDay.value = day;
+    if (_infoSheet != null) return;
+
+    final controller = _scaffoldKey.currentState!.showBottomSheet(
+      (_) => ValueListenableBuilder<DateTime?>(
+        valueListenable: _infoDay,
+        builder: (_, infoDay, _) {
+          if (infoDay == null) return const SizedBox.shrink();
+          return CycleDayInfoPanel(
+            pageContext: context,
+            day: infoDay,
+            model: model,
+            today: today,
+            onDayChanged: (changed) {
+              if (!mounted) return;
+              setState(() => _selected = changed);
+              _infoDay.value = changed;
+            },
+          );
+        },
+      ),
+      backgroundColor: Colors.transparent,
+      enableDrag: true,
+    );
+    _infoSheet = controller;
+    controller.closed.whenComplete(() {
+      if (!identical(_infoSheet, controller)) return;
+      _infoSheet = null;
+      if (!mounted) return;
+      setState(() => _selected = null);
+      _infoDay.value = null;
+    });
   }
 
   @override
@@ -67,7 +106,6 @@ class _CycleCalendarPageState extends ConsumerState<CycleCalendarPage> {
     final weekStart = ref.watch(weekStartProvider);
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final selected = _selected ?? today;
     final marks = ref.watch(cycleDaysProvider).valueOrNull ?? const [];
     final sexByDay = <DateTime, int?>{
       for (final d in marks)
@@ -79,7 +117,7 @@ class _CycleCalendarPageState extends ConsumerState<CycleCalendarPage> {
     };
     final periodDays = {
       for (final d in marks)
-        if (d.flow > 0) d.date,
+        if (d.isPeriod) d.date,
     };
 
     Widget month(int offset) {
@@ -94,25 +132,10 @@ class _CycleCalendarPageState extends ConsumerState<CycleCalendarPage> {
         weekStart: weekStart,
         exceptions: about.periodExceptions,
         infoDays: infoDays,
-        selected: selected,
+        selected: _selected,
         onDayTap: (day) {
           if (!_editing) {
-            // A first tap picks the day; a tap on the picked one shows what is
-            // marked on it.
-            if (day == selected) {
-              showCycleDayInfoSheet(
-                context,
-                day,
-                model: model,
-                today: today,
-                // The calendar shows behind the sheet: the ring follows the arrows.
-                onDayChanged: (d) {
-                  if (mounted) setState(() => _selected = d);
-                },
-              );
-            } else {
-              setState(() => _selected = day);
-            }
+            _showDayInfo(day, model, today);
             return;
           }
           // A day that has not come cannot have been a period day.
@@ -139,6 +162,7 @@ class _CycleCalendarPageState extends ConsumerState<CycleCalendarPage> {
     }
 
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: pageSurface(Theme.of(context)),
       body: SafeArea(
         child: Column(
@@ -156,7 +180,7 @@ class _CycleCalendarPageState extends ConsumerState<CycleCalendarPage> {
               ),
             ),
             const SizedBox(height: 12),
-            const _Legend(),
+            // const _Legend(),
             _WeekdayRow(weekStart: weekStart),
             if (model == null)
               Padding(
@@ -200,35 +224,11 @@ class _CycleCalendarPageState extends ConsumerState<CycleCalendarPage> {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _BarButton(
-                      icon: _editing ? LucideIcons.check : LucideIcons.pencil,
-                      label: _editing ? 'Готово' : 'Изменить даты',
-                      primary: _editing,
-                      onTap: () => setState(() => _editing = !_editing),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _BarButton(
-                      icon: LucideIcons.plus,
-                      label: 'Отметить день',
-                      primary: !_editing,
-                      // A day that has not come cannot be marked, and while
-                      // dates are being edited a tap is already a mark.
-                      onTap: _editing || selected.isAfter(today)
-                          ? null
-                          : () => showCycleDaySheet(
-                              context,
-                              ref,
-                              selected,
-                              cycleDay: model?.cycleDay(selected),
-                            ),
-                    ),
-                  ),
-                ],
+              child: _BarButton(
+                icon: _editing ? LucideIcons.check : LucideIcons.pencil,
+                label: _editing ? 'Готово' : 'Изменить даты',
+                primary: _editing,
+                onTap: () => setState(() => _editing = !_editing),
               ),
             ),
           ],
@@ -238,8 +238,8 @@ class _CycleCalendarPageState extends ConsumerState<CycleCalendarPage> {
   }
 }
 
-/// One of the two buttons under the calendar: the dark one is the main action
-/// of the moment, the grey one the other. A null [onTap] greys it out.
+/// The action under the calendar: dark while dates are being edited, neutral
+/// otherwise. A null [onTap] greys it out.
 class _BarButton extends StatelessWidget {
   const _BarButton({
     required this.icon,
@@ -301,9 +301,6 @@ bool _forecastPeriod(CycleModel? model, DateTime day) =>
     !model.isForecast(day) &&
     model.phaseOn(day) == CyclePhase.period;
 
-class _Legend extends StatelessWidget {
-  const _Legend();
-
   @override
   Widget build(BuildContext context) {
     final p = AppPalette.of(Theme.of(context));
@@ -327,8 +324,14 @@ class _Legend extends StatelessWidget {
         runSpacing: 6,
         children: [
           item(dot(periodColor), 'Месячные'),
-          item(dot(fertileColor), 'Фертильные'),
-          item(dot(ovulationColor), 'Овуляция'),
+          item(dot(todayBlue), 'Фертильные'),
+          item(
+            CustomPaint(
+              size: const Size(8, 8),
+              painter: _DashedCirclePainter(color: todayBlue, width: 1),
+            ),
+            'Овуляция',
+          ),
           item(
             CustomPaint(
               size: const Size(8, 8),
@@ -408,8 +411,8 @@ class _Month extends StatelessWidget {
   /// Days with anything marked on them: a dot under the number.
   final Set<DateTime> infoDays;
 
-  /// The day "Отметить день" is about: ringed in blue.
-  final DateTime selected;
+  /// The day shown in the information panel; null while the panel is closed.
+  final DateTime? selected;
   final int weekStart;
   final ValueChanged<DateTime> onDayTap;
 
@@ -530,14 +533,9 @@ class _DayCell extends StatelessWidget {
   /// There is something marked on the day: a dot under the number.
   final bool hasInfo;
 
-  /// The day picked for "Отметить день".
+  /// The day shown in the open information panel.
   final bool selected;
   final ValueChanged<DateTime> onTap;
-
-  // Light fills with their own dark ink, the same on both themes.
-  static const _periodFill = Color(0xFFF3DDE6);
-  static const _fertileFill = Color(0xFFDCE7FB);
-  static const _ink = Color(0xFF1B2230);
 
   @override
   Widget build(BuildContext context) {
@@ -548,17 +546,24 @@ class _DayCell extends StatelessWidget {
         : excluded && forecastPhase == CyclePhase.period
         ? CyclePhase.other
         : forecastPhase;
-    final forecast = !marked && (model?.isForecast(day) ?? false);
     final isToday = day == today;
-    final color = cyclePhaseColor(phase, p);
-
-    final (Color? fill, Color ink) = phase == CyclePhase.other || forecast
-        ? (null, p.textPrimary)
-        : switch (phase) {
-            CyclePhase.period => (_periodFill, const Color(0xFF6E3550)),
-            CyclePhase.fertile => (_fertileFill, _ink),
-            _ => (ovulationColor, Colors.white),
-          };
+    final predictedPeriod =
+        phase == CyclePhase.period &&
+        !marked &&
+        (day.isAfter(today) || (model?.isForecast(day) ?? false));
+    final dashColor = switch (phase) {
+      CyclePhase.period when predictedPeriod => periodColor,
+      CyclePhase.ovulation => todayBlue,
+      _ => null,
+    };
+    final (Color? fill, Color ink) = switch (phase) {
+      CyclePhase.period when predictedPeriod => (null, periodColor),
+      CyclePhase.period => (periodColor, Colors.white),
+      CyclePhase.fertile || CyclePhase.ovulation => (null, todayBlue),
+      CyclePhase.other => (null, p.textPrimary),
+    };
+    final visibleFill = selected ? p.chip : fill;
+    final visibleInk = selected ? p.textPrimary : ink;
 
     return Semantics(
       button: true,
@@ -566,68 +571,91 @@ class _DayCell extends StatelessWidget {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => onTap(day),
-        child: CustomPaint(
-          painter: forecast && phase != CyclePhase.other
-              ? _DashedCirclePainter(color: color, width: 1.5)
-              : null,
-          child: Container(
-            decoration: BoxDecoration(shape: BoxShape.circle, color: fill),
-            foregroundDecoration: selected || isToday
-                ? BoxDecoration(
+        child: Stack(
+          fit: StackFit.expand,
+          clipBehavior: Clip.none,
+          children: [
+            Padding(
+              // Keep the full grid cell tappable while the visible circle and
+              // any dashed phase outline stay clear of their neighbours.
+              padding: const EdgeInsets.all(6),
+              child: CustomPaint(
+                painter: selected || dashColor == null
+                    ? null
+                    : _DashedCirclePainter(color: dashColor, width: 1.5),
+                child: Container(
+                  decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(
-                      color: selected ? todayBlue : p.textPrimary,
-                      width: 2,
-                    ),
-                  )
-                : null,
-            alignment: Alignment.center,
-            child: Stack(
-              // The whole cell, not the size of the number: the heart is
-              // measured from the day's corner, partly past the circle's edge,
-              // so it never lies on the number.
-              fit: StackFit.expand,
-              clipBehavior: Clip.none,
-              children: [
-                Center(
-                  child: Text(
-                    '${day.day}',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: isToday || phase != CyclePhase.other
-                          ? FontWeight.w600
-                          : FontWeight.w400,
-                      color: ink,
-                    ),
+                    color: visibleFill,
                   ),
-                ),
-                if (hasInfo)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 5,
-                    child: Center(
-                      child: Container(
-                        key: const ValueKey('info-dot'),
-                        width: 4,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: ink,
-                          shape: BoxShape.circle,
+                  alignment: Alignment.center,
+                  child: Stack(
+                    // The whole circle, not the size of the number: the heart
+                    // is measured from the day's corner, partly past the edge.
+                    fit: StackFit.expand,
+                    clipBehavior: Clip.none,
+                    children: [
+                      Center(
+                        child: Text(
+                          '${day.day}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: isToday
+                                ? FontWeight.w700
+                                : phase != CyclePhase.other
+                                ? FontWeight.w600
+                                : FontWeight.w400,
+                            color: visibleInk,
+                          ),
                         ),
                       ),
-                    ),
+                      if (hasInfo)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 2,
+                          child: Center(
+                            child: Container(
+                              key: const ValueKey('info-dot'),
+                              width: 4,
+                              height: 4,
+                              decoration: BoxDecoration(
+                                color: visibleInk,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (CycleHeart.shows(sex))
+                        Positioned(
+                          right: 0,
+                          bottom: 0,
+                          // Rimmed in the card's colour at the circle's edge.
+                          child: CycleHeart(sex: sex, size: 11, rim: p.surface),
+                        ),
+                    ],
                   ),
-                if (CycleHeart.shows(sex))
-                  Positioned(
-                    right: 0,
-                    bottom: 0,
-                    // Rimmed in the card's colour: it sits on the circle's edge.
-                    child: CycleHeart(sex: sex, size: 11, rim: p.surface),
-                  ),
-              ],
+                ),
+              ),
             ),
-          ),
+            if (isToday)
+              const Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: Text(
+                  'сегодня',
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  style: TextStyle(
+                    fontSize: 7,
+                    height: 0.8,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black,
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

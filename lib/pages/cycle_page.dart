@@ -17,6 +17,7 @@ import 'package:todo_app/utils/cycle.dart';
 import 'package:todo_app/utils/cycle_marks.dart';
 import 'package:todo_app/utils/cycle_stats.dart';
 import 'package:todo_app/utils/last_done.dart' show pluralRu;
+import 'package:todo_app/utils/task_colors.dart' show onTaskColor;
 import 'package:todo_app/utils/week.dart';
 import 'package:todo_app/widgets/app_bottom_nav_bar.dart';
 import 'package:todo_app/widgets/cycle/cycle_colors.dart';
@@ -275,37 +276,6 @@ class _RingCard extends StatelessWidget {
               child: _Ring(model: model, day: day),
             ),
             const SizedBox(height: 18),
-            Wrap(
-              spacing: 14,
-              runSpacing: 6,
-              alignment: WrapAlignment.center,
-              children: [
-                for (final (color, label) in [
-                  (periodColor, 'Месячные'),
-                  (fertileColor, 'Фертильные'),
-                  (ovulationColor, 'Овуляция'),
-                  (otherDayColor(p), 'Другие дни'),
-                ])
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 10,
-                        height: 10,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: color,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        label,
-                        style: TextStyle(fontSize: 12, color: p.textSecondary),
-                      ),
-                    ],
-                  ),
-              ],
-            ),
             const SizedBox(height: 18),
             _Forecast(model: model, today: today),
           ],
@@ -492,9 +462,9 @@ class _WeekDay extends StatelessWidget {
 
 /// The ring of the cycle (`Cycle.dc.html`): one dot per day on a circle, day 1
 /// at the top and clockwise. Phase days are bigger, ovulation biggest; the days
-/// already lived are paler. Today is a white dot with a blue rim and its number
-/// in a blue badge outside the ring, in line with the dot; 1, 7, 14 and 21 are
-/// numbered on the inside.
+/// already lived are paler. The picked day is a white dot rimmed with its phase
+/// colour, with its number in a matching badge outside the ring; 1, 7, 14 and
+/// 21 are numbered on the inside.
 class _Ring extends StatelessWidget {
   const _Ring({required this.model, required this.day});
 
@@ -544,6 +514,14 @@ class _Ring extends StatelessWidget {
     }
 
     final phase = todayDay == null ? null : model.phaseOfCycleDay(todayDay);
+    final selectedColor = switch (phase) {
+      null => todayBlue,
+      CyclePhase.other => otherDayColor(p),
+      _ => cyclePhaseColor(phase, p),
+    };
+    final selectedInk = phase == CyclePhase.other
+        ? onTaskColor(selectedColor)
+        : Colors.white;
     final (phaseLabel, chipFill, chipInk) = switch (phase) {
       CyclePhase.period => ('Месячные', _periodFill, _periodInk),
       CyclePhase.fertile => ('Фертильные дни', _fertileFill, _fertileInk),
@@ -595,7 +573,7 @@ class _Ring extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: p.surface,
-                    border: Border.all(color: todayBlue, width: 3),
+                    border: Border.all(color: selectedColor, width: 3),
                   ),
                 ),
               ),
@@ -607,20 +585,21 @@ class _Ring extends StatelessWidget {
                     constraints: const BoxConstraints(minWidth: 22),
                     padding: const EdgeInsets.symmetric(horizontal: 6),
                     decoration: BoxDecoration(
-                      color: todayBlue,
+                      color: selectedColor,
                       borderRadius: BorderRadius.circular(11),
                     ),
                     // Not `alignment:` — that makes a Container take all the room
                     // it is offered, and here that is the whole ring.
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
                           '$todayDay',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
-                            color: Colors.white,
+                            color: selectedInk,
                           ),
                         ),
                       ],
@@ -1004,7 +983,7 @@ class _QuickMarks extends StatelessWidget {
         LucideIcons.droplet,
         const Color(0xFFF3DDE6),
         const Color(0xFF924C68),
-        r != null && r.flow > 0,
+        r?.isPeriod ?? false,
       ),
       (
         'Секс',
@@ -1141,8 +1120,12 @@ class _MarkChips extends StatelessWidget {
     ]..sort();
     final note = r.note?.trim() ?? '';
     final chips = <Widget>[
-      if (r.flow > 0 && r.flow < cycleFlows.length)
-        chip('Месячные · ${cycleFlows[r.flow].toLowerCase()}'),
+      if (r.isPeriod)
+        chip(
+          r.flow > 0 && r.flow < cycleFlows.length
+              ? 'Месячные · ${cycleFlows[r.flow].toLowerCase()}'
+              : 'Месячные',
+        ),
       if (r.sex case final sex? when sex < cycleSex.length)
         chip(
           sex == 0 ? 'Секса не было' : 'Секс · ${cycleSex[sex].toLowerCase()}',

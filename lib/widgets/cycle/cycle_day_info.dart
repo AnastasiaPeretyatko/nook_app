@@ -21,11 +21,11 @@ CycleDay? cycleDayRow(Iterable<CycleDay> days, DateTime day) {
   return null;
 }
 
-/// Whether anything was marked on [row] that [CycleDayMarks] would show: a flow,
+/// Whether anything was marked on [row] that [CycleDayMarks] would show: a period,
 /// sex (also "не было"), a mood, a symptom, the discharge or a note. The calendar
 /// dots such a day, so the user can see where there is something to read.
 bool cycleDayHasMarks(CycleDay row) =>
-    row.flow > 0 ||
+    row.isPeriod ||
     row.sex != null ||
     row.mood != null ||
     parseSymptoms(row.symptoms).isNotEmpty ||
@@ -57,14 +57,16 @@ class CycleDayMarks extends StatelessWidget {
     // Each row has its own tile — an icon on a pale fill with its own dark ink,
     // the same on both themes — and, for the flow, how strong it was.
     final rows = <_MarkRow>[
-      if (r != null && r.flow > 0 && r.flow < cycleFlows.length)
+      if (r != null && r.isPeriod)
         _MarkRow(
           'Месячные',
           LucideIcons.droplet,
           const Color(0xFFF3DDE6),
           const Color(0xFF924C68),
-          chips([CycleChip(label: cycleFlows[r.flow], dot: cycleFlowDot)]),
-          meter: r.flow,
+          r.flow > 0 && r.flow < cycleFlows.length
+              ? chips([CycleChip(label: cycleFlows[r.flow], dot: cycleFlowDot)])
+              : null,
+          meter: r.flow > 0 ? r.flow : null,
         ),
       if (r?.sex case final sex? when sex < cycleSex.length)
         _MarkRow(
@@ -157,8 +159,10 @@ class CycleDayMarks extends StatelessWidget {
                         row.title,
                         style: TextStyle(fontSize: 12, color: p.textSecondary),
                       ),
-                      const SizedBox(height: 6),
-                      row.value,
+                      if (row.value != null) ...[
+                        const SizedBox(height: 6),
+                        row.value!,
+                      ],
                       if (row.meter != null) ...[
                         const SizedBox(height: 8),
                         _FlowMeter(strength: row.meter!),
@@ -193,7 +197,7 @@ class _MarkRow {
   final IconData icon;
   final Color fill;
   final Color ink;
-  final Widget value;
+  final Widget? value;
 
   /// How strong the flow was, 1 to 4; null for every other row.
   final int? meter;
@@ -285,35 +289,18 @@ class CycleChip extends StatelessWidget {
   }
 }
 
-/// The calendar's second tap on a day (`CycleDayInfo.html`): its date and place
+/// The calendar's information panel (`CycleDayInfo.html`): its date and place
 /// in the cycle between arrows to the day before and after, tags for the phase
 /// and what was marked, the marks themselves, and the way to change or clear
-/// them. A day that has not come shows only where it falls in the cycle.
+/// them. The calendar presents it as a non-modal persistent bottom sheet, so
+/// [day] can change while the panel stays open.
 ///
-/// [pageContext] is the screen under the sheet — the day sheet that "Изменить
+/// [pageContext] is the screen under the panel — the day sheet that "Изменить
 /// день" opens must outlive this one. [onDayChanged] hears each day the arrows
-/// move to, so the calendar behind the half-height sheet can follow.
-Future<void> showCycleDayInfoSheet(
-  BuildContext pageContext,
-  DateTime day, {
-  required CycleModel? model,
-  required DateTime today,
-  ValueChanged<DateTime>? onDayChanged,
-}) => showModalBottomSheet<void>(
-  context: pageContext,
-  isScrollControlled: true,
-  backgroundColor: Colors.transparent,
-  builder: (_) => _DayInfoSheet(
-    pageContext: pageContext,
-    day: day,
-    model: model,
-    today: today,
-    onDayChanged: onDayChanged,
-  ),
-);
-
-class _DayInfoSheet extends ConsumerStatefulWidget {
-  const _DayInfoSheet({
+/// move to, so the calendar behind the panel can follow.
+class CycleDayInfoPanel extends ConsumerStatefulWidget {
+  const CycleDayInfoPanel({
+    super.key,
     required this.pageContext,
     required this.day,
     required this.model,
@@ -328,11 +315,17 @@ class _DayInfoSheet extends ConsumerStatefulWidget {
   final ValueChanged<DateTime>? onDayChanged;
 
   @override
-  ConsumerState<_DayInfoSheet> createState() => _DayInfoSheetState();
+  ConsumerState<CycleDayInfoPanel> createState() => _CycleDayInfoPanelState();
 }
 
-class _DayInfoSheetState extends ConsumerState<_DayInfoSheet> {
+class _CycleDayInfoPanelState extends ConsumerState<CycleDayInfoPanel> {
   late DateTime _day = widget.day;
+
+  @override
+  void didUpdateWidget(covariant CycleDayInfoPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.day != widget.day) _day = widget.day;
+  }
 
   void _step(int by) {
     setState(() => _day = DateTime(_day.year, _day.month, _day.day + by));
@@ -376,7 +369,7 @@ class _DayInfoSheetState extends ConsumerState<_DayInfoSheet> {
     final tags = <(String, Color, Color)>[
       if (phase == CyclePhase.period)
         ('Месячные · день $cycleDay', _tagPeriodFill, _tagPeriodInk)
-      else if (row != null && row.flow > 0)
+      else if (row != null && row.isPeriod)
         ('Месячные', _tagPeriodFill, _tagPeriodInk),
       if (phase == CyclePhase.fertile)
         ('Фертильный день', _tagFertileFill, _tagFertileInk),

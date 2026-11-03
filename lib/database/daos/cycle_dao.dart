@@ -25,6 +25,7 @@ class CycleDao extends DatabaseAccessor<AppDatabase> with _$CycleDaoMixin {
   /// is how a mark taken back reaches the other devices.
   Future<void> saveDay(
     DateTime day, {
+    bool? isPeriod,
     int flow = 0,
     int? mood,
     Set<int> symptoms = const {},
@@ -39,6 +40,7 @@ class CycleDao extends DatabaseAccessor<AppDatabase> with _$CycleDaoMixin {
       final trimmed = note?.trim();
       final row = CycleDaysCompanion(
         date: Value(date),
+        isPeriod: Value(isPeriod ?? flow > 0),
         flow: Value(flow),
         mood: Value(mood),
         symptoms: Value(encodeSymptoms(symptoms)),
@@ -59,24 +61,16 @@ class CycleDao extends DatabaseAccessor<AppDatabase> with _$CycleDaoMixin {
   /// devices hear of it (see [saveDay]).
   Future<void> clearDay(DateTime day) => saveDay(day);
 
-  /// What an ordinary period day is marked with when it is added from the
-  /// calendar, where only "was it a period day" is asked: the middle of the
-  /// flow list ("Средние").
-  static const defaultFlow = 3;
-
   /// Marks [day] as a period day, or takes that back, **leaving everything else
-  /// on the day as it was** — the mood, the symptoms, the note. A day that
-  /// already has a flow keeps its strength when it is marked again.
+  /// on the day as it was** — the mood, symptoms and note. Marking a day does
+  /// not invent an intensity; an already selected intensity is preserved.
   Future<void> setPeriodDay(DateTime day, {required bool on}) {
     return transaction(() async {
       final existing = await getDay(day);
       await saveDay(
         day,
-        flow: on
-            ? (existing != null && existing.flow > 0
-                  ? existing.flow
-                  : defaultFlow)
-            : 0,
+        isPeriod: on,
+        flow: on ? existing?.flow ?? 0 : 0,
         mood: existing?.mood,
         symptoms: parseSymptoms(existing?.symptoms ?? ''),
         discharge: existing?.discharge,

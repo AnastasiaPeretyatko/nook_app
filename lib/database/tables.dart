@@ -400,7 +400,8 @@ class SyncTombstones extends Table {
 /// **One row per calendar day, and the day is the identity** — the same shape as
 /// [TaskLogs], for the same reason: two phones that marked one day converge on
 /// the pair `(user, date)` without anything having to merge them. So there is no
-/// `uid` here and no tombstone: taking a mark back saves the day *empty* (flow 0,
+/// `uid` here and no tombstone: taking a mark back saves the day *empty* (not a
+/// period, flow 0,
 /// the rest unset) rather than deleting the row, which is how a task log keeps
 /// `completed = false`. An empty row is not shown anywhere as a mark.
 ///
@@ -417,7 +418,11 @@ class CycleDays extends Table {
   /// The calendar day, as **local midnight** — see [TaskLogs.date].
   DateTimeColumn get date => dateTime()();
 
-  /// 0 = none … 4 = heavy.
+  /// Whether this day was marked as a menstruation day. This is deliberately
+  /// separate from [flow]: a user can mark the day without choosing intensity.
+  BoolColumn get isPeriod => boolean().withDefault(const Constant(false))();
+
+  /// 0 = intensity not specified, 1 = spotting … 4 = heavy.
   IntColumn get flow => integer().withDefault(const Constant(0))();
 
   /// Null = not marked.

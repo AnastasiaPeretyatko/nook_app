@@ -39,6 +39,7 @@ void main() {
 
         final saved = (await dao.getDay(day))!;
         expect(saved.date, day);
+        expect(saved.isPeriod, isTrue);
         expect(saved.flow, 2);
         expect(saved.mood, 1);
         expect(saved.symptoms, '0,3');
@@ -70,8 +71,16 @@ void main() {
 
         final row = (await dao.getDay(day))!;
         expect(
-          [row.flow, row.mood, row.symptoms, row.discharge, row.sex, row.note],
-          [0, null, '', null, null, null],
+          [
+            row.isPeriod,
+            row.flow,
+            row.mood,
+            row.symptoms,
+            row.discharge,
+            row.sex,
+            row.note,
+          ],
+          [false, 0, null, '', null, null, null],
         );
         expect(await dao.pending(), hasLength(1));
       },
@@ -92,6 +101,7 @@ void main() {
       await dao.applyRemote(
         CycleDaysCompanion(
           date: Value(DateTime(2026, 10, 16, 15)),
+          isPeriod: const Value(true),
           flow: const Value(4),
           updatedAt: Value(DateTime(2026, 10, 17)),
         ),
@@ -114,6 +124,19 @@ void main() {
       await dao.wipeAll();
       expect(await db.select(db.cycleDays).get(), isEmpty);
     });
+  });
+
+  test('marking a period day does not invent an intensity', () async {
+    await dao.setPeriodDay(day, on: true);
+
+    final row = (await dao.getDay(day))!;
+    expect(row.isPeriod, isTrue);
+    expect(row.flow, 0);
+
+    await dao.setPeriodDay(day, on: false);
+    final cleared = (await dao.getDay(day))!;
+    expect(cleared.isPeriod, isFalse);
+    expect(cleared.flow, 0);
   });
 
   test(
@@ -139,13 +162,36 @@ void main() {
     },
   );
 
+  test('the v20 migration preserves period days and their intensity', () async {
+    final dir = await Directory.systemTemp.createTemp('cycle_v20_migration');
+    addTearDown(() => dir.delete(recursive: true));
+    final file = File('${dir.path}/db.sqlite');
+
+    final old = AppDatabase.forExecutor(NativeDatabase(file));
+    await old.customSelect('select 1').get();
+    await old.cycleDao.saveDay(day, flow: 2);
+    await old.customStatement('ALTER TABLE cycle_days DROP COLUMN is_period');
+    await old.customStatement('PRAGMA user_version = 19');
+    await old.close();
+
+    final upgraded = AppDatabase.forExecutor(NativeDatabase(file));
+    addTearDown(upgraded.close);
+    final row = (await upgraded.cycleDao.getDay(day))!;
+    expect(row.isPeriod, isTrue);
+    expect(row.flow, 2);
+  });
+
   group('the payload', () {
+    test('a day goes up with its calendar date and no account', () async {
     test('a day goes up with its calendar date and no account', () async {
       await dao.saveDay(day, flow: 2, mood: 3, symptoms: {4, 1}, sex: 2);
       final row = cycleDayToRow((await dao.getDay(day))!);
+      final row = cycleDayToRow((await dao.getDay(day))!);
 
       expect(row.containsKey('user_id'), isFalse);
+      expect(row.containsKey('user_id'), isFalse);
       expect(row['date'], '2026-10-16');
+      expect(row['is_period'], isTrue);
       expect(row['flow'], 2);
       expect(row['mood'], 3);
       expect(row['symptoms'], [1, 4]);
@@ -158,9 +204,11 @@ void main() {
     test('and comes back as the same day', () async {
       await dao.saveDay(day, flow: 2, mood: 3, symptoms: {4, 1}, note: 'n');
       final row = cycleDayToRow((await dao.getDay(day))!);
+      final row = cycleDayToRow((await dao.getDay(day))!);
       final back = cycleDayFromRow(row);
 
       expect(back.date.value, day);
+      expect(back.isPeriod.value, isTrue);
       expect(back.flow.value, 2);
       expect(back.mood.value, 3);
       expect(back.symptoms.value, '1,4');
@@ -178,10 +226,17 @@ void main() {
       });
 
       expect(back.flow.value, 0);
+      expect(back.isPeriod.value, isFalse);
       expect(back.mood.value, isNull);
       expect(back.symptoms.value, '1');
       expect(back.discharge.value, isNull);
       expect(back.sex.value, isNull);
+    });
+
+    test('old server rows infer the period mark from intensity', () {
+      final back = cycleDayFromRow({'date': '2026-10-16', 'flow': 2});
+      expect(back.isPeriod.value, isTrue);
+      expect(back.flow.value, 2);
     });
   });
 

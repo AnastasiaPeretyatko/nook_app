@@ -22,7 +22,7 @@ class CycleStats {
 /// The last [keep] cycles are what is averaged — recent ones say more about the
 /// body now than ones from a year ago.
 ///
-/// Every day with a flow (`flow > 0`) is a day of a period. Days at most one day
+/// Every day explicitly marked with `isPeriod` is a day of a period. Days at most one day
 /// apart are one period (bleeding that skips a day is still one), so a period
 /// runs from its first marked day to its last. [lastStart] — the start entered
 /// in the settings — counts as a start too, unless a marked period begins within
@@ -38,7 +38,7 @@ CycleStats cycleStats(
 }) {
   final marked = [
     for (final d in days)
-      if (d.flow > 0) DateTime(d.date.year, d.date.month, d.date.day),
+      if (d.isPeriod) DateTime(d.date.year, d.date.month, d.date.day),
   ]..sort();
 
   // Periods as (first day, last day).

@@ -225,6 +225,7 @@ TaskLogsCompanion logFromRow(Map<String, dynamic> row) => TaskLogsCompanion(
 /// ignores any other.
 Map<String, dynamic> cycleDayToRow(CycleDay day) => {
   'date': _calendarDay(day.date),
+  'is_period': day.isPeriod,
   'flow': day.flow,
   'mood': day.mood,
   'symptoms': [...parseSymptoms(day.symptoms)]..sort(),
@@ -244,9 +245,13 @@ CycleDaysCompanion cycleDayFromRow(Map<String, dynamic> row) {
     return i != null && i >= 0 && i < count ? i : null;
   }
 
+  final flow = inRange(row['flow'], cycleFlows.length) ?? 0;
+  // Servers from before the separate marker only returned flow.
+  final isPeriod = row['is_period'] as bool? ?? flow > 0;
   return CycleDaysCompanion(
     date: Value(_day(row['date']) ?? DateTime.now()),
-    flow: Value(inRange(row['flow'], cycleFlows.length) ?? 0),
+    isPeriod: Value(isPeriod),
+    flow: Value(isPeriod ? flow : 0),
     mood: Value(inRange(row['mood'], cycleMoods.length)),
     symptoms: Value(
       encodeSymptoms([

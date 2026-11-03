@@ -42,6 +42,7 @@ Future<void> showCycleDaySheet(
       onSave: (draft) async {
         await dao.saveDay(
           day,
+          isPeriod: draft.isPeriod,
           flow: draft.flow,
           mood: draft.mood,
           symptoms: draft.symptoms,
@@ -62,7 +63,8 @@ enum CycleSection { flow, sex, mood, symptoms, discharge, note }
 /// What the sheet edits, before it is saved.
 class _Draft {
   _Draft(CycleDay? day)
-    : flow = day?.flow ?? 0,
+    : isPeriod = day?.isPeriod ?? false,
+      flow = day?.flow ?? 0,
       mood = day?.mood,
       symptoms = parseSymptoms(day?.symptoms ?? ''),
       discharge = day?.discharge,
@@ -70,6 +72,7 @@ class _Draft {
       pill = day?.pill ?? false,
       note = day?.note ?? '';
 
+  bool isPeriod;
   int flow;
   int? mood;
   Set<int> symptoms;
@@ -135,58 +138,80 @@ class _CycleDaySheetState extends State<_CycleDaySheet> {
         if (show(CycleSection.flow))
           _Card(
             title: 'Месячные',
-            child: _Grid(
-              columns: 5,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (final (i, label) in cycleFlows.indexed)
-                  _Tile(
-                    selected: d.flow == i,
-                    selectedFill: i == 0 ? p.textPrimary : _flowOn,
-                    selectedInk: i == 0 ? p.background : Colors.white,
-                    height: 64,
-                    onTap: () => setState(() => d.flow = i),
-                    builder: (ink, selected) => Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                          height: 14,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              // "Нет" is one empty drop; the rest are as many full
-                              // ones as the flow is heavy.
-                              for (var k = 0; k < (i == 0 ? 1 : i); k++)
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 0.5,
-                                  ),
-                                  child: CustomPaint(
-                                    size: const Size(9, 12),
-                                    painter: _DropPainter(
-                                      filled: i != 0,
-                                      color: selected
-                                          ? Colors.white
-                                          : (i == 0
-                                                ? p.iconMuted
-                                                : const Color(0xFFCF93AB)),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          label,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                            color: ink,
-                          ),
-                        ),
-                      ],
-                    ),
+                if (d.isPeriod && d.flow == 0) ...[
+                  Text(
+                    'Интенсивность не указана',
+                    style: TextStyle(fontSize: 12, color: p.textSecondary),
                   ),
+                  const SizedBox(height: 8),
+                ],
+                _Grid(
+                  columns: 5,
+                  children: [
+                    for (final (i, label) in cycleFlows.indexed)
+                      _Tile(
+                        selected: i == 0
+                            ? !d.isPeriod
+                            : d.isPeriod && d.flow == i,
+                        selectedFill: i == 0 ? p.textPrimary : _flowOn,
+                        selectedInk: i == 0 ? p.background : Colors.white,
+                        height: 64,
+                        onTap: () => setState(() {
+                          if (i == 0) {
+                            d.isPeriod = false;
+                            d.flow = 0;
+                          } else {
+                            d.isPeriod = true;
+                            d.flow = d.flow == i ? 0 : i;
+                          }
+                        }),
+                        builder: (ink, selected) => Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              height: 14,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  // "Нет" is one empty drop; the rest are as many full
+                                  // ones as the flow is heavy.
+                                  for (var k = 0; k < (i == 0 ? 1 : i); k++)
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 0.5,
+                                      ),
+                                      child: CustomPaint(
+                                        size: const Size(9, 12),
+                                        painter: _DropPainter(
+                                          filled: i != 0,
+                                          color: selected
+                                              ? Colors.white
+                                              : (i == 0
+                                                    ? p.iconMuted
+                                                    : const Color(0xFFCF93AB)),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              label,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: ink,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
               ],
             ),
           ),
