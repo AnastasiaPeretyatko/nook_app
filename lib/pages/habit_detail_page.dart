@@ -19,6 +19,7 @@ import 'package:todo_app/utils/task_palette.dart';
 import 'package:todo_app/widgets/color_picker_row.dart';
 import 'package:todo_app/widgets/habits/habit_actions_sheet.dart';
 import 'package:todo_app/widgets/habits/habit_history_stats.dart';
+import 'package:todo_app/widgets/habits/month_calendar_grid.dart';
 import 'package:todo_app/widgets/habits/habit_week_stats.dart';
 import 'package:todo_app/widgets/habits/habits_week.dart' show DashedBox;
 import 'package:todo_app/widgets/page_header.dart';
@@ -254,15 +255,15 @@ class _Title extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 56,
-            height: 56,
+            width: 48,
+            height: 48,
             decoration: BoxDecoration(
               color: look.fill,
               borderRadius: BorderRadius.circular(18),
             ),
             child: Icon(
               taskIconFor(task.iconKey) ?? LucideIcons.repeat,
-              size: 24,
+              size: 20,
               color: look.strong,
             ),
           ),
@@ -274,7 +275,7 @@ class _Title extends StatelessWidget {
                 Text(
                   task.title,
                   style: TextStyle(
-                    fontSize: 26,
+                    fontSize: 20,
                     fontWeight: FontWeight.w600,
                     letterSpacing: -0.5,
                     color: p.textPrimary,
@@ -502,14 +503,8 @@ class _MonthCalendar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final p = AppPalette.of(Theme.of(context));
-    final weekStart = ref.watch(weekStartProvider);
     final cells = _cellsByDay(history);
     final first = DateTime(today.year, today.month);
-    final count = DateTime(today.year, today.month + 1, 0).day;
-    final pad = (first.weekday - weekStart + 7) % 7;
-    final names = [
-      for (var i = 0; i < 7; i++) weekdayShort[(weekStart - 1 + i) % 7],
-    ];
     final counts = history.counts((d) => !d.isBefore(first));
 
     return _Card(
@@ -521,50 +516,19 @@ class _MonthCalendar extends ConsumerWidget {
             counts: counts,
           ),
           const SizedBox(height: 14),
-          Row(
-            children: [
-              for (final n in names)
-                Expanded(
-                  child: Text(
-                    n,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 11, color: p.textSecondary),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          GridView.count(
-            crossAxisCount: 7,
-            mainAxisSpacing: 6,
-            crossAxisSpacing: 6,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            children: [
-              for (var i = 0; i < pad; i++) const SizedBox.shrink(),
-              // Days before the habit began are in no cell map: they read as
-              // plain "off" numbers, so the whole month is drawn.
-              for (var d = 1; d <= count; d++)
-                _DayCell(
-                  day: DateTime(today.year, today.month, d),
-                  cell:
-                      cells[DateTime(today.year, today.month, d)] ??
-                      // Days ahead are in no cell map: only the ones the rule
-                      // lands on get the dashed outline.
-                      (isTaskScheduledOn(
-                                history.task,
-                                DateTime(today.year, today.month, d),
-                              ) &&
-                              DateTime(
-                                today.year,
-                                today.month,
-                                d,
-                              ).isAfter(today)
-                          ? WeekCell.future
-                          : WeekCell.off),
-                  look: look,
-                ),
-            ],
+          HabitMonthCalendarGrid(
+            month: first,
+            dayBuilder: (context, day) => _DayCell(
+              day: day,
+              cell:
+                  cells[day] ??
+                  // Days ahead are in no cell map: only the ones the rule
+                  // lands on get the dashed outline.
+                  (isTaskScheduledOn(history.task, day) && day.isAfter(today)
+                      ? WeekCell.future
+                      : WeekCell.off),
+              look: look,
+            ),
           ),
           const SizedBox(height: 14),
           _Legend(look: look),

@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,7 +9,7 @@ import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/utils/cycle.dart';
 import 'package:todo_app/utils/last_done.dart' show pluralRu;
 import 'package:todo_app/utils/surfaces.dart';
-import 'package:todo_app/widgets/cycle/cycle_colors.dart';
+import 'package:todo_app/widgets/cycle/cycle_calendar_day.dart';
 import 'package:todo_app/widgets/cycle/cycle_day_info.dart';
 import 'package:todo_app/widgets/cycle/cycle_heart.dart';
 import 'package:todo_app/widgets/page_header.dart';
@@ -109,11 +107,11 @@ class _CycleCalendarPageState extends ConsumerState<CycleCalendarPage> {
     final marks = ref.watch(cycleDaysProvider).valueOrNull ?? const [];
     final sexByDay = <DateTime, int?>{
       for (final d in marks)
-        if (CycleHeart.shows(d.sex)) d.date: d.sex,
+        if (CycleHeart.showsCalendar(d.sex)) d.date: d.sex,
     };
     final infoDays = {
       for (final d in marks)
-        if (cycleDayHasMarks(d)) d.date,
+        if (cycleDayHasNonSexMarks(d)) d.date,
     };
     final periodDays = {
       for (final d in marks)
@@ -434,7 +432,7 @@ class _Month extends StatelessWidget {
             children: [
               for (var i = 0; i < pad; i++) const SizedBox.shrink(),
               for (var d = 1; d <= days; d++)
-                _DayCell(
+                CycleCalendarDay(
                   day: DateTime(first.year, first.month, d),
                   today: today,
                   model: model,
@@ -457,189 +455,4 @@ class _Month extends StatelessWidget {
       ),
     );
   }
-}
-
-/// A day: a filled circle for what was entered, a dashed one for the forecast.
-class _DayCell extends StatelessWidget {
-  const _DayCell({
-    required this.day,
-    required this.today,
-    required this.model,
-    required this.sex,
-    required this.marked,
-    required this.excluded,
-    required this.hasInfo,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final DateTime day;
-  final DateTime today;
-  final CycleModel? model;
-  final int? sex;
-
-  /// A flow was marked on this day: a solid period day, forecast or not.
-  final bool marked;
-
-  /// The forecast calls it a period day and the user took it off.
-  final bool excluded;
-
-  /// There is something marked on the day: a dot under the number.
-  final bool hasInfo;
-
-  /// The day shown in the open information panel.
-  final bool selected;
-  final ValueChanged<DateTime> onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = AppPalette.of(Theme.of(context));
-    final forecastPhase = model?.phaseOn(day) ?? CyclePhase.other;
-    final phase = marked
-        ? CyclePhase.period
-        : excluded && forecastPhase == CyclePhase.period
-        ? CyclePhase.other
-        : forecastPhase;
-    final isToday = day == today;
-    final predictedPeriod =
-        phase == CyclePhase.period &&
-        !marked &&
-        (day.isAfter(today) || (model?.isForecast(day) ?? false));
-    final dashColor = switch (phase) {
-      CyclePhase.period when predictedPeriod => periodColor,
-      CyclePhase.ovulation => todayBlue,
-      _ => null,
-    };
-    final (Color? fill, Color ink) = switch (phase) {
-      CyclePhase.period when predictedPeriod => (null, periodColor),
-      CyclePhase.period => (periodColor, Colors.white),
-      CyclePhase.fertile || CyclePhase.ovulation => (null, todayBlue),
-      CyclePhase.other => (null, p.textPrimary),
-    };
-    final visibleFill = selected ? p.chip : fill;
-    final visibleInk = selected ? p.textPrimary : ink;
-
-    return Semantics(
-      button: true,
-      label: '${day.day}',
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => onTap(day),
-        child: Stack(
-          fit: StackFit.expand,
-          clipBehavior: Clip.none,
-          children: [
-            Padding(
-              // Keep the full grid cell tappable while the visible circle and
-              // any dashed phase outline stay clear of their neighbours.
-              padding: const EdgeInsets.all(6),
-              child: CustomPaint(
-                painter: selected || dashColor == null
-                    ? null
-                    : _DashedCirclePainter(color: dashColor, width: 1.5),
-                child: Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: visibleFill,
-                  ),
-                  alignment: Alignment.center,
-                  child: Stack(
-                    // The whole circle, not the size of the number: the heart
-                    // is measured from the day's corner, partly past the edge.
-                    fit: StackFit.expand,
-                    clipBehavior: Clip.none,
-                    children: [
-                      Center(
-                        child: Text(
-                          '${day.day}',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: isToday
-                                ? FontWeight.w700
-                                : phase != CyclePhase.other
-                                ? FontWeight.w600
-                                : FontWeight.w400,
-                            color: visibleInk,
-                          ),
-                        ),
-                      ),
-                      if (hasInfo)
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 2,
-                          child: Center(
-                            child: Container(
-                              key: const ValueKey('info-dot'),
-                              width: 4,
-                              height: 4,
-                              decoration: BoxDecoration(
-                                color: visibleInk,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ),
-                        ),
-                      if (CycleHeart.shows(sex))
-                        Positioned(
-                          right: 0,
-                          bottom: 0,
-                          // Rimmed in the card's colour at the circle's edge.
-                          child: CycleHeart(sex: sex, size: 11, rim: p.surface),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            if (isToday)
-              const Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: Text(
-                  'сегодня',
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  style: TextStyle(
-                    fontSize: 7,
-                    height: 0.8,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// A circle drawn as dashes — the forecast's outline.
-class _DashedCirclePainter extends CustomPainter {
-  const _DashedCirclePainter({required this.color, required this.width});
-
-  final Color color;
-  final double width;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = width;
-    final r = (size.shortestSide - width) / 2;
-    final rect = Rect.fromCircle(center: size.center(Offset.zero), radius: r);
-    // 16 dashes, each half of its slot.
-    const count = 16;
-    const slot = 2 * math.pi / count;
-    for (var i = 0; i < count; i++) {
-      canvas.drawArc(rect, i * slot, slot / 2, false, paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_DashedCirclePainter old) =>
-      old.color != color || old.width != width;
 }

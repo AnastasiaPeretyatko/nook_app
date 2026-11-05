@@ -198,15 +198,6 @@ class _CycleDaySheetState extends State<_CycleDaySheet> {
                                 ],
                               ),
                             ),
-                            const SizedBox(height: 6),
-                            Text(
-                              label,
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
-                                color: ink,
-                              ),
-                            ),
                           ],
                         ),
                       ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:todo_app/theme/app_palette.dart';
+import 'package:todo_app/pages/value_detail_page.dart';
 import 'package:todo_app/utils/task_audience.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
@@ -64,7 +65,13 @@ class ArchivePage extends ConsumerWidget {
                 _ArchiveTile(
                   task: task,
                   subtitle: _repeatLabel(task),
-                  onTap: () => showHabitActionsSheet(context, task: task),
+                  onTap: () => isValueTask(task)
+                      ? Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => ValueDetailPage(taskId: task.id),
+                          ),
+                        )
+                      : showHabitActionsSheet(context, task: task),
                   trailing: _RestoreButton(
                     color: _tileInk(context, task),
                     onTap: () => ref

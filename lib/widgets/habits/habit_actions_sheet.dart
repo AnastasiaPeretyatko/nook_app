@@ -2,14 +2,13 @@ import 'package:todo_app/widgets/app_dialogs.dart';
 import 'package:todo_app/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/pages/create_task_page.dart';
+import 'package:todo_app/pages/value_detail_page.dart';
 import 'package:todo_app/settings/analytics_settings.dart';
-import 'package:todo_app/utils/week.dart';
 import 'package:todo_app/utils/last_done.dart';
-import 'package:todo_app/utils/recurrence.dart';
+import 'package:todo_app/utils/week.dart';
 import 'package:todo_app/utils/surfaces.dart';
 import 'package:todo_app/utils/task_colors.dart';
 import 'package:todo_app/utils/task_palette.dart';
@@ -24,10 +23,14 @@ import '../../utils/task_icons.dart';
 /// A habit that is already archived gets "Вернуть" in place of "Архив", so the
 /// archive page can hand it back through the very same sheet.
 ///
-/// A "Значение" task opens the same sheet with its body swapped: no day squares
-/// — it has no days — but when it was last done, a way to mark today or any other
-/// day, and the latest marks to take a wrong one back.
+/// Value trackers use [ValueDetailPage] instead. The guard below keeps older
+/// callers from reopening the retired modal flow.
 Future<void> showHabitActionsSheet(BuildContext context, {required Task task}) {
+  if (isValueTask(task)) {
+    return Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => ValueDetailPage(taskId: task.id)),
+    );
+  }
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -80,8 +83,6 @@ class HabitActionsSheet extends ConsumerWidget {
 
     final description = task.description?.trim() ?? '';
     final archived = task.status == TaskStatus.archived;
-    final isValue = isValueTask(task);
-
     return SafeArea(
       top: false,
       child: Container(
@@ -137,20 +138,15 @@ class HabitActionsSheet extends ConsumerWidget {
                       ),
                     ),
                   ),
-                  // The calendar of the history draws a repeat rule's days; a
-                  // "Значение" task has none, and lists its marks below instead.
-                  if (!isValue) ...[
-                    const SizedBox(width: 8),
-                    IconButton(
-                      tooltip: 'История',
-                      onPressed: () =>
-                          showHabitHistorySheet(context, task: task),
-                      icon: Icon(LucideIcons.calendar_days, color: color),
-                      style: IconButton.styleFrom(
-                        backgroundColor: color.withValues(alpha: 0.1),
-                      ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: 'История',
+                    onPressed: () => showHabitHistorySheet(context, task: task),
+                    icon: Icon(LucideIcons.calendar_days, color: color),
+                    style: IconButton.styleFrom(
+                      backgroundColor: color.withValues(alpha: 0.1),
                     ),
-                  ],
+                  ),
                 ],
               ),
               if (description.isNotEmpty) ...[
@@ -164,26 +160,22 @@ class HabitActionsSheet extends ConsumerWidget {
                 ),
               ],
               const SizedBox(height: 20),
-              if (isValue)
-                _ValueBody(task: task, color: color, sheet: sheet, today: today)
-              else ...[
-                _MiniDaysGrid(
-                  task: task,
-                  days: days,
-                  completedDays: completedDays,
-                  lateDays: late,
-                  todayStaysOpen: ref.watch(todayStaysOpenProvider),
-                  today: today,
-                  color: color,
-                  onToggleDay: (day) =>
-                      ref.read(tasksDaoProvider).toggleCompletion(task.id, day),
-                ),
-                const SizedBox(height: 12),
-                _DaysLegend(
-                  color: color,
-                  showLate: task.scheduledTimeMinutes != null,
-                ),
-              ],
+              _MiniDaysGrid(
+                task: task,
+                days: days,
+                completedDays: completedDays,
+                lateDays: late,
+                todayStaysOpen: ref.watch(todayStaysOpenProvider),
+                today: today,
+                color: color,
+                onToggleDay: (day) =>
+                    ref.read(tasksDaoProvider).toggleCompletion(task.id, day),
+              ),
+              const SizedBox(height: 12),
+              _DaysLegend(
+                color: color,
+                showLate: task.scheduledTimeMinutes != null,
+              ),
               const SizedBox(height: 20),
               Row(
                 children: [
@@ -244,11 +236,10 @@ class HabitActionsSheet extends ConsumerWidget {
     final confirmed = await showConfirmDialog(
       context,
       icon: DialogIcons.delete,
-      title: isValueTask(task) ? 'Удалить отслеживание?' : 'Удалить привычку?',
-      body: isValueTask(task)
-          ? '«${task.title}» и все отметки будут удалены безвозвратно.'
-          : 'Привычка «${task.title}» и вся история её выполнения будут '
-                'удалены безвозвратно.',
+      title: 'Удалить привычку?',
+      body:
+          'Привычка «${task.title}» и вся история её выполнения будут '
+          'удалены безвозвратно.',
       action: 'Удалить',
     );
 
@@ -259,135 +250,12 @@ class HabitActionsSheet extends ConsumerWidget {
       if (deleted != null) {
         showAppToast(
           overlay,
-          message: isValueTask(task)
-              ? 'Отслеживание удалено'
-              : 'Привычка удалена',
+          message: 'Привычка удалена',
           actionLabel: 'Отменить',
           onAction: () => dao.restoreDeleted(deleted),
         );
       }
     }
-  }
-}
-
-/// How many of the latest marks the sheet lists. The rest are still stored and
-/// still count towards "last done"; the list is only there to undo a slip.
-const _recentMarksShown = 5;
-
-/// The body of the sheet for a "Значение" task.
-class _ValueBody extends ConsumerWidget {
-  const _ValueBody({
-    required this.task,
-    required this.color,
-    required this.sheet,
-    required this.today,
-  });
-
-  final Task task;
-  final Color color;
-  final Color sheet;
-  final DateTime today;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final ink = inkOn(sheet, color, minContrast: 3);
-    final logs =
-        ref.watch(logsForTaskProvider(task.id)).valueOrNull ??
-        const <TaskLog>[];
-    final marked = markedDaysNewestFirst(logs, task.id);
-    final lastDone = marked.isEmpty ? null : marked.first;
-    final doneToday = lastDone == today;
-    final fullDate = DateFormat('d MMMM y', 'ru_RU');
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          lastDoneLabel(lastDone, today: today),
-          style: theme.textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.w800,
-            color: theme.colorScheme.onSurface,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          lastDone == null
-              ? 'Слежу с ${fullDate.format(taskAnchorDate(task))}'
-              : fullDate.format(lastDone),
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            _ActionButton(
-              icon: doneToday ? LucideIcons.undo_2 : LucideIcons.check,
-              label: doneToday ? 'Снять за сегодня' : 'Отметить сегодня',
-              color: ink,
-              onTap: () => ref
-                  .read(tasksDaoProvider)
-                  .setLog(task.id, today, completed: !doneToday),
-            ),
-            _ActionButton(
-              icon: LucideIcons.calendar_plus,
-              label: 'Другая дата',
-              color: ink,
-              onTap: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: today,
-                  firstDate: DateTime(2020),
-                  lastDate: today,
-                  locale: const Locale('ru', 'RU'),
-                );
-                if (picked != null) {
-                  await ref
-                      .read(tasksDaoProvider)
-                      .setLog(task.id, picked, completed: true);
-                }
-              },
-            ),
-          ],
-        ),
-        if (marked.isNotEmpty) ...[
-          const SizedBox(height: 16),
-          Text(
-            'Последние отметки',
-            style: theme.textTheme.labelLarge?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          for (final day in marked.take(_recentMarksShown))
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${fullDate.format(day)} · '
-                    '${lastDoneLabel(day, today: today).toLowerCase()}',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Убрать отметку',
-                  onPressed: () => ref
-                      .read(tasksDaoProvider)
-                      .setLog(task.id, day, completed: false),
-                  icon: Icon(
-                    LucideIcons.x,
-                    size: 18,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                  visualDensity: VisualDensity.compact,
-                ),
-              ],
-            ),
-        ],
-      ],
-    );
   }
 }
 

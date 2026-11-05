@@ -8,10 +8,20 @@ import 'package:todo_app/widgets/cycle/cycle_colors.dart';
 /// [sex] is the stored value of `cycle_days.sex`: 0 none, 1 protected,
 /// 2 unprotected.
 class CycleHeart extends StatelessWidget {
-  const CycleHeart({super.key, required this.sex, this.size = 12, this.rim});
+  const CycleHeart({
+    super.key,
+    required this.sex,
+    this.size = 12,
+    this.rim,
+    this.showNoSex = false,
+  });
 
   final int? sex;
   final double size;
+
+  /// The calendar uses the heart for every saved sex answer, including
+  /// "не было" (`0`). Other surfaces keep showing it only for activity.
+  final bool showNoSex;
 
   /// A rim around the heart in this colour — the card's own, so a heart sitting
   /// on the edge of a coloured day does not run into it.
@@ -20,11 +30,20 @@ class CycleHeart extends StatelessWidget {
   /// Whether a day with this mark shows a heart at all.
   static bool shows(int? sex) => sex == 1 || sex == 2;
 
+  /// Whether the calendar needs a heart for this saved sex answer.
+  static bool showsCalendar(int? sex) => sex != null;
+
   @override
   Widget build(BuildContext context) {
-    if (!shows(sex)) return SizedBox(width: size, height: size);
+    if (!shows(sex) && !(showNoSex && sex == 0)) {
+      return SizedBox(width: size, height: size);
+    }
     return Semantics(
-      label: sex == 1 ? 'секс с защитой' : 'секс без защиты',
+      label: switch (sex) {
+        0 => 'секса не было',
+        1 => 'секс с защитой',
+        _ => 'секс без защиты',
+      },
       child: CustomPaint(
         size: Size(size, size),
         painter: CycleHeartPainter(

@@ -17,6 +17,7 @@ import 'package:todo_app/widgets/app_bottom_nav_bar.dart';
 import 'package:todo_app/widgets/app_dialogs.dart' show AppSheet;
 import 'package:todo_app/widgets/cycle/cycle_colors.dart';
 import 'package:todo_app/widgets/cycle/cycle_heart.dart';
+import 'package:todo_app/widgets/cycle/period_start_sheet.dart';
 import 'package:todo_app/widgets/habits/habits_week.dart' show DashedBox;
 
 /// The Cycle tab: the day picked in the week, the button and the quick marks
@@ -75,6 +76,66 @@ void main() {
   // The strip comes first in the tree, so its number is the first match.
   Finder stripDay(DateTime day) => find.text('${day.day}').first;
 
+  testWidgets('period started uses the custom range sheet and applies days', (
+    tester,
+  ) async {
+    await pump(tester);
+    await tester.tap(find.text('Месячные начались'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PeriodStartSheet), findsOneWidget);
+    expect(find.byType(DatePickerDialog), findsNothing);
+
+    final start = DateTime(today.year, today.month, today.day - 10);
+    final end = DateTime(start.year, start.month, start.day + 2);
+    String keyOf(DateTime day) =>
+        'date-${DateFormat('yyyy-MM-dd').format(day)}';
+
+    await tester.tap(find.byKey(ValueKey(keyOf(start))));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('period-start-reset')));
+    await tester.pumpAndSettle();
+    expect(find.byType(PeriodStartSheet), findsNothing);
+
+    await tester.tap(find.text('Месячные начались'));
+    await tester.pumpAndSettle();
+    expect(
+      (tester.widget<Container>(find.byKey(ValueKey(keyOf(start)))).decoration
+              as BoxDecoration?)
+          ?.color,
+      isNull,
+    );
+    await tester.tap(find.byKey(ValueKey(keyOf(start))));
+    await tester.pump();
+    await tester.tap(find.byKey(ValueKey(keyOf(end))));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('period-start-apply')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PeriodStartSheet), findsNothing);
+    expect(container.read(aboutSettingsProvider).lastStart, start);
+    for (var offset = 0; offset <= 2; offset++) {
+      final day = DateTime(start.year, start.month, start.day + offset);
+      final row = await db.cycleDao.getDay(day);
+      expect(row?.isPeriod, isTrue, reason: '$day');
+      expect(row?.flow, 0, reason: '$day');
+    }
+
+    await tester.tap(find.text('Месячные начались'));
+    await tester.pumpAndSettle();
+    for (var offset = 0; offset <= 2; offset++) {
+      final day = DateTime(start.year, start.month, start.day + offset);
+      final cell = tester.widget<Container>(find.byKey(ValueKey(keyOf(day))));
+      expect(
+        (cell.decoration as BoxDecoration?)?.color,
+        isNull,
+        reason: '$day is saved but temporary selection starts empty',
+      );
+      final row = await db.cycleDao.getDay(day);
+      expect(row?.isPeriod, isTrue, reason: '$day remains saved');
+    }
+  });
+
   testWidgets('a picked day is what a quick mark opens', (tester) async {
     await pump(tester);
     await tester.tap(stripDay(yesterday));
@@ -118,23 +179,56 @@ void main() {
     expect(find.text('День цикла 11'), findsOneWidget);
   });
 
+  testWidgets('the week keeps its original compact day geometry', (
+    tester,
+  ) async {
+    await pump(tester);
+    final cell = find.byKey(
+      ValueKey('week-day-${DateFormat('yyyy-MM-dd').format(today)}'),
+    );
+    final widget = tester.widget<Container>(cell);
+    final decoration = widget.decoration as BoxDecoration;
+    final weekday = tester.widget<Text>(
+      find.descendant(
+        of: cell,
+        matching: find.text(DateFormat.E('ru_RU').format(today)),
+      ),
+    );
+    final number = tester.widget<Text>(
+      find.descendant(of: cell, matching: find.text('${today.day}')),
+    );
+
+    expect(tester.getSize(cell).height, 68);
+    expect(decoration.borderRadius, BorderRadius.circular(14));
+    expect(decoration.color, AppPalette.light.textPrimary);
+    expect(weekday.style?.fontSize, 11);
+    expect(number.style?.fontSize, 15);
+    expect(number.style?.fontWeight, FontWeight.w600);
+  });
+
   testWidgets('today is dashed in the week once another day is picked', (
     tester,
   ) async {
     await pump(tester);
-    final dashed = find.byWidgetPredicate(
-      (w) => w is CustomPaint && w.foregroundPainter is DashedBox,
+    final todayCell = find.byKey(
+      ValueKey('week-day-${DateFormat('yyyy-MM-dd').format(today)}'),
     );
-    // Today is the picked day at first: the dark pill, no dashes.
-    expect(dashed, findsNothing);
+    CustomPainter? todayBorder() => tester
+        .widget<CustomPaint>(
+          find
+              .ancestor(of: todayCell, matching: find.byType(CustomPaint))
+              .first,
+        )
+        .foregroundPainter;
+    expect(todayBorder(), isNull);
 
     await tester.tap(stripDay(yesterday));
     await tester.pumpAndSettle();
-    expect(dashed, findsOneWidget);
+    expect(todayBorder(), isA<DashedBox>());
 
     await tester.tap(find.text('Сегодня'));
     await tester.pumpAndSettle();
-    expect(dashed, findsNothing);
+    expect(todayBorder(), isNull);
   });
 
   testWidgets('the ring follows the picked day', (tester) async {
@@ -342,6 +436,8 @@ void main() {
   ) async {
     await db.cycleDao.saveDay(today, sex: 2);
     await db.cycleDao.saveDay(yesterday, sex: 1);
+    final noSex = DateTime(today.year, today.month, today.day - 2);
+    await db.cycleDao.saveDay(noSex, sex: 0);
     await pump(tester);
 
     // In the strip only — the block of the picked day draws one as well.
@@ -351,8 +447,83 @@ void main() {
     );
     expect(heart(1), findsOneWidget);
     expect(heart(2), findsOneWidget);
-    // And no dots: the week no longer paints the phase under each number.
-    expect(heart(0), findsNothing);
+    expect(heart(0), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(PageView).first,
+        matching: find.byKey(const ValueKey('info-dot')),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('the week mirrors cycle phases, selection and mixed indicators', (
+    tester,
+  ) async {
+    await db.cycleDao.saveDay(yesterday, isPeriod: true);
+    await db.cycleDao.saveDay(today, sex: 1, mood: 2);
+    await pump(tester);
+
+    Finder weekDay(DateTime day) => find.byKey(
+      ValueKey('week-day-${DateFormat('yyyy-MM-dd').format(day)}'),
+    );
+    Finder weekPaint(DateTime day) => find
+        .ancestor(of: weekDay(day), matching: find.byType(CustomPaint))
+        .first;
+    Color? fillOf(DateTime day) =>
+        (tester.widget<Container>(weekDay(day)).decoration as BoxDecoration?)
+            ?.color;
+
+    final mixed = weekDay(today);
+    expect(
+      find.descendant(of: mixed, matching: find.byType(CycleHeart)),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: mixed,
+        matching: find.byKey(const ValueKey('info-dot')),
+      ),
+      findsOneWidget,
+    );
+
+    expect(fillOf(yesterday), periodColor);
+
+    await tester.tap(stripDay(yesterday));
+    await tester.pumpAndSettle();
+    expect(fillOf(yesterday), AppPalette.light.textPrimary);
+    expect(
+      tester.widget<CustomPaint>(weekPaint(yesterday)).foregroundPainter,
+      isNull,
+    );
+
+    final model = container.read(aboutSettingsProvider).model!;
+    final configuredWeekStart = today.weekday == DateTime.monday
+        ? DateTime.sunday
+        : DateTime.monday;
+    DateTime firstOfWeek(DateTime day) => DateTime(
+      day.year,
+      day.month,
+      day.day - (day.weekday - configuredWeekStart + 7) % 7,
+    );
+    Future<void> showWeek(DateTime day) async {
+      final offset =
+          firstOfWeek(day).difference(firstOfWeek(today)).inDays ~/ 7;
+      final page = tester.widget<PageView>(find.byType(PageView).first);
+      page.controller!.jumpToPage(5000 + offset);
+      await tester.pumpAndSettle();
+    }
+
+    final ovulation = model.nextOvulation(today);
+    await showWeek(ovulation);
+    final ovulationPaint = tester.widget<CustomPaint>(weekPaint(ovulation));
+    expect((ovulationPaint.foregroundPainter as DashedBox).color, todayBlue);
+
+    final nextPeriod = model.nextPeriodStart(today);
+    await showWeek(nextPeriod);
+    final periodPaint = tester.widget<CustomPaint>(weekPaint(nextPeriod));
+    expect((periodPaint.foregroundPainter as DashedBox).color, periodColor);
+    expect(fillOf(nextPeriod), isNull);
   });
 
   testWidgets('the figures are worked out from the marks', (tester) async {

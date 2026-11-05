@@ -11,6 +11,7 @@ import 'package:todo_app/utils/week.dart';
 import 'package:todo_app/widgets/color_picker_row.dart';
 import 'package:todo_app/pages/create_task_page.dart';
 import 'package:todo_app/pages/habit_detail_page.dart';
+import 'package:todo_app/pages/value_detail_page.dart';
 import 'package:todo_app/widgets/empty_screen.dart';
 import 'package:todo_app/widgets/habits/habit_actions_sheet.dart';
 import 'package:todo_app/widgets/list_card.dart';
@@ -110,17 +111,27 @@ class HabitsToday extends ConsumerWidget {
           todayLog: todayLogByTask[task.id],
           lastDone: lastDone[task.id],
           timerRunningSince: runningSince[task.id],
-          // A habit opens its page; a "Значение" task has no history to chart
-          // and keeps the sheet. Holding the row opens the sheet either way —
-          // marking an earlier day, copying, deleting.
+          // Both trackers open a dedicated details page. The value page keeps
+          // its own mark history and actions instead of borrowing the habit
+          // bottom sheet.
           onTap: () => isValueTask(task)
-              ? showHabitActionsSheet(context, task: task)
+              ? Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ValueDetailPage(taskId: task.id),
+                  ),
+                )
               : Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => HabitDetailPage(taskId: task.id),
                   ),
                 ),
-          onLongPress: () => showHabitActionsSheet(context, task: task),
+          onLongPress: isValueTask(task)
+              ? () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ValueDetailPage(taskId: task.id),
+                  ),
+                )
+              : () => showHabitActionsSheet(context, task: task),
           onMark: () =>
               ref.read(tasksDaoProvider).toggleCompletion(task.id, today),
           onTimerStart: () => ref

@@ -21,16 +21,18 @@ CycleDay? cycleDayRow(Iterable<CycleDay> days, DateTime day) {
   return null;
 }
 
-/// Whether anything was marked on [row] that [CycleDayMarks] would show: a period,
-/// sex (also "не было"), a mood, a symptom, the discharge or a note. The calendar
-/// dots such a day, so the user can see where there is something to read.
-bool cycleDayHasMarks(CycleDay row) =>
+/// Whether the day has a non-sex mark that needs the calendar's information
+/// dot. Sex has its own heart indicator and must not create a redundant dot.
+bool cycleDayHasNonSexMarks(CycleDay row) =>
     row.isPeriod ||
-    row.sex != null ||
     row.mood != null ||
     parseSymptoms(row.symptoms).isNotEmpty ||
     row.discharge != null ||
     (row.note?.trim().isNotEmpty ?? false);
+
+/// Whether anything was marked on [row] that [CycleDayMarks] would show.
+bool cycleDayHasMarks(CycleDay row) =>
+    row.sex != null || cycleDayHasNonSexMarks(row);
 
 /// The marks of one day as labelled rows; a line of grey text when there are
 /// none. The `pill` column is not shown — nothing in the app marks it any more.

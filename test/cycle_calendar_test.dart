@@ -47,14 +47,14 @@ void main() {
     await db.close();
   });
 
-  Future<void> pump(WidgetTester tester) async {
+  Future<void> pump(WidgetTester tester, {ThemeData? theme}) async {
     tester.view.physicalSize = const Size(800, 1400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: const MaterialApp(home: CycleCalendarPage()),
+        child: MaterialApp(theme: theme, home: const CycleCalendarPage()),
       ),
     );
     await tester.pumpAndSettle();
@@ -116,9 +116,38 @@ void main() {
       tester.getBottomLeft(label).dy,
       lessThanOrEqualTo(tester.getTopLeft(circle).dy),
     );
-    expect(tester.widget<Text>(label).style?.color, Colors.black);
+    expect(
+      tester.widget<Text>(label).style?.color,
+      AppPalette.light.textPrimary,
+    );
     expect(tester.widget<Text>(number).style?.fontWeight, FontWeight.w700);
     expect(cell.foregroundDecoration, isNull);
+  });
+
+  testWidgets('today label uses the dark theme text color', (tester) async {
+    await pump(tester, theme: ThemeData(brightness: Brightness.dark));
+    final currentMonth = month(DateTime(today.year, today.month));
+    final label = find.descendant(
+      of: currentMonth,
+      matching: find.text('сегодня'),
+    );
+    final number = find.descendant(
+      of: currentMonth,
+      matching: find.text('${today.day}'),
+    );
+    final circle = find
+        .ancestor(of: number, matching: find.byType(CustomPaint))
+        .first;
+
+    expect(label, findsOneWidget);
+    expect(
+      tester.widget<Text>(label).style?.color,
+      AppPalette.dark.textPrimary,
+    );
+    expect(
+      tester.getBottomLeft(label).dy,
+      lessThanOrEqualTo(tester.getTopLeft(circle).dy),
+    );
   });
 
   testWidgets('cycle phases have distinct calendar treatments', (tester) async {
@@ -196,6 +225,57 @@ void main() {
     expect(fillOf(tomorrow), isNull);
     expect(inkOf(tomorrow), periodColor);
     expect(dashOf(tomorrow), periodColor);
+  });
+
+  testWidgets('selection sits behind an event without replacing it', (
+    tester,
+  ) async {
+    final first = DateTime(today.year, today.month, 1);
+    final second = DateTime(today.year, today.month, 2);
+    await db.cycleDao.saveDay(first, isPeriod: true);
+    await db.cycleDao.saveDay(second, isPeriod: true);
+    await pump(tester);
+
+    Finder dayIn(DateTime day) => find.descendant(
+      of: month(DateTime(day.year, day.month)),
+      matching: find.text('${day.day}'),
+    );
+    Finder outerOf(DateTime day) => find.ancestor(
+      of: dayIn(day),
+      matching: find.byKey(const ValueKey('selected-day-outer-layer')),
+    );
+    Finder eventOf(DateTime day) => find.ancestor(
+      of: dayIn(day),
+      matching: find.byKey(const ValueKey('cycle-event-inner-layer')),
+    );
+    Color? colorOf(Finder finder) =>
+        (tester.widget<Container>(finder).decoration as BoxDecoration?)?.color;
+
+    await tester.tap(dayIn(first));
+    await tester.pumpAndSettle();
+
+    final firstOuter = outerOf(first);
+    final firstEvent = eventOf(first);
+    expect(firstOuter, findsOneWidget);
+    expect(firstEvent, findsOneWidget);
+    expect(colorOf(firstOuter), AppPalette.light.chip);
+    expect(colorOf(firstEvent), periodColor);
+    expect(tester.widget<Text>(dayIn(first)).style?.color, Colors.white);
+
+    final outerRect = tester.getRect(firstOuter);
+    final eventRect = tester.getRect(firstEvent);
+    expect(eventRect.left - outerRect.left, 2);
+    expect(eventRect.top - outerRect.top, 2);
+    expect(outerRect.right - eventRect.right, 2);
+    expect(outerRect.bottom - eventRect.bottom, 2);
+
+    await tester.tap(dayIn(second));
+    await tester.pumpAndSettle();
+
+    expect(outerOf(first), findsNothing);
+    expect(outerOf(second), findsOneWidget);
+    expect(colorOf(eventOf(first)), periodColor);
+    expect(colorOf(eventOf(second)), periodColor);
   });
 
   testWidgets('the legend and the weekday names stay put while it scrolls', (
@@ -637,6 +717,52 @@ void main() {
                 .painter
             as CycleHeartPainter;
     expect(painter.rim, isNotNull);
+  });
+
+  testWidgets('heart and dot represent independent kinds of day data', (
+    tester,
+  ) async {
+    final sexOnly = DateTime(today.year, today.month, 1);
+    final sexAndMood = DateTime(today.year, today.month, 2);
+    final moodOnly = DateTime(today.year, today.month, 3);
+    final noSexOnly = DateTime(today.year, today.month, 4);
+    final empty = DateTime(today.year, today.month, 5);
+    await db.cycleDao.saveDay(sexOnly, sex: 1);
+    await db.cycleDao.saveDay(sexAndMood, sex: 2, mood: 1);
+    await db.cycleDao.saveDay(moodOnly, mood: 2);
+    await db.cycleDao.saveDay(noSexOnly, sex: 0);
+    await pump(tester);
+
+    Finder cellOf(DateTime day) => find
+        .ancestor(
+          of: find.descendant(
+            of: month(DateTime(day.year, day.month)),
+            matching: find.text('${day.day}'),
+          ),
+          matching: find.byType(GestureDetector),
+        )
+        .first;
+    Finder heartOf(DateTime day) =>
+        find.descendant(of: cellOf(day), matching: find.byType(CycleHeart));
+    Finder dotOf(DateTime day) => find.descendant(
+      of: cellOf(day),
+      matching: find.byKey(const ValueKey('info-dot')),
+    );
+
+    expect(heartOf(sexOnly), findsOneWidget);
+    expect(dotOf(sexOnly), findsNothing);
+
+    expect(heartOf(sexAndMood), findsOneWidget);
+    expect(dotOf(sexAndMood), findsOneWidget);
+
+    expect(heartOf(moodOnly), findsNothing);
+    expect(dotOf(moodOnly), findsOneWidget);
+
+    expect(heartOf(noSexOnly), findsOneWidget);
+    expect(dotOf(noSexOnly), findsNothing);
+
+    expect(heartOf(empty), findsNothing);
+    expect(dotOf(empty), findsNothing);
   });
 
   testWidgets('scrolls into the past and the future, far past three months', (

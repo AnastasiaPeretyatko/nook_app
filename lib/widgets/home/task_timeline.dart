@@ -1674,28 +1674,6 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = AppPalette.of(Theme.of(context));
-    if (!free) {
-      return _Card(
-        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
-        child: Column(
-          children: [
-            Icon(LucideIcons.clock, size: 40, color: p.iconMuted),
-            const SizedBox(height: 12),
-            Text(
-              'На этот день нет задач со временем',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 15, color: p.textSecondary),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Нажмите + и укажите время задачи',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: p.textTertiary),
-            ),
-          ],
-        ),
-      );
-    }
     // The line of the day, empty: "Сейчас" on today, then a dashed stretch with
     // the invitation beside it (`EmptyTimeline.dc.html`).
     final now = nowMinutes;

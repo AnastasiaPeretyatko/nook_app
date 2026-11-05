@@ -21,13 +21,13 @@ import 'package:todo_app/utils/task_colors.dart' show onTaskColor;
 import 'package:todo_app/utils/week.dart';
 import 'package:todo_app/widgets/app_bottom_nav_bar.dart';
 import 'package:todo_app/widgets/cycle/cycle_colors.dart';
+import 'package:todo_app/widgets/cycle/cycle_calendar_day.dart';
 import 'package:todo_app/widgets/cycle/cycle_day_info.dart';
 import 'package:todo_app/widgets/cycle/cycle_day_sheet.dart';
 import 'package:todo_app/widgets/cycle/cycle_heart.dart';
+import 'package:todo_app/widgets/cycle/period_start_sheet.dart';
 import 'package:todo_app/widgets/habits/habits_week.dart' show DashedBox;
 import 'package:todo_app/widgets/page_header.dart';
-import 'package:todo_app/widgets/settings/about_section.dart'
-    show pickCycleStart;
 
 // Tones of the mock-up that are not phase colours: each pale fill with its own
 // dark ink, the same on both themes.
@@ -175,6 +175,8 @@ class _CyclePageState extends ConsumerState<CyclePage> {
                 origin: _origin,
                 today: today,
                 selected: day,
+                model: model,
+                exceptions: about.periodExceptions,
                 onSelect: (d) => setState(() => _selected = d),
                 onWeekChanged: (page) => _onWeekChanged(page, today, weekStart),
               ),
@@ -188,18 +190,32 @@ class _CyclePageState extends ConsumerState<CyclePage> {
               onToday: _backToToday,
             ),
             if (model != null) _Stats(about: about, stats: stats),
-            if (model != null) ...[
-              const SizedBox(height: 12),
-              _FertileWindow(model: model, today: today),
-            ],
+            // if (model != null) ...[
+            //   const SizedBox(height: 12),
+            //   _FertileWindow(model: model, today: today),
+            // ],
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 4, 24, 0),
               child: TextButton.icon(
-                onPressed: () => pickCycleStart(
-                  context,
-                  ref.read(aboutSettingsProvider.notifier),
-                  about.lastStart,
-                ),
+                onPressed: () async {
+                  final selected = await showPeriodStartSheet(
+                    context,
+                    firstDate: DateTime(today.year - 1),
+                    lastDate: today,
+                    initialMonth: about.lastStart ?? today,
+                    weekStart: weekStart,
+                  );
+                  if (selected == null || selected.isEmpty || !mounted) return;
+
+                  final ordered = selected.toList()..sort();
+                  await ref
+                      .read(aboutSettingsProvider.notifier)
+                      .setLastStart(ordered.first);
+                  final dao = ref.read(cycleDaoProvider);
+                  for (final date in ordered) {
+                    await dao.setPeriodDay(date, on: true);
+                  }
+                },
                 icon: const Icon(LucideIcons.droplet, size: 18),
                 label: const Text('Месячные начались'),
               ),
@@ -319,6 +335,8 @@ class _WeekStrip extends ConsumerWidget {
     required this.origin,
     required this.today,
     required this.selected,
+    required this.model,
+    required this.exceptions,
     required this.onSelect,
     required this.onWeekChanged,
   });
@@ -329,15 +347,27 @@ class _WeekStrip extends ConsumerWidget {
   final int origin;
   final DateTime today;
   final DateTime selected;
+  final CycleModel model;
+  final Set<DateTime> exceptions;
   final ValueChanged<DateTime> onSelect;
   final ValueChanged<int> onWeekChanged;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final thisWeek = startOfWeek(today, ref.watch(weekStartProvider));
+    final marks =
+        ref.watch(cycleDaysProvider).valueOrNull ?? const <CycleDay>[];
     final sexByDay = <DateTime, int?>{
-      for (final d in ref.watch(cycleDaysProvider).valueOrNull ?? const [])
-        d.date: d.sex,
+      for (final d in marks)
+        if (CycleHeart.showsCalendar(d.sex)) d.date: d.sex,
+    };
+    final infoDays = {
+      for (final d in marks)
+        if (cycleDayHasNonSexMarks(d)) d.date,
+    };
+    final periodDays = {
+      for (final d in marks)
+        if (d.isPeriod) d.date,
     };
     return Padding(
       padding: const EdgeInsets.only(top: 14),
@@ -368,9 +398,12 @@ class _WeekStrip extends ConsumerWidget {
                           );
                           return _WeekDay(
                             day: day,
-                            isToday: day == today,
+                            today: today,
                             isSelected: day == selected,
-                            isFuture: day.isAfter(today),
+                            model: model,
+                            marked: periodDays.contains(day),
+                            excluded: exceptions.contains(day),
+                            hasInfo: infoDays.contains(day),
                             sex: sexByDay[day],
                             onTap: () => onSelect(day),
                           );
@@ -391,24 +424,53 @@ class _WeekStrip extends ConsumerWidget {
 class _WeekDay extends StatelessWidget {
   const _WeekDay({
     required this.day,
-    required this.isToday,
+    required this.today,
     required this.isSelected,
-    required this.isFuture,
+    required this.model,
+    required this.marked,
+    required this.excluded,
+    required this.hasInfo,
     required this.sex,
     required this.onTap,
   });
 
   final DateTime day;
-  final bool isToday;
+  final DateTime today;
   final bool isSelected;
-  final bool isFuture;
+  final CycleModel model;
+  final bool marked;
+  final bool excluded;
+  final bool hasInfo;
   final int? sex;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final p = AppPalette.of(Theme.of(context));
-    final fg = isSelected ? p.background : p.textPrimary;
+    final state = cycleCalendarDayState(
+      day: day,
+      today: today,
+      model: model,
+      marked: marked,
+      excluded: excluded,
+    );
+    final fill = isSelected
+        ? p.textPrimary
+        : marked
+        ? periodColor
+        : null;
+    final foreground = isSelected
+        ? p.background
+        : marked
+        ? Colors.white
+        : p.textPrimary;
+    final indicatorInk = isSelected
+        ? p.background
+        : marked
+        ? Colors.white
+        : state.dashColor ?? p.textPrimary;
+    final hasHeart = CycleHeart.showsCalendar(sex);
+
     return Semantics(
       button: true,
       selected: isSelected,
@@ -416,15 +478,18 @@ class _WeekDay extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
         child: CustomPaint(
-          // Today, when it is not the picked day, keeps a dashed outline so it
-          // can still be found.
-          foregroundPainter: isToday && !isSelected
+          foregroundPainter: isSelected
+              ? null
+              : state.dashColor != null
+              ? DashedBox(color: state.dashColor!, radius: 14)
+              : day == today
               ? DashedBox(color: p.outline, radius: 14)
               : null,
           child: Container(
+            key: ValueKey('week-day-${DateFormat('yyyy-MM-dd').format(day)}'),
             height: 68,
             decoration: BoxDecoration(
-              color: isSelected ? p.textPrimary : null,
+              color: fill,
               borderRadius: BorderRadius.circular(14),
             ),
             child: Column(
@@ -434,7 +499,7 @@ class _WeekDay extends StatelessWidget {
                   DateFormat.E('ru_RU').format(day),
                   style: TextStyle(
                     fontSize: 11,
-                    color: fg.withValues(alpha: 0.7),
+                    color: foreground.withValues(alpha: 0.7),
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -442,15 +507,41 @@ class _WeekDay extends StatelessWidget {
                   '${day.day}',
                   style: TextStyle(
                     fontSize: 15,
-                    fontWeight: isSelected || isToday
+                    fontWeight: isSelected || day == today
                         ? FontWeight.w600
                         : FontWeight.w500,
-                    color: isFuture && !isSelected ? p.textTertiary : fg,
+                    color: day.isAfter(today) && !isSelected && !marked
+                        ? p.textTertiary
+                        : foreground,
                   ),
                 ),
                 const SizedBox(height: 6),
-                // The slot is kept when empty, so a heart does not move the number.
-                CycleHeart(sex: sex),
+                SizedBox(
+                  width: double.infinity,
+                  height: 12,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      if (hasInfo)
+                        Container(
+                          key: const ValueKey('info-dot'),
+                          width: 4,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: indicatorInk,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      if (hasHeart)
+                        Align(
+                          alignment: hasInfo
+                              ? Alignment.centerRight
+                              : Alignment.center,
+                          child: CycleHeart(sex: sex, showNoSex: true),
+                        ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
