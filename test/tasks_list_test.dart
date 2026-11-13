@@ -295,7 +295,7 @@ void main() {
       expect(find.text('Купить хлеб'), findsNothing);
       expect(find.text('1 активная'), findsOneWidget);
 
-      await tester.tap(find.text('Выполненные'));
+      await tester.tap(find.byTooltip('Выполненные задачи'));
       await tester.pumpAndSettle();
 
       expect(find.text('Купить хлеб'), findsOneWidget);
@@ -309,7 +309,7 @@ void main() {
         _list([_task(id: 1, title: 'Купить хлеб')], logs: [tick(1)]),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Выполненные'));
+      await tester.tap(find.byTooltip('Выполненные задачи'));
       await tester.pumpAndSettle();
 
       expect(find.text('Сегодня'), findsOneWidget);

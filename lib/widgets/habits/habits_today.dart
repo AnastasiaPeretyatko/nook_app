@@ -333,7 +333,7 @@ class HabitRow extends StatelessWidget {
                           ? 0
                           : (count / target).clamp(0.0, 1.0),
                       color: _color,
-                      track: p.divider,
+                      track: p.chip,
                     ),
                   ] else ...[
                     const SizedBox(height: 2),

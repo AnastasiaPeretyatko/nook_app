@@ -77,11 +77,12 @@ void main() {
       reason: 'the app does not open on the timeline',
     );
 
-    // All four tabs are on the bottom bar, in the order of the design.
+    // All five tabs are on the bottom bar, in the order of the design.
     expect(bar.items.map((item) => item.label), [
       'Привычки',
       'Задачи',
       'Таймлайн',
+      'Проекты',
       'Дневник',
     ]);
     for (final item in bar.items) {
@@ -171,7 +172,13 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 500));
 
-    for (final label in const ['Привычки', 'Задачи', 'Дневник', 'Таймлайн']) {
+    for (final label in const [
+      'Привычки',
+      'Задачи',
+      'Таймлайн',
+      'Проекты',
+      'Дневник',
+    ]) {
       await tester.tap(
         find.descendant(
           of: find.byType(AppBottomNavBar),
@@ -234,6 +241,7 @@ void main() {
       'Привычки',
       'Задачи',
       'Таймлайн',
+      'Проекты',
       'Дневник',
       'Цикл',
     ]);

@@ -7,6 +7,7 @@ import 'daos/tasks_dao.dart';
 import 'daos/events_dao.dart';
 import 'daos/diary_dao.dart';
 import 'daos/cycle_dao.dart';
+import 'daos/sections_dao.dart';
 import '../utils/note_labels.dart';
 import '../utils/task_icons.dart';
 import '../utils/task_palette.dart';
@@ -17,12 +18,15 @@ export 'daos/tasks_dao.dart';
 export 'daos/events_dao.dart';
 export 'daos/diary_dao.dart';
 export 'daos/cycle_dao.dart';
+export 'daos/sections_dao.dart';
 
 part 'app_database.g.dart';
 
 @DriftDatabase(
   tables: [
     Tasks,
+    LocalProjects,
+    Sections,
     TaskLogs,
     TaskSessions,
     Events,
@@ -37,7 +41,7 @@ part 'app_database.g.dart';
     GroupMarks,
     CycleDays,
   ],
-  daos: [TasksDao, EventsDao, DiaryDao, CycleDao],
+  daos: [TasksDao, EventsDao, DiaryDao, CycleDao, SectionsDao],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
@@ -46,7 +50,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forExecutor(super.executor);
 
   @override
-  int get schemaVersion => 20;
+  int get schemaVersion => 25;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -331,6 +335,27 @@ class AppDatabase extends _$AppDatabase {
           'UPDATE cycle_days SET is_period = 1 WHERE flow > 0',
           updates: {cycleDays},
         );
+      }
+      if (from < 21) {
+        await addIfMissing(tasks.projectUid);
+      }
+      if (from < 22) {
+        await addIfMissing(tasks.projectDirty);
+        // For an existing pending edit the old schema cannot prove whether a
+        // null or a project id was an intentional change. Preserve it.
+        await customUpdate(
+          'UPDATE tasks SET project_dirty = dirty',
+          updates: {tasks},
+        );
+      }
+      if (from < 23) await m.createTable(localProjects);
+      if (from < 24) {
+        await addIfMissing(tasks.sectionId);
+        await m.createTable(sections);
+      }
+      if (from < 25) {
+        await addIfMissing(tasks.sectionDirty);
+        await addSyncColumns(sections, [sections.dirty]);
       }
     },
   );

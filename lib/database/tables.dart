@@ -64,6 +64,43 @@ class Tasks extends Table {
   /// Who wrote the group task — with the group's owner, the only one who may
   /// edit it. Null for a personal task: on this device that is always "me".
   TextColumn get authorUid => text().nullable()();
+
+  /// The personal Project this task belongs to. A null value is an explicitly
+  /// unassigned task; during remote application an absent companion value
+  /// intentionally preserves the stored association for older sync payloads.
+  TextColumn get projectUid => text().nullable()();
+
+  /// The Section this task belongs to. Like [projectUid], this stays a plain
+  /// local id so offline writes and later remote application are not coupled
+  /// to insertion order.
+  TextColumn get sectionId => text().nullable()();
+
+  /// Whether project membership itself must be included in the next sync.
+  BoolColumn get projectDirty =>
+      boolean().nullable().withDefault(const Constant(true))();
+
+  /// Whether [sectionId] must be included in the next task sync patch.
+  BoolColumn get sectionDirty =>
+      boolean().nullable().withDefault(const Constant(true))();
+}
+
+/// A named group of tasks, optionally scoped to a personal project.
+///
+/// IDs are UUID strings minted by the local write layer, like [LocalProjects].
+/// Relations remain plain ids so creating or applying records offline does not
+/// depend on a particular insertion order.
+class Sections extends Table {
+  TextColumn get id => text()();
+  TextColumn get userId => text()();
+  TextColumn get projectId => text().nullable()();
+  TextColumn get name => text()();
+  IntColumn get position => integer()();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+  BoolColumn get dirty => boolean().withDefault(const Constant(true))();
+
+  @override
+  Set<Column> get primaryKey => {id};
 }
 
 /// A group this account is in. Mirrored whole from the server on every sync —
@@ -71,6 +108,20 @@ class Tasks extends Table {
 /// server's `/groups/*` routes (BACKEND_PLAN.md §4.3).
 ///
 /// `task_groups`, not `groups`: GROUPS is an SQLite keyword.
+class LocalProjects extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  TextColumn get description => text().nullable()();
+  TextColumn get color => text().nullable()();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+  DateTimeColumn get archivedAt => dateTime().nullable()();
+  BoolColumn get dirty => boolean().withDefault(const Constant(true))();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 class TaskGroups extends Table {
   TextColumn get uid => text()();
   TextColumn get name => text()();

@@ -337,6 +337,17 @@ void main() {
   });
 
   group('what goes up', () {
+    test('project validation rejection keeps the task edit pending', () async {
+      final task = await localTask('Project task');
+      api.rejected = [
+        {'table': 'tasks', 'id': task.uid, 'reason': 'archived_project'},
+      ];
+
+      await service.sync();
+
+      expect((await db.tasksDao.taskByUid(task.uid!))!.dirty, isTrue);
+    });
+
     test('tasks and marks in one request, and the marks are cleared', () async {
       final task = await localTask('Моя');
       await db.tasksDao.setLog(task.id, day, completed: true);

@@ -8,6 +8,7 @@ import 'package:todo_app/api/sync_api.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/sync/merge.dart';
 import 'package:todo_app/sync/payload.dart';
+import 'package:todo_app/projects/projects_sync.dart';
 
 /// How a run ended.
 ///
@@ -62,22 +63,27 @@ class SyncService {
     required this.dao,
     required this.tasksDao,
     required this.cycleDao,
+    SectionsDao? sectionsDao,
     required SyncApi api,
     required String? Function() userId,
     bool Function()? syncDiary,
     bool Function()? syncCycle,
+    this.projectsSync,
   }) // The lint wants `this._api`, and Dart forbids a private named parameter.
     // ignore: prefer_initializing_formals
     : _api = api,
        // ignore: prefer_initializing_formals
        _userId = userId,
        _syncDiary = syncDiary ?? (() => true),
-       _syncCycle = syncCycle ?? (() => false);
+       _syncCycle = syncCycle ?? (() => false),
+       sectionsDao = sectionsDao ?? tasksDao.attachedDatabase.sectionsDao;
 
   /// For the deletions waiting to be reported (one table holds them all).
   final DiaryDao dao;
   final TasksDao tasksDao;
   final CycleDao cycleDao;
+  final SectionsDao sectionsDao;
+  final ProjectsSync? projectsSync;
   final SyncApi _api;
 
   /// Who is signed in, asked each run; null means nobody.
@@ -144,6 +150,11 @@ class SyncService {
   /// Whether anything is waiting to be sent. Lets a run that was only set off by
   /// a local edit stay out of the way when the "edit" was the pull's own write.
   Future<bool> hasPending() async {
+    if ((await projectsSync?.local.pending())?.isNotEmpty ?? false) return true;
+    if ((await sectionsDao.pendingSections()).isNotEmpty ||
+        (await _pendingGraves('sections')).isNotEmpty) {
+      return true;
+    }
     if ((await tasksDao.pendingTasks()).isNotEmpty ||
         (await tasksDao.pendingLogs()).isNotEmpty ||
         (await _pendingGraves('tasks')).isNotEmpty) {
@@ -183,8 +194,21 @@ class SyncService {
       // since every write is idempotent; move it into the HTTP client if that
       // ever hurts.
       await Future<void>(() async {
+        Object? projectError;
+        StackTrace? projectStack;
+        try {
+          await projectsSync?.pull();
+          await projectsSync?.beforeTasks();
+        } catch (error, stack) {
+          projectError = error;
+          projectStack = stack;
+        }
         await _pull(me);
-        await _push(me);
+        await _push(me, sendTasks: projectError == null);
+        if (projectError == null) await projectsSync?.afterTasks();
+        if (projectError != null) {
+          Error.throwWithStackTrace(projectError, projectStack!);
+        }
       }).timeout(_runLimit);
       _backoff = Duration.zero;
       _retryAfter = null;
@@ -236,6 +260,7 @@ class SyncService {
     // Deleted here, not yet reported: the overlap may well hand the row back,
     // and inserting it again would raise a task or a note the user threw away.
     final graves = await _pendingGraves('tasks');
+    final sectionGraves = await _pendingGraves('sections');
     final entryGraves = diary
         ? await _pendingGraves('diary_entries')
         : <String>{};
@@ -276,6 +301,9 @@ class SyncService {
         for (final row in _rows(page['entries'])) {
           await _applyEntry(row, entryGraves, links);
         }
+      }
+      for (final row in _rows(page['sections'])) {
+        await _applySection(row, me, sectionGraves);
       }
       for (final row in _rows(page['tasks'])) {
         await _applyTask(row, graves);
@@ -453,6 +481,35 @@ class SyncService {
     }
   }
 
+  Future<void> _applySection(
+    Map<String, dynamic> row,
+    String me,
+    Set<String> graves,
+  ) async {
+    final id = uidOf(row);
+    if (id == null || graves.contains(id)) return;
+    final local = await sectionsDao.sectionById(id);
+    final action = pullAction(
+      remoteDeleted: isDeleted(row),
+      localUpdatedAt: local?.updatedAt,
+      localDirty: local?.dirty ?? false,
+      remoteUpdatedAt: clientUpdatedAt(row) ?? DateTime.now(),
+      localUid: local?.id ?? '',
+      remoteUid: id,
+    );
+    switch (action) {
+      case PullAction.skip:
+      case PullAction.keepLocal:
+        return;
+      case PullAction.delete:
+        await sectionsDao.deleteRemoteSection(id);
+      case PullAction.insert:
+        await sectionsDao.insertRemoteSection(sectionFromRow(row, me));
+      case PullAction.overwrite:
+        await sectionsDao.applyRemoteSection(id, sectionFromRow(row, me));
+    }
+  }
+
   /// The row as a companion, with its parent translated from a uid into the
   /// local id this device knows the parent by.
   ///
@@ -578,7 +635,7 @@ class SyncService {
   // Up
   // ---------------------------------------------------------------------------
 
-  Future<void> _push(String me) async {
+  Future<void> _push(String me, {bool sendTasks = true}) async {
     final diary = _syncDiary();
     final rows = <_Row>[];
 
@@ -614,9 +671,19 @@ class SyncService {
     }
 
     final uidsById = await tasksDao.taskUidsById();
+    for (final section in await sectionsDao.pendingSections()) {
+      rows.add(
+        _Row(
+          _Kind.sections,
+          sectionToRow(section),
+          uid: section.id,
+          at: section.updatedAt,
+        ),
+      );
+    }
     // Parents need no ordering here: the server checks the link at the end of
     // the transaction, so a child may precede its parent in one request.
-    for (final task in await tasksDao.pendingTasks()) {
+    for (final task in sendTasks ? await tasksDao.pendingTasks() : <Task>[]) {
       final uid = task.uid;
       // Nothing to address the row by, so skipping beats inventing — but not in
       // silence. This should be impossible: v14 mints a uid for every task on
@@ -641,7 +708,7 @@ class SyncService {
     }
     // A mark whose task carries no uid is skipped rather than dropped: it keeps
     // its mark and goes up once the task has an identity.
-    for (final log in await tasksDao.pendingLogs()) {
+    for (final log in sendTasks ? await tasksDao.pendingLogs() : <TaskLog>[]) {
       final uid = uidsById[log.taskId];
       if (uid != null) {
         rows.add(_Row(_Kind.logs, logToRow(log, taskUid: uid), log: log));
@@ -654,6 +721,9 @@ class SyncService {
     }
     for (final uid in await _pendingGraves('tasks')) {
       rows.add(_Row(_Kind.deleted, {'table': 'tasks', 'id': uid}, uid: uid));
+    }
+    for (final uid in await _pendingGraves('sections')) {
+      rows.add(_Row(_Kind.deleted, {'table': 'sections', 'id': uid}, uid: uid));
     }
     if (diary) {
       for (final uid in await _pendingGraves('diary_entries')) {
@@ -697,7 +767,7 @@ class SyncService {
 
   /// One `POST /sync/push`, then the marks cleared for what it carried.
   ///
-  /// **All** of it, refused rows too: a row the server will never take (a
+  /// Most of it, refused rows too: a row the server will never take (a
   /// reason is in `rejected`) must not be offered again on every run, or one bad
   /// row would hold up the sync for ever. The refusals are written to the log. A
   /// note with `unknown_label` is saved, only one of its labels was not. A
@@ -729,6 +799,24 @@ class SyncService {
       for (final r in _rows(answer['rejected']))
         if (r['table'] == 'task_logs' && r['reason'] == 'not_allowed') r['id'],
     };
+    // Project refusals can become valid again after restoring the project or
+    // correcting membership. Clearing these edits would silently lose them on
+    // the next pull, so retain the task's unsent mark.
+    final projectRefusals = {
+      for (final r in _rows(answer['rejected']))
+        if (r['table'] == 'tasks' &&
+            (r['reason'] == 'unknown_project' ||
+                r['reason'] == 'archived_project'))
+          r['id'],
+    };
+    final sectionRefusals = {
+      for (final r in _rows(answer['rejected']))
+        if ((r['table'] == 'tasks' &&
+                (r['reason'] == 'unknown_section' ||
+                    r['reason'] == 'invalid_section')) ||
+            (r['table'] == 'sections' && r['reason'] == 'unknown_project'))
+          r['id'],
+    };
     if (refusedTasks.isNotEmpty) {
       await tasksDao.deleteLogs([
         for (final r in kind(_Kind.logs))
@@ -742,7 +830,14 @@ class SyncService {
       for (final r in kind(_Kind.entries)) r.uid!: r.at!,
     });
     await tasksDao.clearTaskDirty({
-      for (final r in kind(_Kind.tasks)) r.uid!: r.at!,
+      for (final r in kind(_Kind.tasks))
+        if (!projectRefusals.contains(r.uid) &&
+            !sectionRefusals.contains(r.uid))
+          r.uid!: r.at!,
+    });
+    await sectionsDao.clearSectionDirty({
+      for (final r in kind(_Kind.sections))
+        if (!sectionRefusals.contains(r.uid)) r.uid!: r.at!,
     });
     await tasksDao.clearLogDirty([for (final r in kind(_Kind.logs)) r.log!]);
     await cycleDao.clearDirty([for (final r in kind(_Kind.cycle)) r.cycleDay!]);
@@ -756,6 +851,7 @@ enum _Kind {
   moods('moods'),
   tags('tags'),
   entries('entries'),
+  sections('sections'),
   tasks('tasks'),
   logs('logs'),
   cycle('cycle_days'),

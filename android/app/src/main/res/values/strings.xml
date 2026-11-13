@@ -22,6 +22,17 @@
          days, so the widget has nothing to draw for today and is asking. -->
     <string name="widget_stale">Откройте приложение, чтобы обновить</string>
 
+    <string name="widget_project_name">Проект Nook</string>
+    <string name="widget_project_description">Задачи выбранного проекта: отмечайте выполнение и открывайте задачи в Nook.</string>
+    <string name="widget_project_title">Проект</string>
+    <string name="widget_project_progress">%1$d из %2$d</string>
+    <string name="widget_project_empty">В проекте пока нет задач</string>
+    <string name="widget_project_unavailable">Проект недоступен</string>
+    <string name="widget_project_open">Открыть в Nook</string>
+    <string name="widget_project_reconfigure">Выбрать другой проект</string>
+    <string name="widget_project_choose">Выберите проект</string>
+    <string name="widget_project_no_projects">Нет доступных проектов. Создайте проект в Nook и добавьте виджет снова.</string>
+
 
     <string name="widget_habit_week_name">Привычка с неделей</string>
     <string name="widget_habit_week_description">Одна привычка и её неделя: серия, кнопка «Отметить». Нажмите на название, чтобы показать следующую привычку.</string>

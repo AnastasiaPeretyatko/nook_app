@@ -3,7 +3,9 @@ import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/home_widget/habits_payload.dart';
 import 'package:todo_app/home_widget/home_widget_bridge.dart';
+import 'package:todo_app/home_widget/project_payload.dart';
 import 'package:todo_app/home_widget/today_payload.dart';
+import 'package:todo_app/projects/projects_state.dart';
 import 'package:todo_app/home_widget/widget_actions.dart';
 import 'package:todo_app/home_widget/widget_theme.dart';
 import 'package:todo_app/settings/analytics_settings.dart';
@@ -80,11 +82,35 @@ final habitsWidgetPayloadProvider = Provider<String>((ref) {
   ).encode();
 });
 
+/// The all-project snapshot for the configurable Android widget.
+///
+/// Android keeps the selected project separately for every widget id. This
+/// provider therefore writes all local projects and their root tasks at once;
+/// it does not introduce a second project or task store just for widgets.
+final projectWidgetPayloadProvider = Provider<String>((ref) {
+  final projects = ref.watch(localProjectsChangesProvider);
+  final tasks = ref.watch(allTasksProvider);
+  final logs = ref.watch(allLogsProvider);
+  if (!projects.hasValue || !tasks.hasValue || !logs.hasValue) return '';
+
+  final theme = widgetThemeFor(
+    accent: ref.watch(appColorProvider),
+    mode: ref.watch(themeModeProvider),
+  );
+  return buildProjectWidgetPayload(
+    projects: projects.value!,
+    tasks: tasks.value!,
+    logs: logs.value!,
+    light: theme.light,
+    dark: theme.dark,
+    mode: theme.mode,
+  ).encode();
+});
+
 /// A tap on the widget that the app still has to act on, and nothing else.
 ///
-/// Only the two that open the app arrive here — [WidgetTapAction.open] and
-/// [WidgetTapAction.create]. A checkbox never does: it is answered in a
-/// background isolate and never reaches this one.
+/// Taps that must open Nook arrive here. Checkboxes never do: they are answered
+/// in a background isolate and then cause a payload redraw.
 ///
 /// [WidgetTapRequest.serial] is what makes two identical taps two distinct
 /// states, so pressing "Добавить задачу" twice opens the form twice. Nothing
@@ -102,28 +128,62 @@ class WidgetTapNotifier extends Notifier<WidgetTapRequest?> {
   @override
   WidgetTapRequest? build() => null;
 
-  void report(WidgetTapAction action) {
-    if (action != WidgetTapAction.open && action != WidgetTapAction.create) {
-      return;
+  void reportUri(Uri? uri) {
+    final action = widgetTapActionOf(uri);
+    switch (action) {
+      case WidgetTapAction.open:
+      case WidgetTapAction.create:
+        state = WidgetTapRequest(action: action, serial: ++_serial);
+        return;
+      case WidgetTapAction.project:
+        final projectId = uri?.queryParameters[widgetProjectParam];
+        if (projectId == null || projectId.isEmpty) return;
+        state = WidgetTapRequest(
+          action: action,
+          projectId: projectId,
+          serial: ++_serial,
+        );
+        return;
+      case WidgetTapAction.projectTask:
+        final taskId = int.tryParse(
+          uri?.queryParameters[widgetTaskParam] ?? '',
+        );
+        if (taskId == null) return;
+        state = WidgetTapRequest(
+          action: action,
+          taskId: taskId,
+          serial: ++_serial,
+        );
+        return;
+      case _:
+        return;
     }
-    state = WidgetTapRequest(action: action, serial: ++_serial);
   }
 }
 
 class WidgetTapRequest {
-  const WidgetTapRequest({required this.action, required this.serial});
+  const WidgetTapRequest({
+    required this.action,
+    required this.serial,
+    this.projectId,
+    this.taskId,
+  });
 
   final WidgetTapAction action;
 
   /// Counts up with every tap, so a second identical tap is a new value.
   final int serial;
+  final String? projectId;
+  final int? taskId;
 
   @override
   bool operator ==(Object other) =>
       other is WidgetTapRequest &&
       other.action == action &&
+      other.projectId == projectId &&
+      other.taskId == taskId &&
       other.serial == serial;
 
   @override
-  int get hashCode => Object.hash(action, serial);
+  int get hashCode => Object.hash(action, serial, projectId, taskId);
 }

@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:todo_app/notifications/permission_prompt.dart';
+import 'package:todo_app/projects/projects_state.dart';
+import 'package:todo_app/projects/projects_tab.dart';
 import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
@@ -24,6 +26,14 @@ import '../utils/task_icons.dart';
 /// How [CreateTaskPage] behaves: creating a brand new task, editing an
 /// existing one, or duplicating one into a new task.
 enum TaskFormMode { create, edit, clone }
+
+/// Sections currently available to one account in one project scope.
+final _sectionsForScopeProvider =
+    StreamProvider.family<List<Section>, ({String userId, String? projectId})>(
+      (ref, scope) => ref
+          .watch(sectionsDaoProvider)
+          .watchSections(userId: scope.userId, projectId: scope.projectId),
+    );
 
 /// One editable subtask line in the form. [id] is null while the row has no row
 /// of its own in the database yet — a freshly added one, or a copy made by
@@ -53,6 +63,7 @@ class CreateTaskPage extends ConsumerStatefulWidget {
     this.task,
     this.initialDate,
     this.initialGroupUid,
+    this.initialProjectUid,
     this.initialTitle,
     this.initialHabit = false,
   }) : assert(
@@ -75,6 +86,9 @@ class CreateTaskPage extends ConsumerStatefulWidget {
   /// Group a new task is made in, for [TaskFormMode.create]: the group screen's
   /// "+" opens the form already pointed at it. The user can still switch it.
   final String? initialGroupUid;
+
+  /// Personal project for a new task opened from its project.
+  final String? initialProjectUid;
 
   /// A title a new task starts with, and whether it starts as a daily habit —
   /// what the empty habits screen's ready-made chips hand over.
@@ -143,6 +157,8 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
   /// and [_save] drops whatever they held.
   String? _groupUid;
   String? _assigneeUid;
+  String? _projectUid;
+  String? _sectionId;
 
   /// The groups to offer and their members — read once, like the subtasks:
   /// the form is seeded, not live.
@@ -176,6 +192,8 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
       _titleController.text = source.title;
       _groupUid = source.groupUid;
       _assigneeUid = source.assigneeUid;
+      _projectUid = source.projectUid;
+      _sectionId = source.sectionId;
       _descController.text = source.description ?? '';
       _trackingMode = source.trackingMode;
       _repeatEnabled = source.repeatType != null;
@@ -218,6 +236,7 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
       _startMinutes = roundedNow;
       _selectedDate = widget.initialDate ?? DateTime.now();
       _groupUid = widget.initialGroupUid;
+      _projectUid = widget.initialProjectUid;
       _titleController.text = widget.initialTitle ?? '';
       _repeatEnabled = widget.initialHabit;
     }
@@ -380,6 +399,12 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
           startDate: Value(startDate),
           // The group itself is fixed at creation; who it is for is not.
           assigneeUid: Value(isGroup ? _assigneeUid : null),
+          projectUid: _projectUid == source.projectUid
+              ? const Value.absent()
+              : Value(_projectUid),
+          sectionId: _sectionId == source.sectionId
+              ? const Value.absent()
+              : Value(_sectionId),
           updatedAt: Value(DateTime.now()),
         ),
       );
@@ -418,6 +443,8 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
         endTimeMinutes: endMin != null ? Value(endMin) : const Value.absent(),
         startDate: startDate != null ? Value(startDate) : const Value.absent(),
         groupUid: isGroup ? Value(_groupUid) : const Value.absent(),
+        projectUid: Value(_projectUid),
+        sectionId: Value(_sectionId),
         assigneeUid: isGroup ? Value(_assigneeUid) : const Value.absent(),
         authorUid: isGroup
             ? Value(ref.read(myUidProvider))
@@ -462,7 +489,11 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
 
       if (id == null) {
         final newId = await dao.insertTask(
-          TasksCompanion.insert(parentId: Value(parentId), title: title),
+          TasksCompanion.insert(
+            parentId: Value(parentId),
+            title: title,
+            colorValue: Value(_selectedColor?.toARGB32()),
+          ),
         );
         // Only tick a brand-new subtask, so unchecked ones leave no empty log.
         if (draft.done) await dao.setLog(newId, logDate, completed: true);
@@ -492,6 +523,17 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
         if (m.groupUid == _groupUid) m,
     ];
     final me = ref.watch(myUidProvider);
+    final sections = me == null
+        ? const <Section>[]
+        : ref
+                  .watch(
+                    _sectionsForScopeProvider((
+                      userId: me,
+                      projectId: _projectUid,
+                    )),
+                  )
+                  .valueOrNull ??
+              const <Section>[];
     // Fixed once the task exists — the server keeps the group it was made in.
     final canPickGroup = widget.mode != TaskFormMode.edit;
     final theme = Theme.of(context);
@@ -631,6 +673,26 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
                           selected: _selectedColor,
                           onChanged: (c) => setState(() => _selectedColor = c),
                         ),
+                        gap,
+                        _Section(
+                          icon: LucideIcons.folder,
+                          title: 'Проект',
+                          trailing: _Pill(
+                            label: _projectLabel(),
+                            onTap: isGroup && widget.mode == TaskFormMode.edit
+                                ? null
+                                : _pickProject,
+                          ),
+                        ),
+                        gap,
+                        _Section(
+                          icon: LucideIcons.rows_3,
+                          title: 'Раздел',
+                          trailing: _Pill(
+                            label: _sectionLabel(sections),
+                            onTap: () => _pickSection(sections, me),
+                          ),
+                        ),
                         // Groups hold no subtasks, and a "Значение" task has none either.
                         if (!isValue && !isGroup) ...[
                           gap,
@@ -658,7 +720,8 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
                         ],
                         gap,
                         // Shown as soon as the user belongs to a group at all.
-                        if (groups.isNotEmpty || isGroup) ...[
+                        if (_projectUid == null &&
+                            (groups.isNotEmpty || isGroup)) ...[
                           _Section(
                             icon: LucideIcons.users,
                             title: 'Кому',
@@ -878,6 +941,114 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
       _groupUid = picked.$1;
       if (_groupUid != null && _trackingMode == TrackingMode.value) {
         _trackingMode = TrackingMode.checkbox;
+      }
+    });
+  }
+
+  String _projectLabel() {
+    if (_projectUid == null) return 'Без проекта';
+    final state = ref.watch(projectsStateProvider);
+    final project =
+        state.projects.where((p) => p.id == _projectUid).firstOrNull ??
+        state.details[_projectUid];
+    return project?.name ?? 'Проект';
+  }
+
+  String _sectionLabel(List<Section> sections) {
+    if (_sectionId == null) return 'Без раздела';
+    return sections
+            .where((section) => section.id == _sectionId)
+            .firstOrNull
+            ?.name ??
+        'Раздел';
+  }
+
+  Future<void> _pickSection(List<Section> sections, String? userId) async {
+    if (userId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Войдите, чтобы создавать разделы.')),
+      );
+      return;
+    }
+
+    const create = '__create_section__';
+    final picked = await showOptionsSheet<String?>(
+      context,
+      title: 'Раздел',
+      options: [
+        (null, 'Без раздела'),
+        for (final section in sections) (section.id, section.name),
+        (create, '+ Создать раздел'),
+      ],
+      selected: _sectionId,
+    );
+    if (!mounted || picked == null) return;
+
+    var selected = picked.$1;
+    if (selected == create) {
+      final name = await showTextPromptDialog(
+        context,
+        title: 'Новый раздел',
+        hint: 'Название раздела',
+        action: 'Создать',
+      );
+      if (!mounted || name == null) return;
+      final dao = ref.read(sectionsDaoProvider);
+      final existing = await dao.getSections(
+        userId: userId,
+        projectId: _projectUid,
+      );
+      final created = await dao.createSection(
+        userId: userId,
+        projectId: _projectUid,
+        name: name,
+        position: existing.length,
+      );
+      selected = created.id;
+    }
+
+    if (mounted) setState(() => _sectionId = selected);
+  }
+
+  Future<void> _pickProject() async {
+    final notifier = ref.read(projectsStateProvider.notifier);
+    if (!ref.read(projectsStateProvider).activeLoaded) await notifier.load();
+    if (!mounted) return;
+    final state = ref.read(projectsStateProvider);
+    if (state.error != null && !state.activeLoaded) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Не удалось загрузить проекты. Попробуйте ещё раз.'),
+        ),
+      );
+      return;
+    }
+    const create = '__create_project__';
+    final picked = await showOptionsSheet<String?>(
+      context,
+      title: 'Проект',
+      options: [
+        (null, 'Без проекта'),
+        for (final project in state.projects)
+          if (!project.isArchived) (project.id, project.name),
+        (create, '+ Создать проект'),
+      ],
+      selected: _projectUid,
+    );
+    if (!mounted || picked == null) return;
+    String? selected = picked.$1;
+    if (selected == create) {
+      final project = await showProjectForm(context);
+      if (!mounted || project == null) return;
+      selected = project.id;
+    }
+    setState(() {
+      final projectChanged = selected != _projectUid;
+      _projectUid = selected;
+      if (projectChanged) _sectionId = null;
+      if (selected != null) {
+        _groupUid = null;
+        _assigneeUid = null;
       }
     });
   }
@@ -2523,6 +2694,7 @@ Future<void> showCreateTaskSheet(
   Task? task,
   DateTime? initialDate,
   String? initialGroupUid,
+  String? initialProjectUid,
   String? initialTitle,
   bool initialHabit = false,
 }) => Navigator.of(context).push<void>(
@@ -2533,6 +2705,7 @@ Future<void> showCreateTaskSheet(
       task: task,
       initialDate: initialDate,
       initialGroupUid: initialGroupUid,
+      initialProjectUid: initialProjectUid,
       initialTitle: initialTitle,
       initialHabit: initialHabit,
     ),

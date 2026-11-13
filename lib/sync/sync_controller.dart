@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:todo_app/auth/providers.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
+import 'package:todo_app/projects/projects_state.dart';
 import 'package:todo_app/settings/api_config.dart';
 import 'package:todo_app/settings/sync_settings.dart';
 import 'package:todo_app/sync/providers.dart';
@@ -268,6 +269,10 @@ class _SyncScopeState extends ConsumerState<SyncScope>
     ref.listenManual<AsyncValue<List<DiaryEntry>>>(diaryEntriesProvider, nudge);
     ref.listenManual<AsyncValue<List<Task>>>(allTasksProvider, nudge);
     ref.listenManual<AsyncValue<List<TaskLog>>>(allLogsProvider, nudge);
+    ref.listenManual<AsyncValue<List<LocalProject>>>(
+      localProjectsChangesProvider,
+      nudge,
+    );
     ref.listenManual<AsyncValue<List<CycleDay>>>(cycleDaysProvider, nudge);
   }
 

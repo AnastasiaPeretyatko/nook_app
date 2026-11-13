@@ -376,4 +376,28 @@ void main() {
     expect(find.text('18 августа, 15:00 – 15:30'), findsOneWidget);
     await _close(tester);
   });
+
+  testWidgets('the task icon aligns with the top of a long title', (
+    tester,
+  ) async {
+    final task = (await seed(tester, children: 0)).copyWith(
+      title:
+          'Длинное название задачи, которое переносится на несколько строк и должно быть выровнено с иконкой по верхнему краю окна просмотра',
+    );
+    tester.view.physicalSize = const Size(390, 1000);
+    await tester.pumpWidget(_sheet(task));
+    await _flush(tester);
+    final badge = find.byWidgetPredicate(
+      (w) =>
+          w is Container &&
+          w.constraints?.maxWidth == 44 &&
+          w.constraints?.maxHeight == 44,
+    );
+    expect(badge, findsOneWidget);
+    expect(
+      tester.getTopLeft(badge).dy,
+      tester.getTopLeft(find.text(task.title)).dy,
+    );
+    await _close(tester);
+  });
 }

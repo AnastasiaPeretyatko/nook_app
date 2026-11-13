@@ -111,39 +111,56 @@ NoteTagsCompanion tagFromRow(Map<String, dynamic> row) =>
 /// before `icon_key`, nothing in the app reads it, and a code point means
 /// something only inside one version of one font — the very reason v10 replaced
 /// it with a key.
-Map<String, dynamic> taskToRow(Task task, {String? parentUid}) => {
-  'id': task.uid,
-  'parent_id': parentUid,
-  'title': task.title,
-  'description': task.description,
-  'status': task.status.name,
-  'repeat_type': task.repeatType?.name,
-  'repeat_interval': task.repeatInterval,
-  'repeat_days_mask': task.repeatDaysMask,
-  'tracking_mode': task.trackingMode.name,
-  'target_duration_minutes': task.targetDurationMinutes,
-  'target_value': task.targetValue,
-  'icon_key': task.iconKey,
-  // A **key** into the palette, not the colour itself, for exactly the reasons
-  // a tag's went that way at v13: `0xFF8B7CF6` means something only inside one
-  // version of one palette, while `violet` is the same fact on any device and
-  // after any repaint — and an opaque ARGB starts with `0xFF`, so it is above
-  // 2^31 and a Postgres `integer` refuses it outright.
-  //
-  // Only the boundary changes. `tasks.color_value` stays an ARGB locally, since
-  // every widget in the app reads it as a colour; the translation lives here and
-  // nowhere else.
-  'color_key': _colorKey(task.colorValue),
-  'scheduled_time_minutes': task.scheduledTimeMinutes,
-  'end_time_minutes': task.endTimeMinutes,
-  // A calendar day, not a moment — see [_calendarDay].
-  'start_date': _calendarDay(task.startDate),
-  'created_at': _instant(task.createdAt),
-  _clientUpdatedAt: _instant(task.updatedAt),
-  // The server keeps `group_id` as it was created, whatever is sent here.
-  'group_id': task.groupUid,
-  'assignee_id': task.assigneeUid,
-};
+Map<String, dynamic> taskToRow(
+  Task task, {
+  String? parentUid,
+  bool? includeProjectId,
+  bool? includeSectionId,
+}) {
+  final row = <String, dynamic>{
+    'id': task.uid,
+    'parent_id': parentUid,
+    'title': task.title,
+    'description': task.description,
+    'status': task.status.name,
+    'repeat_type': task.repeatType?.name,
+    'repeat_interval': task.repeatInterval,
+    'repeat_days_mask': task.repeatDaysMask,
+    'tracking_mode': task.trackingMode.name,
+    'target_duration_minutes': task.targetDurationMinutes,
+    'target_value': task.targetValue,
+    'icon_key': task.iconKey,
+    // A **key** into the palette, not the colour itself, for exactly the reasons
+    // a tag's went that way at v13: `0xFF8B7CF6` means something only inside one
+    // version of one palette, while `violet` is the same fact on any device and
+    // after any repaint — and an opaque ARGB starts with `0xFF`, so it is above
+    // 2^31 and a Postgres `integer` refuses it outright.
+    //
+    // Only the boundary changes. `tasks.color_value` stays an ARGB locally, since
+    // every widget in the app reads it as a colour; the translation lives here and
+    // nowhere else.
+    'color_key': _colorKey(task.colorValue),
+    'scheduled_time_minutes': task.scheduledTimeMinutes,
+    'end_time_minutes': task.endTimeMinutes,
+    // A calendar day, not a moment — see [_calendarDay].
+    'start_date': _calendarDay(task.startDate),
+    'created_at': _instant(task.createdAt),
+    _clientUpdatedAt: _instant(task.updatedAt),
+    // The server keeps `group_id` as it was created, whatever is sent here.
+    'group_id': task.groupUid,
+    'assignee_id': task.assigneeUid,
+  };
+  // The backend uses presence to distinguish an old client preserving an
+  // association from an explicit `null` that removes it. The stored pending
+  // flag survives offline edits and is cleared only when the task is accepted.
+  if (includeProjectId ?? task.projectDirty ?? true) {
+    row['project_id'] = task.projectUid;
+  }
+  if (includeSectionId ?? task.sectionDirty ?? true) {
+    row['section_id'] = task.sectionId;
+  }
+  return row;
+}
 
 /// A task, as it came back. `parentId` is left absent: only the engine can turn
 /// the parent's uid into a local id, and a companion that named it would either
@@ -169,10 +186,36 @@ TasksCompanion taskFromRow(Map<String, dynamic> row) => TasksCompanion(
   updatedAt: Value(_moment(row[_clientUpdatedAt]) ?? DateTime.now()),
   groupUid: Value(row['group_id'] as String?),
   assigneeUid: Value(row['assignee_id'] as String?),
+  projectUid: row.containsKey('project_id')
+      ? Value(row['project_id'] as String?)
+      : const Value.absent(),
+  sectionId: row.containsKey('section_id')
+      ? Value(row['section_id'] as String?)
+      : const Value.absent(),
   // `user_id` is the author. Kept only for a group task, where it decides who
   // may edit; a personal task the server shows this device is its own.
   authorUid: Value(row['group_id'] == null ? null : row['user_id'] as String?),
 );
+
+Map<String, dynamic> sectionToRow(Section section) => {
+  'id': section.id,
+  'project_id': section.projectId,
+  'name': section.name,
+  'position': section.position,
+  'created_at': _instant(section.createdAt),
+  _clientUpdatedAt: _instant(section.updatedAt),
+};
+
+SectionsCompanion sectionFromRow(Map<String, dynamic> row, String userId) =>
+    SectionsCompanion(
+      id: Value(row['id'] as String),
+      userId: Value(userId),
+      projectId: Value(row['project_id'] as String?),
+      name: Value(_text(row['name'])),
+      position: Value(_int(row['position']) ?? 0),
+      createdAt: Value(_moment(row['created_at']) ?? DateTime.now()),
+      updatedAt: Value(_moment(row[_clientUpdatedAt]) ?? DateTime.now()),
+    );
 
 /// A group, as the server lists it.
 TaskGroupsCompanion groupFromRow(Map<String, dynamic> row) =>

@@ -10,6 +10,7 @@ import 'package:todo_app/auth/auth_user.dart';
 import 'package:todo_app/auth/providers.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
+import 'package:todo_app/projects/projects_state.dart';
 import 'package:todo_app/settings/sync_settings.dart';
 import 'package:todo_app/settings/theme_provider.dart';
 import 'package:todo_app/sync/providers.dart';
@@ -423,6 +424,9 @@ void main() {
             allTasksProvider.overrideWith((ref) => Stream.value(const [])),
             allLogsProvider.overrideWith((ref) => Stream.value(const [])),
             cycleDaysProvider.overrideWith((ref) => Stream.value(const [])),
+            localProjectsChangesProvider.overrideWith(
+              (ref) => Stream.value(const []),
+            ),
           ],
           child: const SyncScope(child: SizedBox()),
         ),

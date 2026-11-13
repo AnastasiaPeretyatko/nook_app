@@ -26,7 +26,6 @@ void main() {
     final otherId = await addTask('Unrelated');
 
     await dao.toggleCompletion(parentId, DateTime(2026, 1, 1));
-    await dao.toggleCompletion(subId, DateTime(2026, 1, 1));
     await dao.toggleCompletion(otherId, DateTime(2026, 1, 1));
     await dao.insertSession(
       TaskSessionsCompanion.insert(taskId: parentId, startedAt: DateTime.now()),
@@ -43,6 +42,47 @@ void main() {
 
     final parentSessions = await dao.watchSessionsForTask(parentId).first;
     expect(parentSessions, isEmpty);
+  });
+
+  test('completing a task completes descendants on that day only', () async {
+    final parent = await addTask('Parent');
+    final child = await addTask('Child', parentId: parent);
+    final doneChild = await addTask('Already done', parentId: parent);
+    final grandchild = await addTask('Grandchild', parentId: child);
+    final other = await addTask('Other');
+    final day = DateTime(2026, 1, 1);
+    final nextDay = DateTime(2026, 1, 2);
+    await dao.toggleCompletion(doneChild, day);
+    final previous = (await dao.getLogForDate(doneChild, day))!;
+    await db
+        .update(db.taskLogs)
+        .write(const TaskLogsCompanion(dirty: Value(false)));
+
+    await dao.toggleCompletion(parent, day);
+
+    for (final id in [parent, child, grandchild]) {
+      final log = (await dao.getLogForDate(id, day))!;
+      expect(log.completed, isTrue);
+      expect(log.dirty, isTrue);
+      expect(log.completedAt, isNotNull);
+      expect(await dao.getLogForDate(id, nextDay), isNull);
+    }
+    final unchanged = (await dao.getLogForDate(doneChild, day))!;
+    expect(unchanged.completedAt, previous.completedAt);
+    expect(unchanged.dirty, isFalse);
+    expect(await dao.getLogForDate(other, day), isNull);
+
+    await dao.toggleCompletion(parent, day);
+    expect((await dao.getLogForDate(parent, day))!.completed, isFalse);
+    expect((await dao.getLogForDate(child, day))!.completed, isTrue);
+  });
+
+  test('setting a task completed also completes its subtasks', () async {
+    final parent = await addTask('Parent');
+    final child = await addTask('Child', parentId: parent);
+    final day = DateTime(2026, 1, 1);
+    await dao.setLog(parent, day, completed: true);
+    expect((await dao.getLogForDate(child, day))!.completed, isTrue);
   });
 
   test('copySubtasks duplicates children without completion history', () async {

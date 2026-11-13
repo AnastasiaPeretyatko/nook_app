@@ -105,46 +105,63 @@ class RoundIconButton extends StatelessWidget {
 /// button, the title in the middle, and an optional round button at the end
 /// (`Account.dc.html`, `Group.dc.html`).
 class BackHeader extends StatelessWidget {
-  const BackHeader({super.key, required this.title, this.trailing});
+  const BackHeader({
+    super.key,
+    required this.title,
+    this.trailing,
+    this.trailingWidth = 44,
+  });
 
   final String title;
 
   /// A [RoundIconButton] for the right-hand side; without one the title stays
   /// centred all the same.
   final Widget? trailing;
+  final double trailingWidth;
 
   @override
   Widget build(BuildContext context) {
     final p = AppPalette.of(Theme.of(context));
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      child: Row(
-        children: [
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: RoundIconButton(
-                icon: LucideIcons.chevron_left,
-                tooltip: 'Назад',
-                onPressed: () => Navigator.of(context).maybePop(),
+      child: LayoutBuilder(
+        builder: (context, constraints) => Row(
+          children: [
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: RoundIconButton(
+                  icon: LucideIcons.chevron_left,
+                  tooltip: 'Назад',
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
               ),
             ),
-          ),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w600,
-              color: p.textPrimary,
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: (constraints.maxWidth - 2 * trailingWidth).clamp(
+                  0,
+                  double.infinity,
+                ),
+              ),
+              child: Text(
+                title,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  color: p.textPrimary,
+                ),
+              ),
             ),
-          ),
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: trailing ?? const SizedBox(width: 44, height: 44),
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: trailing ?? const SizedBox(width: 44, height: 44),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

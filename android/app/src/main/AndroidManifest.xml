@@ -109,6 +109,33 @@
                 android:resource="@xml/today_widget_info"/>
         </receiver>
 
+        <!-- A configurable project widget. Its selection activity persists a
+             project id per appWidgetId; ProjectWidgetRowsService supplies a
+             scrollable RemoteViews list so no task is dropped on a short card. -->
+        <receiver
+            android:name=".ProjectWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_project_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/project_widget_info"/>
+        </receiver>
+        <activity
+            android:name=".ProjectWidgetConfigureActivity"
+            android:exported="true"
+            android:theme="@style/WidgetConfigTheme">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE"/>
+            </intent-filter>
+        </activity>
+        <service
+            android:name=".ProjectWidgetRowsService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+
         <!-- The two habit widgets: one habit with its week, and today's habits
              as a row of circles. Same filter as above; see NookWidgetProvider.kt. -->
         <receiver

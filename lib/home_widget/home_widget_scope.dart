@@ -64,6 +64,9 @@ class _HomeWidgetScopeState extends ConsumerState<HomeWidgetScope>
     ref.listenManual<String>(habitsWidgetPayloadProvider, (_, payload) {
       if (payload.isNotEmpty) unawaited(bridge.pushHabits(payload));
     }, fireImmediately: true);
+    ref.listenManual<String>(projectWidgetPayloadProvider, (_, payload) {
+      if (payload.isNotEmpty) unawaited(bridge.pushProjects(payload));
+    }, fireImmediately: true);
 
     // A tap that reaches an app already running. With an error handler, or a
     // platform channel that fails would surface as an unhandled async error and
@@ -79,7 +82,7 @@ class _HomeWidgetScopeState extends ConsumerState<HomeWidgetScope>
 
   void _report(Uri? uri) {
     if (!mounted) return;
-    ref.read(widgetTapProvider.notifier).report(widgetTapActionOf(uri));
+    ref.read(widgetTapProvider.notifier).reportUri(uri);
   }
 
   @override

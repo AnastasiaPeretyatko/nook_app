@@ -187,7 +187,6 @@ void main() {
       final parentId = await addTask('Уборка');
       final childId = await addTask('Пыль', parentId: parentId);
       await dao.toggleCompletion(parentId, day);
-      await dao.toggleCompletion(childId, day);
       await dao.startTimer(
         parentId,
         DateTime(2026, 8, 26, 9),

@@ -39,6 +39,11 @@ class HomeWidgetBridge {
     'HabitStreakWidgetProvider',
   ];
 
+  /// The configurable project widget stores every project in one payload and
+  /// keeps each widget instance's selected id on the Android side.
+  static const projectsPayloadKey = 'project_widget_payload';
+  static const projectProviderName = 'ProjectWidgetProvider';
+
   /// What was last handed to the platform, per key. A widget redraw is a
   /// broadcast and a re-inflate in the launcher, so an unchanged payload is
   /// worth not sending — and the app pushes on every task edit, every tick and
@@ -58,6 +63,11 @@ class HomeWidgetBridge {
   /// The same for the habit widgets.
   Future<void> pushHabits(String payload) =>
       _push(habitsPayloadKey, payload, habitProviderNames);
+
+  /// The same for the configurable project widgets. Android redraws every
+  /// instance, then each instance reads its own selected project id.
+  Future<void> pushProjects(String payload) =>
+      _push(projectsPayloadKey, payload, const [projectProviderName]);
 
   Future<void> _push(String key, String payload, List<String> providers) async {
     if (!_supported || _pushed[key] == payload) return;
