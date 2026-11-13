@@ -126,7 +126,7 @@
         <activity
             android:name=".ProjectWidgetConfigureActivity"
             android:exported="true"
-            android:theme="@style/WidgetConfigTheme">
+            android:theme="@style/ProjectWidgetConfigTheme">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE"/>
             </intent-filter>

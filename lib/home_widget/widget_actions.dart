@@ -248,6 +248,7 @@ Future<void> pushWidgetPayload(AppDatabase database) async {
   await bridge.pushProjects(
     buildProjectWidgetPayload(
       projects: projects,
+      sections: await database.sectionsDao.getProjectSections(),
       tasks: await database.tasksDao.getRootTasks(),
       logs: await database.tasksDao.getAllLogs(),
       light: theme.light,

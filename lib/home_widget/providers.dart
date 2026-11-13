@@ -89,9 +89,15 @@ final habitsWidgetPayloadProvider = Provider<String>((ref) {
 /// it does not introduce a second project or task store just for widgets.
 final projectWidgetPayloadProvider = Provider<String>((ref) {
   final projects = ref.watch(localProjectsChangesProvider);
+  final sections = ref.watch(projectWidgetSectionsProvider);
   final tasks = ref.watch(allTasksProvider);
   final logs = ref.watch(allLogsProvider);
-  if (!projects.hasValue || !tasks.hasValue || !logs.hasValue) return '';
+  if (!projects.hasValue ||
+      !sections.hasValue ||
+      !tasks.hasValue ||
+      !logs.hasValue) {
+    return '';
+  }
 
   final theme = widgetThemeFor(
     accent: ref.watch(appColorProvider),
@@ -99,12 +105,18 @@ final projectWidgetPayloadProvider = Provider<String>((ref) {
   );
   return buildProjectWidgetPayload(
     projects: projects.value!,
+    sections: sections.value!,
     tasks: tasks.value!,
     logs: logs.value!,
     light: theme.light,
     dark: theme.dark,
     mode: theme.mode,
   ).encode();
+});
+
+/// Project-scoped sections for every independently configured project widget.
+final projectWidgetSectionsProvider = StreamProvider<List<Section>>((ref) {
+  return ref.watch(sectionsDaoProvider).watchProjectSections();
 });
 
 /// A tap on the widget that the app still has to act on, and nothing else.

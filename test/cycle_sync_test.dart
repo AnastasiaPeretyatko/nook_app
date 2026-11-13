@@ -183,66 +183,65 @@ void main() {
 
   group('the payload', () {
     test('a day goes up with its calendar date and no account', () async {
-    test('a day goes up with its calendar date and no account', () async {
-      await dao.saveDay(day, flow: 2, mood: 3, symptoms: {4, 1}, sex: 2);
-      final row = cycleDayToRow((await dao.getDay(day))!);
-      final row = cycleDayToRow((await dao.getDay(day))!);
+      test('a day goes up with its calendar date and no account', () async {
+        await dao.saveDay(day, flow: 2, mood: 3, symptoms: {4, 1}, sex: 2);
+        final row = cycleDayToRow((await dao.getDay(day))!);
 
-      expect(row.containsKey('user_id'), isFalse);
-      expect(row.containsKey('user_id'), isFalse);
-      expect(row['date'], '2026-10-16');
-      expect(row['is_period'], isTrue);
-      expect(row['flow'], 2);
-      expect(row['mood'], 3);
-      expect(row['symptoms'], [1, 4]);
-      expect(row['discharge'], isNull);
-      expect(row['sex'], 2);
-      expect(row['pill'], isFalse);
-      expect(row['client_updated_at'], isA<String>());
-    });
-
-    test('and comes back as the same day', () async {
-      await dao.saveDay(day, flow: 2, mood: 3, symptoms: {4, 1}, note: 'n');
-      final row = cycleDayToRow((await dao.getDay(day))!);
-      final row = cycleDayToRow((await dao.getDay(day))!);
-      final back = cycleDayFromRow(row);
-
-      expect(back.date.value, day);
-      expect(back.isPeriod.value, isTrue);
-      expect(back.flow.value, 2);
-      expect(back.mood.value, 3);
-      expect(back.symptoms.value, '1,4');
-      expect(back.note.value, 'n');
-    });
-
-    test('numbers this version has no name for read as "not marked"', () {
-      final back = cycleDayFromRow({
-        'date': '2026-10-16',
-        'flow': 9,
-        'mood': 99,
-        'symptoms': [1, 42, 'x'],
-        'discharge': -1,
-        'sex': 7,
+        expect(row.containsKey('user_id'), isFalse);
+        expect(row.containsKey('user_id'), isFalse);
+        expect(row['date'], '2026-10-16');
+        expect(row['is_period'], isTrue);
+        expect(row['flow'], 2);
+        expect(row['mood'], 3);
+        expect(row['symptoms'], [1, 4]);
+        expect(row['discharge'], isNull);
+        expect(row['sex'], 2);
+        expect(row['pill'], isFalse);
+        expect(row['client_updated_at'], isA<String>());
       });
 
-      expect(back.flow.value, 0);
-      expect(back.isPeriod.value, isFalse);
-      expect(back.mood.value, isNull);
-      expect(back.symptoms.value, '1');
-      expect(back.discharge.value, isNull);
-      expect(back.sex.value, isNull);
+      test('and comes back as the same day', () async {
+        await dao.saveDay(day, flow: 2, mood: 3, symptoms: {4, 1}, note: 'n');
+        final row = cycleDayToRow((await dao.getDay(day))!);
+        final back = cycleDayFromRow(row);
+
+        expect(back.date.value, day);
+        expect(back.isPeriod.value, isTrue);
+        expect(back.flow.value, 2);
+        expect(back.mood.value, 3);
+        expect(back.symptoms.value, '1,4');
+        expect(back.note.value, 'n');
+      });
+
+      test('numbers this version has no name for read as "not marked"', () {
+        final back = cycleDayFromRow({
+          'date': '2026-10-16',
+          'flow': 9,
+          'mood': 99,
+          'symptoms': [1, 42, 'x'],
+          'discharge': -1,
+          'sex': 7,
+        });
+
+        expect(back.flow.value, 0);
+        expect(back.isPeriod.value, isFalse);
+        expect(back.mood.value, isNull);
+        expect(back.symptoms.value, '1');
+        expect(back.discharge.value, isNull);
+        expect(back.sex.value, isNull);
+      });
+
+      test('old server rows infer the period mark from intensity', () {
+        final back = cycleDayFromRow({'date': '2026-10-16', 'flow': 2});
+        expect(back.isPeriod.value, isTrue);
+        expect(back.flow.value, 2);
+      });
     });
 
-    test('old server rows infer the period mark from intensity', () {
-      final back = cycleDayFromRow({'date': '2026-10-16', 'flow': 2});
-      expect(back.isPeriod.value, isTrue);
-      expect(back.flow.value, 2);
+    test('symptoms are stored sorted and tolerate junk', () {
+      expect(encodeSymptoms([3, 0, 3]), '0,3');
+      expect(parseSymptoms('0, 3,x,,-2'), {0, 3});
+      expect(parseSymptoms(''), isEmpty);
     });
-  });
-
-  test('symptoms are stored sorted and tolerate junk', () {
-    expect(encodeSymptoms([3, 0, 3]), '0,3');
-    expect(parseSymptoms('0, 3,x,,-2'), {0, 3});
-    expect(parseSymptoms(''), isEmpty);
   });
 }

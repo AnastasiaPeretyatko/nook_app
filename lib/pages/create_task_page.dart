@@ -991,6 +991,7 @@ class _CreateTaskPageState extends ConsumerState<CreateTaskPage> {
         title: 'Новый раздел',
         hint: 'Название раздела',
         action: 'Создать',
+        asBottomSheet: true,
       );
       if (!mounted || name == null) return;
       final dao = ref.read(sectionsDaoProvider);

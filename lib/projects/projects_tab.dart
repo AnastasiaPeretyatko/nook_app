@@ -27,7 +27,9 @@ Future<Project?> showProjectForm(BuildContext context, [Project? project]) =>
     );
 
 class ProjectsTab extends ConsumerStatefulWidget {
-  const ProjectsTab({super.key});
+  const ProjectsTab({super.key, this.headerFooter});
+
+  final Widget? headerFooter;
 
   @override
   ConsumerState<ProjectsTab> createState() => _ProjectsTabState();
@@ -71,6 +73,7 @@ class _ProjectsTabState extends ConsumerState<ProjectsTab> {
           ),
         ],
       ),
+      if (widget.headerFooter != null) widget.headerFooter!,
       Expanded(child: _content(context)),
     ],
   );

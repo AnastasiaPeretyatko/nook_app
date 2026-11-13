@@ -16,4 +16,10 @@
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
     <style name="WidgetConfigTheme" parent="@android:style/Theme.DeviceDefault.Dialog" />
+    <style name="ProjectWidgetConfigTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">@font/onest_medium</item>
+        <item name="android:statusBarColor">@color/widget_config_surface</item>
+        <item name="android:navigationBarColor">@color/widget_config_background</item>
+        <item name="android:colorAccent">@color/widget_config_accent</item>
+    </style>
 </resources>

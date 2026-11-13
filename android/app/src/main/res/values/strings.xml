@@ -32,6 +32,21 @@
     <string name="widget_project_reconfigure">Выбрать другой проект</string>
     <string name="widget_project_choose">Выберите проект</string>
     <string name="widget_project_no_projects">Нет доступных проектов. Создайте проект в Nook и добавьте виджет снова.</string>
+    <string name="widget_project_settings_title">Настройки виджета</string>
+    <string name="widget_project_settings_save">Сохранить</string>
+    <string name="widget_project_settings_preview">Предпросмотр</string>
+    <string name="widget_project_settings_content">СОДЕРЖИМОЕ</string>
+    <string name="widget_project_settings_appearance">ОФОРМЛЕНИЕ</string>
+    <string name="widget_project_setting_project">Проект</string>
+    <string name="widget_project_setting_project_none">Выберите проект</string>
+    <string name="widget_project_setting_theme">Тема</string>
+    <string name="widget_project_setting_font_size">Размер текста</string>
+    <string name="widget_project_theme_system">Как в системе</string>
+    <string name="widget_project_theme_light">Светлая</string>
+    <string name="widget_project_theme_dark">Тёмная</string>
+    <string name="widget_project_font_small">Мелкий</string>
+    <string name="widget_project_font_standard">Стандартный</string>
+    <string name="widget_project_font_large">Крупный</string>
 
 
     <string name="widget_habit_week_name">Привычка с неделей</string>

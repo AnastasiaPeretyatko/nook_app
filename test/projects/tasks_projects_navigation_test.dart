@@ -12,7 +12,7 @@ import 'package:todo_app/projects/project.dart';
 import '../support/fake_projects_api.dart';
 
 void main() {
-  testWidgets('task list opens its archive without a projects switch', (
+  testWidgets('tasks and projects share a switch on the tasks page', (
     tester,
   ) async {
     final api = FakeProjectsApi();
@@ -30,8 +30,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Проекты'), findsNothing);
+    expect(find.text('Проекты'), findsOneWidget);
     expect(find.text('Выполненные'), findsNothing);
+    expect(find.byTooltip('Выполненные задачи'), findsOneWidget);
+    await tester.tap(find.text('Проекты'));
+    await tester.pumpAndSettle();
+    expect(find.text('Пока нет проектов'), findsOneWidget);
+    expect(find.byTooltip('Создать проект'), findsOneWidget);
+    await tester.tap(find.text('Задачи'));
+    await tester.pumpAndSettle();
     expect(find.byTooltip('Выполненные задачи'), findsOneWidget);
     await tester.tap(find.byTooltip('Выполненные задачи'));
     await tester.pumpAndSettle();
@@ -45,7 +52,7 @@ void main() {
     expect(find.text('Пока ничего не выполнено'), findsOneWidget);
     await tester.tap(find.byTooltip('Назад'));
     await tester.pumpAndSettle();
-    expect(find.text('Задачи'), findsOneWidget);
+    expect(find.byTooltip('Выполненные задачи'), findsOneWidget);
   });
 
   testWidgets('projects tab puts create action before archive', (tester) async {

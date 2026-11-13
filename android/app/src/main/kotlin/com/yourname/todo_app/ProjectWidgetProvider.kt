@@ -9,13 +9,13 @@ import android.os.Build
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.StrikethroughSpan
+import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
 import es.antonborri.home_widget.HomeWidgetLaunchIntent
 import es.antonborri.home_widget.HomeWidgetPlugin
 import es.antonborri.home_widget.HomeWidgetProvider
-import org.json.JSONArray
 import org.json.JSONObject
 
 private const val PROJECT_WIDGET_EXTRA_TAP = "project_widget_tap"
@@ -31,7 +31,7 @@ private const val PROJECT_WIDGET_NO_TASK_ID = -1
  * The selected project id is stored under this widget instance's AppWidget id;
  * all task/project data remains a Flutter-produced snapshot in the normal
  * home_widget store. Rows use a RemoteViews collection, so the launcher can
- * scroll every task rather than truncating the project when the card is short.
+ * scroll every section and its tasks rather than truncating a short card.
  */
 class ProjectWidgetProvider : HomeWidgetProvider() {
 
@@ -71,7 +71,7 @@ class ProjectWidgetProvider : HomeWidgetProvider() {
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {
         super.onDeleted(context, appWidgetIds)
         widgetState(context).edit().apply {
-            appWidgetIds.forEach { remove(stateKey(it)) }
+            appWidgetIds.forEach { removeSettings(this, it) }
         }.apply()
     }
 
@@ -183,10 +183,12 @@ class ProjectWidgetProvider : HomeWidgetProvider() {
         widgetId: Int,
         payload: ProjectWidgetPayloadSnapshot?,
     ): Boolean {
-        val skin = payload?.skin ?: fallbackSkin(context)
+        val settings = settings(context, widgetId)
+        val skin = payload?.skinFor(context, settings.theme) ?: fallbackSkin(context)
         paintChrome(views, skin)
+        applyFontSize(views, settings.fontSize)
 
-        val projectId = widgetState(context).getString(stateKey(widgetId), null)
+        val projectId = settings.projectId
         val project = projectId?.let { payload?.project(it) }
         if (project == null || !project.optBoolean("available")) {
             renderUnavailable(context, views, skin, widgetId)
@@ -261,6 +263,15 @@ class ProjectWidgetProvider : HomeWidgetProvider() {
         skin.paint(views, R.id.project_widget_open, "setTextColor") { it.accent }
     }
 
+    private fun applyFontSize(views: RemoteViews, fontSize: ProjectWidgetFontSize) {
+        views.setTextViewTextSize(R.id.project_widget_title, TypedValue.COMPLEX_UNIT_SP, fontSize.titleSp)
+        views.setTextViewTextSize(R.id.project_widget_progress_label, TypedValue.COMPLEX_UNIT_SP, fontSize.metaSp)
+        views.setTextViewTextSize(R.id.project_widget_empty, TypedValue.COMPLEX_UNIT_SP, fontSize.bodySp)
+        views.setTextViewTextSize(R.id.project_widget_unavailable_label, TypedValue.COMPLEX_UNIT_SP, fontSize.bodySp)
+        views.setTextViewTextSize(R.id.project_widget_reconfigure, TypedValue.COMPLEX_UNIT_SP, fontSize.bodySp)
+        views.setTextViewTextSize(R.id.project_widget_open, TypedValue.COMPLEX_UNIT_SP, fontSize.bodySp)
+    }
+
     private fun renderUnavailable(
         context: Context,
         views: RemoteViews,
@@ -309,10 +320,40 @@ class ProjectWidgetProvider : HomeWidgetProvider() {
 
     companion object {
         const val PAYLOAD_KEY = "project_widget_payload"
-        const val PAYLOAD_VERSION = 1
+        const val PAYLOAD_VERSION = 2
         private const val ACTION_ROW_TAP = "com.yourname.todo_app.action.PROJECT_WIDGET_ROW_TAP"
 
         internal fun stateKey(widgetId: Int) = "project_widget_project_$widgetId"
+        private fun themeKey(widgetId: Int) = "project_widget_theme_$widgetId"
+        private fun fontSizeKey(widgetId: Int) = "project_widget_font_size_$widgetId"
+
+        internal fun settings(context: Context, widgetId: Int) = ProjectWidgetSettings(
+            projectId = widgetState(context).getString(stateKey(widgetId), null),
+            theme = ProjectWidgetTheme.fromStored(
+                widgetState(context).getString(themeKey(widgetId), null),
+            ),
+            fontSize = ProjectWidgetFontSize.fromStored(
+                widgetState(context).getString(fontSizeKey(widgetId), null),
+            ),
+        )
+
+        internal fun saveSettings(
+            context: Context,
+            widgetId: Int,
+            settings: ProjectWidgetSettings,
+        ) {
+            widgetState(context).edit().apply {
+                putString(stateKey(widgetId), settings.projectId)
+                putString(themeKey(widgetId), settings.theme.storedValue)
+                putString(fontSizeKey(widgetId), settings.fontSize.storedValue)
+            }.apply()
+        }
+
+        private fun removeSettings(editor: SharedPreferences.Editor, widgetId: Int) {
+            editor.remove(stateKey(widgetId))
+            editor.remove(themeKey(widgetId))
+            editor.remove(fontSizeKey(widgetId))
+        }
 
         internal fun configurationIntent(context: Context, widgetId: Int): PendingIntent =
             PendingIntent.getActivity(
@@ -355,6 +396,38 @@ class ProjectWidgetProvider : HomeWidgetProvider() {
 
 internal data class ProjectWidgetChoice(val id: String, val name: String)
 
+internal data class ProjectWidgetSettings(
+    val projectId: String?,
+    val theme: ProjectWidgetTheme,
+    val fontSize: ProjectWidgetFontSize,
+)
+
+internal enum class ProjectWidgetTheme(val storedValue: String) {
+    system("system"),
+    light("light"),
+    dark("dark");
+
+    companion object {
+        fun fromStored(value: String?) = entries.firstOrNull { it.storedValue == value } ?: system
+    }
+}
+
+internal enum class ProjectWidgetFontSize(
+    val storedValue: String,
+    val titleSp: Float,
+    val metaSp: Float,
+    val bodySp: Float,
+    val sectionSp: Float,
+) {
+    small("small", 14f, 11f, 12f, 11f),
+    standard("standard", 15f, 12f, 13f, 12f),
+    large("large", 17f, 14f, 15f, 14f);
+
+    companion object {
+        fun fromStored(value: String?) = entries.firstOrNull { it.storedValue == value } ?: standard
+    }
+}
+
 /** A collection service. Android owns this separately from the card renderer. */
 class ProjectWidgetRowsService : RemoteViewsService() {
     override fun onGetViewFactory(intent: Intent): RemoteViewsService.RemoteViewsFactory =
@@ -372,7 +445,7 @@ private class ProjectWidgetRowsFactory(
     private val widgetId: Int,
 ) : RemoteViewsService.RemoteViewsFactory {
     private var payload: ProjectWidgetPayloadSnapshot? = null
-    private var tasks: JSONArray? = null
+    private var rows = emptyList<ProjectWidgetRow>()
 
     override fun onCreate() = onDataSetChanged()
 
@@ -381,36 +454,48 @@ private class ProjectWidgetRowsFactory(
             context,
             HomeWidgetPlugin.getData(context).getString(ProjectWidgetProvider.PAYLOAD_KEY, null),
         )
-        val id = widgetState(context).getString(ProjectWidgetProvider.stateKey(widgetId), null)
+        val id = ProjectWidgetProvider.settings(context, widgetId).projectId
         val project = id?.let { payload?.project(it) }
-        tasks = if (project?.optBoolean("available") == true) {
-            project.optJSONArray("tasks")
-        } else {
-            null
-        }
+        rows = projectRows(project)
     }
 
     override fun onDestroy() {
-        tasks = null
+        rows = emptyList()
         payload = null
     }
 
-    override fun getCount(): Int = tasks?.length() ?: 0
+    override fun getCount(): Int = rows.size
 
     override fun getViewAt(position: Int): RemoteViews? {
-        val task = tasks?.optJSONObject(position) ?: return null
-        val skin = payload?.skin ?: fallbackSkin(context)
+        val row = rows.getOrNull(position) ?: return null
+        val settings = ProjectWidgetProvider.settings(context, widgetId)
+        val skin = payload?.skinFor(context, settings.theme) ?: fallbackSkin(context)
+        if (row.isSection) {
+            return RemoteViews(context.packageName, R.layout.widget_project_section).apply {
+                setTextViewText(R.id.project_section_name, row.value.optString("name"))
+                setTextViewTextSize(
+                    R.id.project_section_name,
+                    TypedValue.COMPLEX_UNIT_SP,
+                    settings.fontSize.sectionSp,
+                )
+                skin.paint(this, R.id.project_section_name, "setTextColor") { it.muted }
+            }
+        }
+        val task = row.value
         val views = RemoteViews(context.packageName, R.layout.widget_project_row)
         val done = task.optBoolean("done")
         val color = task.optLong("color").toInt()
-
         val title = SpannableString(task.optString("title"))
         if (done) {
             title.setSpan(StrikethroughSpan(), 0, title.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
         views.setTextViewText(R.id.project_row_body, title)
+        views.setTextViewTextSize(
+            R.id.project_row_body,
+            TypedValue.COMPLEX_UNIT_SP,
+            settings.fontSize.bodySp,
+        )
         skin.paint(views, R.id.project_row_body, "setTextColor") { if (done) it.muted else it.title }
-
         if (done) {
             views.setViewVisibility(R.id.project_row_check_ring, View.GONE)
             views.setViewVisibility(R.id.project_row_check_fill, View.VISIBLE)
@@ -445,18 +530,55 @@ private class ProjectWidgetRowsFactory(
 
     override fun getLoadingView(): RemoteViews? = null
 
-    override fun getViewTypeCount(): Int = 1
+    override fun getViewTypeCount(): Int = 2
 
-    override fun getItemId(position: Int): Long = tasks?.optJSONObject(position)?.optLong("id") ?: position.toLong()
+    override fun getItemId(position: Int): Long {
+        val row = rows.getOrNull(position) ?: return position.toLong()
+        return if (row.isSection) {
+            -row.value.optString("id").hashCode().toLong() - 1
+        } else {
+            row.value.optLong("id")
+        }
+    }
 
     override fun hasStableIds(): Boolean = true
+}
+
+private data class ProjectWidgetRow(val isSection: Boolean, val value: JSONObject)
+
+private fun projectRows(project: JSONObject?): List<ProjectWidgetRow> {
+    if (project?.optBoolean("available") != true) return emptyList()
+    val sections = project.optJSONArray("sections") ?: return emptyList()
+    return buildList {
+        for (index in 0 until sections.length()) {
+            val section = sections.optJSONObject(index) ?: continue
+            add(ProjectWidgetRow(isSection = true, value = section))
+            val tasks = section.optJSONArray("tasks") ?: continue
+            for (taskIndex in 0 until tasks.length()) {
+                tasks.optJSONObject(taskIndex)?.let { task ->
+                    add(ProjectWidgetRow(isSection = false, value = task))
+                }
+            }
+        }
+    }
 }
 
 /** The native subset of ProjectWidgetPayload, with the current palette chosen. */
 internal class ProjectWidgetPayloadSnapshot(
     val json: JSONObject,
     val skin: Skin,
+    private val light: Palette,
+    private val dark: Palette,
 ) {
+    fun skinFor(context: Context, theme: ProjectWidgetTheme): Skin {
+        val night = when (theme) {
+            ProjectWidgetTheme.system -> isSystemDark(context)
+            ProjectWidgetTheme.light -> false
+            ProjectWidgetTheme.dark -> true
+        }
+        return Skin(if (night) dark else light, light, dark, theme == ProjectWidgetTheme.system)
+    }
+
     fun project(id: String): JSONObject? {
         val projects = json.optJSONArray("projects") ?: return null
         return (0 until projects.length())
@@ -482,6 +604,8 @@ internal fun readProjectWidgetPayload(
         ProjectWidgetPayloadSnapshot(
             json,
             Skin(if (night) dark else light, light, dark, followsSystem),
+            light,
+            dark,
         )
     } catch (_: Exception) {
         null

@@ -14,7 +14,6 @@ import 'package:todo_app/pages/diary_page.dart';
 import 'package:todo_app/pages/groups_page.dart';
 import 'package:todo_app/pages/habits_page.dart';
 import 'package:todo_app/pages/home_page.dart';
-import 'package:todo_app/pages/projects_page.dart';
 import 'package:todo_app/pages/tasks_page.dart';
 import 'package:todo_app/projects/project_details_page.dart';
 import 'package:todo_app/push/push_registration.dart';
@@ -69,7 +68,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
   /// The tasks tab's slot — and so the one that carries the overdue badge.
   /// Named, like the two constants after it, because the tabs have been
   /// reordered twice already.
-  static const int _tasksIndex = 1;
+  static const int _timelineIndex = 0;
 
   /// The timeline's slot in the pages list — where the app opens, and where a tap on
   /// the home-screen widget lands, that being the screen the widget is a small
@@ -78,23 +77,21 @@ class _MainScreenState extends ConsumerState<MainScreen>
   /// Both the launch tab and the widget's target are named through it rather
   /// than written out: a literal left behind by a reorder is what once opened
   /// the app on the wrong screen.
-  static const int _timelineIndex = 2;
-
-  /// The projects' slot, directly after the timeline.
-  static const int _projectsIndex = 3;
+  static const int _tasksIndex = 2;
 
   /// The diary's slot. The "+" button reads it to decide what it creates.
-  static const int _diaryIndex = 4;
+  static const int _diaryIndex = 3;
 
   /// The cycle tab's slot — last, and present only while the cycle is tracked.
   /// It has no "+": nothing there is a task.
-  static const int _cycleIndex = 5;
+  static const int _cycleIndex = 4;
 
   /// One tab change, start to finish — the same 300ms the nav bar's indicator
   /// takes to slide, so the bar and the page it points at arrive together.
   static const Duration _tabMotion = Duration(milliseconds: 300);
 
   int _currentIndex = _timelineIndex;
+  bool _showingProjects = false;
 
   /// The tab being left behind, kept only for as long as it is still painted.
   int _leavingIndex = _timelineIndex;
@@ -108,21 +105,25 @@ class _MainScreenState extends ConsumerState<MainScreen>
 
   /// The "Иней" tabs (DESIGN.md §6, "Навигация"). Settings are not one: they
   /// open from the profile button on the habits tab.
-  static List<Widget> _pagesFor({required bool cycle}) => [
-    const HabitsPage(),
-    const TasksPage(),
+  List<Widget> _pagesFor({required bool cycle}) => [
     const HomePage(),
-    const ProjectsPage(),
+    const HabitsPage(),
+    TasksPage(
+      onProjectsViewChanged: (showingProjects) {
+        if (_showingProjects != showingProjects) {
+          setState(() => _showingProjects = showingProjects);
+        }
+      },
+    ),
     const DiaryPage(),
     // Last, so that turning it on or off never moves another tab.
     if (cycle) const CyclePage(),
   ];
 
   static List<AppNavItem> _navItemsFor({required bool cycle}) => [
+    const AppNavItem(icon: LucideIcons.chart_no_axes_gantt, label: 'Таймлайн'),
     const AppNavItem(icon: LucideIcons.circle_check, label: 'Привычки'),
     const AppNavItem(icon: LucideIcons.square_check_big, label: 'Задачи'),
-    const AppNavItem(icon: LucideIcons.chart_no_axes_gantt, label: 'Таймлайн'),
-    const AppNavItem(icon: LucideIcons.folder, label: 'Проекты'),
     const AppNavItem(icon: LucideIcons.square_library, label: 'Дневник'),
     if (cycle) const AppNavItem(icon: LucideIcons.flower, label: 'Цикл'),
   ];
@@ -271,7 +272,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
         ),
       ),
       floatingActionButton:
-          _currentIndex == _cycleIndex || _currentIndex == _projectsIndex
+          _currentIndex == _cycleIndex ||
+              (_currentIndex == _tasksIndex && _showingProjects)
           ? null
           : AddButton(
               tooltip: _currentIndex == _diaryIndex

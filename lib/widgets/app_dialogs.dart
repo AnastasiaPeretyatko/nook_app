@@ -42,7 +42,8 @@ Future<bool> showConfirmDialog(
     ) ??
     false;
 
-/// One line of text in the dialog card, or null when cancelled or left empty.
+/// One line of text in a dialog card or, when [asBottomSheet] is true, an
+/// [AppSheet] rising from the bottom. Returns null when cancelled or left empty.
 Future<String?> showTextPromptDialog(
   BuildContext context, {
   required String title,
@@ -51,18 +52,25 @@ Future<String?> showTextPromptDialog(
   String initial = '',
   int maxLength = 100,
   bool obscure = false,
+  bool asBottomSheet = false,
 }) async {
-  final result = await showDialog<String>(
-    context: context,
-    builder: (_) => _PromptDialog(
-      title: title,
-      hint: hint,
-      action: action,
-      initial: initial,
-      maxLength: maxLength,
-      obscure: obscure,
-    ),
+  final prompt = _PromptDialog(
+    title: title,
+    hint: hint,
+    action: action,
+    initial: initial,
+    maxLength: maxLength,
+    obscure: obscure,
+    asBottomSheet: asBottomSheet,
   );
+  final result = asBottomSheet
+      ? await showModalBottomSheet<String>(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (_) => prompt,
+        )
+      : await showDialog<String>(context: context, builder: (_) => prompt);
   // A password is returned exactly as typed: trimming would change it.
   final trimmed = obscure ? result : result?.trim();
   return trimmed == null || trimmed.isEmpty ? null : trimmed;
@@ -549,6 +557,7 @@ class _PromptDialog extends StatefulWidget {
     required this.initial,
     required this.maxLength,
     required this.obscure,
+    required this.asBottomSheet,
   });
 
   final String title;
@@ -557,6 +566,7 @@ class _PromptDialog extends StatefulWidget {
   final String initial;
   final int maxLength;
   final bool obscure;
+  final bool asBottomSheet;
 
   @override
   State<_PromptDialog> createState() => _PromptDialogState();
@@ -579,58 +589,59 @@ class _PromptDialogState extends State<_PromptDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final palette = AppPalette.of(theme);
-    return _DialogShell(
-      children: [
-        Text(
-          widget.title,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-            letterSpacing: -0.2,
-            color: palette.textPrimary,
+    final children = <Widget>[
+      Text(
+        widget.title,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.2,
+          color: palette.textPrimary,
+        ),
+      ),
+      const SizedBox(height: 16),
+      TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLength: widget.maxLength,
+        obscureText: widget.obscure,
+        textCapitalization: widget.obscure
+            ? TextCapitalization.none
+            : TextCapitalization.sentences,
+        style: TextStyle(fontSize: 15, color: palette.textPrimary),
+        onSubmitted: (_) => _submit(),
+        decoration: InputDecoration(
+          hintText: widget.hint,
+          counterText: '',
+          filled: true,
+          fillColor: insetSurface(theme),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 16,
+          ),
+          hintStyle: TextStyle(fontSize: 15, color: palette.textTertiary),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
           ),
         ),
-        const SizedBox(height: 16),
-        TextField(
-          controller: _controller,
-          autofocus: true,
-          maxLength: widget.maxLength,
-          obscureText: widget.obscure,
-          textCapitalization: widget.obscure
-              ? TextCapitalization.none
-              : TextCapitalization.sentences,
-          style: TextStyle(fontSize: 15, color: palette.textPrimary),
-          onSubmitted: (_) => _submit(),
-          decoration: InputDecoration(
-            hintText: widget.hint,
-            counterText: '',
-            filled: true,
-            fillColor: insetSurface(theme),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 16,
-            ),
-            hintStyle: TextStyle(fontSize: 15, color: palette.textTertiary),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: BorderSide.none,
-            ),
-          ),
-        ),
-        const SizedBox(height: 24),
-        _DialogButton(
-          label: widget.action,
-          fill: palette.textPrimary,
-          onTap: _submit,
-        ),
-        const SizedBox(height: 8),
-        _DialogButton(
-          label: 'Отмена',
-          onTap: () => Navigator.of(context).pop(),
-        ),
-      ],
-    );
+      ),
+      const SizedBox(height: 24),
+      _DialogButton(
+        label: widget.action,
+        fill: palette.textPrimary,
+        onTap: _submit,
+      ),
+      const SizedBox(height: 8),
+      _DialogButton(
+        label: 'Отмена',
+        onTap: () => Navigator.of(context).pop(),
+      ),
+    ];
+    return widget.asBottomSheet
+        ? AppSheet(children: children)
+        : _DialogShell(children: children);
   }
 }
 
