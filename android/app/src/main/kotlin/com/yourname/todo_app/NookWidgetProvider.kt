@@ -316,6 +316,9 @@ internal class Skin(
     private val dark: Palette,
     private val followsSystem: Boolean,
 ) {
+    /** Resolves a palette colour for native configuration previews. */
+    fun color(pick: (Palette) -> Int): Int = pick(palette)
+
     /**
      * Sets a colour that belongs to the item (a habit's own tone) but differs per
      * theme — both are handed over, like [paint]'s palettes.

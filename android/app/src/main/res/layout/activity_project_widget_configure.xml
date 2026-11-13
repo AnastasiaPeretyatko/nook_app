@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/widget_config_background"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:background="@color/widget_config_surface"
+        android:elevation="2dp"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="12dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:fontFamily="@font/onest_semibold"
+            android:text="@string/widget_project_settings_title"
+            android:textColor="@color/widget_config_title"
+            android:textSize="20sp" />
+
+        <TextView
+            android:id="@+id/project_widget_config_confirm"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:foreground="?android:attr/selectableItemBackgroundBorderless"
+            android:gravity="center"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:text="@string/widget_project_settings_save"
+            android:textColor="@color/widget_config_accent"
+            android:textSize="14sp" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="@font/onest_semibold"
+                android:text="@string/widget_project_settings_preview"
+                android:textColor="@color/widget_config_title"
+                android:textSize="14sp" />
+
+            <FrameLayout
+                android:id="@+id/project_widget_config_preview"
+                android:layout_width="match_parent"
+                android:layout_height="190dp"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/widget_config_preview_background"
+                android:clipToOutline="true" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="28dp"
+                android:fontFamily="@font/onest_semibold"
+                android:text="@string/widget_project_settings_content"
+                android:textColor="@color/widget_config_section"
+                android:textSize="13sp" />
+
+            <LinearLayout
+                android:id="@+id/project_widget_config_project"
+                android:layout_width="match_parent"
+                android:layout_height="72dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/widget_config_row_background"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?android:attr/selectableItemBackground"
+                android:gravity="center_vertical"
+                android:orientation="vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="@font/onest_medium"
+                    android:text="@string/widget_project_setting_project"
+                    android:textColor="@color/widget_config_title"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/project_widget_config_project_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="@color/widget_config_summary"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="28dp"
+                android:fontFamily="@font/onest_semibold"
+                android:text="@string/widget_project_settings_appearance"
+                android:textColor="@color/widget_config_section"
+                android:textSize="13sp" />
+
+            <LinearLayout
+                android:id="@+id/project_widget_config_theme"
+                android:layout_width="match_parent"
+                android:layout_height="72dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/widget_config_row_background"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?android:attr/selectableItemBackground"
+                android:gravity="center_vertical"
+                android:orientation="vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="@font/onest_medium"
+                    android:text="@string/widget_project_setting_theme"
+                    android:textColor="@color/widget_config_title"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/project_widget_config_theme_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textColor="@color/widget_config_summary"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/project_widget_config_font_size"
+                android:layout_width="match_parent"
+                android:layout_height="72dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/widget_config_row_background"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?android:attr/selectableItemBackground"
+                android:gravity="center_vertical"
+                android:orientation="vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="@font/onest_medium"
+                    android:text="@string/widget_project_setting_font_size"
+                    android:textColor="@color/widget_config_title"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/project_widget_config_font_size_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textColor="@color/widget_config_summary"
+                    android:textSize="14sp" />
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

@@ -22,6 +22,29 @@ class SectionsDao extends DatabaseAccessor<AppDatabase>
     projectId: projectId,
   )..orderBy([(section) => OrderingTerm.asc(section.position)])).watch();
 
+  /// Every project-scoped section, ordered inside each project.
+  ///
+  /// The home-screen project widget needs one reactive source for all of its
+  /// independently configured projects. Regular (non-project) sections stay
+  /// out of this stream.
+  Stream<List<Section>> watchProjectSections() =>
+      (select(sections)
+            ..where((section) => section.projectId.isNotNull())
+            ..orderBy([
+              (section) => OrderingTerm.asc(section.projectId),
+              (section) => OrderingTerm.asc(section.position),
+            ]))
+          .watch();
+
+  Future<List<Section>> getProjectSections() =>
+      (select(sections)
+            ..where((section) => section.projectId.isNotNull())
+            ..orderBy([
+              (section) => OrderingTerm.asc(section.projectId),
+              (section) => OrderingTerm.asc(section.position),
+            ]))
+          .get();
+
   Future<List<Section>> getSections({
     required String userId,
     String? projectId,

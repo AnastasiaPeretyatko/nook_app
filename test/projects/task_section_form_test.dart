@@ -10,6 +10,7 @@ import 'package:todo_app/pages/create_task_page.dart';
 import 'package:todo_app/projects/project.dart';
 import 'package:todo_app/projects/projects_repository.dart';
 import 'package:todo_app/projects/projects_state.dart';
+import 'package:todo_app/widgets/app_dialogs.dart';
 
 import '../support/fake_projects_api.dart';
 
@@ -114,6 +115,11 @@ void main() {
 
     await tester.tap(find.text('+ Создать раздел'));
     await tester.pumpAndSettle();
+    expect(find.byType(AppSheet), findsOneWidget);
+    expect(
+      tester.getBottomLeft(find.byType(AppSheet)).dy,
+      tester.view.physicalSize.height,
+    );
     await tester.enterText(find.byType(TextField).last, 'Покупки');
     await tester.tap(find.text('Создать'));
     await tester.pumpAndSettle();

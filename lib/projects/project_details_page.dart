@@ -100,6 +100,7 @@ class _ProjectDetailsPageState extends ConsumerState<ProjectDetailsPage> {
       title: 'Новый раздел',
       hint: 'Название раздела',
       action: 'Создать',
+      asBottomSheet: true,
     );
     if (!mounted || name == null) return;
     await ref

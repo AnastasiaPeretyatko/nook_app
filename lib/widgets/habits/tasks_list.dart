@@ -27,9 +27,10 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 /// struck through, until its day passed; with the two tabs that is what the
 /// second one is for. Repeating tasks live on the "Привычки" tab instead.
 class TasksList extends ConsumerStatefulWidget {
-  const TasksList({super.key, this.completedOnly = false});
+  const TasksList({super.key, this.completedOnly = false, this.headerFooter});
 
   final bool completedOnly;
+  final Widget? headerFooter;
 
   @override
   ConsumerState<TasksList> createState() => _TasksListState();
@@ -226,6 +227,8 @@ class _TasksListState extends ConsumerState<TasksList> {
               ),
             ],
           ),
+        if (!widget.completedOnly && widget.headerFooter != null)
+          widget.headerFooter!,
         Expanded(child: body),
       ],
     );

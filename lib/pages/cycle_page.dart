@@ -923,129 +923,129 @@ class _ForecastCard extends StatelessWidget {
   }
 }
 
-class _IconDisc extends StatelessWidget {
-  const _IconDisc({required this.icon, required this.fill, required this.ink});
+// class _IconDisc extends StatelessWidget {
+//   const _IconDisc({required this.icon, required this.fill, required this.ink});
 
-  final IconData icon;
-  final Color fill;
-  final Color ink;
+//   final IconData icon;
+//   final Color fill;
+//   final Color ink;
 
-  @override
-  Widget build(BuildContext context) => Container(
-    width: 36,
-    height: 36,
-    decoration: BoxDecoration(color: fill, shape: BoxShape.circle),
-    child: Icon(icon, size: 18, color: ink),
-  );
-}
+//   @override
+//   Widget build(BuildContext context) => Container(
+//     width: 36,
+//     height: 36,
+//     decoration: BoxDecoration(color: fill, shape: BoxShape.circle),
+//     child: Icon(icon, size: 18, color: ink),
+//   );
+// }
 
 /// A 30px pill: "через 2 дня", "Высокая".
-class _Badge extends StatelessWidget {
-  const _Badge({
-    required this.text,
-    required this.fill,
-    required this.ink,
-    required this.fontSize,
-  });
+// class _Badge extends StatelessWidget {
+//   const _Badge({
+//     required this.text,
+//     required this.fill,
+//     required this.ink,
+//     required this.fontSize,
+//   });
 
-  final String text;
-  final Color fill;
-  final Color ink;
-  final double fontSize;
+//   final String text;
+//   final Color fill;
+//   final Color ink;
+//   final double fontSize;
 
-  @override
-  Widget build(BuildContext context) => Container(
-    height: 30,
-    padding: const EdgeInsets.symmetric(horizontal: 12),
-    decoration: BoxDecoration(
-      color: fill,
-      borderRadius: BorderRadius.circular(15),
-    ),
-    // A Row and not `alignment:`, which would stretch the pill to the card.
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          text,
-          style: TextStyle(
-            fontSize: fontSize,
-            fontWeight: FontWeight.w600,
-            color: ink,
-          ),
-        ),
-      ],
-    ),
-  );
-}
+//   @override
+//   Widget build(BuildContext context) => Container(
+//     height: 30,
+//     padding: const EdgeInsets.symmetric(horizontal: 12),
+//     decoration: BoxDecoration(
+//       color: fill,
+//       borderRadius: BorderRadius.circular(15),
+//     ),
+//     // A Row and not `alignment:`, which would stretch the pill to the card.
+//     child: Row(
+//       mainAxisSize: MainAxisSize.min,
+//       children: [
+//         Text(
+//           text,
+//           style: TextStyle(
+//             fontSize: fontSize,
+//             fontWeight: FontWeight.w600,
+//             color: ink,
+//           ),
+//         ),
+//       ],
+//     ),
+//   );
+// }
 
 /// "Фертильное окно · 13–19 октября" and, while it is on, "Высокая".
-class _FertileWindow extends StatelessWidget {
-  const _FertileWindow({required this.model, required this.today});
+// class _FertileWindow extends StatelessWidget {
+//   const _FertileWindow({required this.model, required this.today});
 
-  final CycleModel model;
-  final DateTime today;
+//   final CycleModel model;
+//   final DateTime today;
 
-  @override
-  Widget build(BuildContext context) {
-    final p = AppPalette.of(Theme.of(context));
-    final w = model.fertileWindow(today);
-    final inside =
-        CycleModel.daysBetween(w.start, today) >= 0 &&
-        CycleModel.daysBetween(today, w.end) >= 0;
-    // "октября", not "октябрь": the month as it reads after a day number.
-    String month(DateTime d) =>
-        DateFormat.MMMMd('ru_RU').format(d).split(' ').last;
-    final range = w.start.month == w.end.month
-        ? '${w.start.day}–${w.end.day} ${month(w.end)}'
-        : '${w.start.day} ${month(w.start)} – ${w.end.day} ${month(w.end)}';
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-      padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
-      decoration: BoxDecoration(
-        color: p.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: p.border),
-      ),
-      child: Row(
-        children: [
-          const _IconDisc(
-            icon: LucideIcons.sprout,
-            fill: _fertileFill,
-            ink: _fertileInk,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Фертильное окно',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: p.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  inside ? '$range · вероятность высокая' : range,
-                  style: TextStyle(fontSize: 12, color: p.textSecondary),
-                ),
-              ],
-            ),
-          ),
-          if (inside)
-            const _Badge(
-              text: 'Высокая',
-              fill: todayBlue,
-              ink: Colors.white,
-              fontSize: 13,
-            ),
-        ],
-      ),
-    );
-  }
-}
+//   @override
+//   Widget build(BuildContext context) {
+//     final p = AppPalette.of(Theme.of(context));
+//     final w = model.fertileWindow(today);
+//     final inside =
+//         CycleModel.daysBetween(w.start, today) >= 0 &&
+//         CycleModel.daysBetween(today, w.end) >= 0;
+//     // "октября", not "октябрь": the month as it reads after a day number.
+//     String month(DateTime d) =>
+//         DateFormat.MMMMd('ru_RU').format(d).split(' ').last;
+//     final range = w.start.month == w.end.month
+//         ? '${w.start.day}–${w.end.day} ${month(w.end)}'
+//         : '${w.start.day} ${month(w.start)} – ${w.end.day} ${month(w.end)}';
+//     return Container(
+//       margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+//       padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+//       decoration: BoxDecoration(
+//         color: p.surface,
+//         borderRadius: BorderRadius.circular(20),
+//         border: Border.all(color: p.border),
+//       ),
+//       child: Row(
+//         children: [
+//           const _IconDisc(
+//             icon: LucideIcons.sprout,
+//             fill: _fertileFill,
+//             ink: _fertileInk,
+//           ),
+//           const SizedBox(width: 12),
+//           Expanded(
+//             child: Column(
+//               crossAxisAlignment: CrossAxisAlignment.start,
+//               children: [
+//                 Text(
+//                   'Фертильное окно',
+//                   style: TextStyle(
+//                     fontSize: 15,
+//                     fontWeight: FontWeight.w600,
+//                     color: p.textPrimary,
+//                   ),
+//                 ),
+//                 const SizedBox(height: 2),
+//                 Text(
+//                   inside ? '$range · вероятность высокая' : range,
+//                   style: TextStyle(fontSize: 12, color: p.textSecondary),
+//                 ),
+//               ],
+//             ),
+//           ),
+//           if (inside)
+//             const _Badge(
+//               text: 'Высокая',
+//               fill: todayBlue,
+//               ink: Colors.white,
+//               fontSize: 13,
+//             ),
+//         ],
+//       ),
+//     );
+//   }
+// }
 
 /// Four round buttons, each opening the sheet with just that group of choices —
 /// the same ones as in "Отметить". A button whose group is already marked on the

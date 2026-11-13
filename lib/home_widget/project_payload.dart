@@ -28,7 +28,7 @@ class ProjectWidgetPayload {
   final WidgetPalette dark;
   final String mode;
 
-  static const payloadVersion = 1;
+  static const payloadVersion = 2;
 
   String encode() => jsonEncode({
     'version': payloadVersion,
@@ -50,7 +50,7 @@ class ProjectWidgetProject {
     required this.available,
     required this.total,
     required this.done,
-    required this.tasks,
+    required this.sections,
   });
 
   final String id;
@@ -58,7 +58,7 @@ class ProjectWidgetProject {
   final bool available;
   final int total;
   final int done;
-  final List<ProjectWidgetTask> tasks;
+  final List<ProjectWidgetSection> sections;
 
   Map<String, Object?> toJson() => {
     'id': id,
@@ -66,6 +66,25 @@ class ProjectWidgetProject {
     'available': available,
     'total': total,
     'done': done,
+    'sections': [for (final section in sections) section.toJson()],
+  };
+}
+
+/// One visible group in a project widget, including empty named sections.
+class ProjectWidgetSection {
+  const ProjectWidgetSection({
+    required this.id,
+    required this.name,
+    required this.tasks,
+  });
+
+  final String id;
+  final String name;
+  final List<ProjectWidgetTask> tasks;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'name': name,
     'tasks': [for (final task in tasks) task.toJson()],
   };
 }
@@ -106,12 +125,12 @@ class ProjectWidgetTask {
 /// Builds the native project's widget model from Nook's existing local mirror.
 ///
 /// Project membership belongs to root tasks; subtasks inherit it through their
-/// parent and are intentionally represented by that same project task, exactly
-/// as the project details screen does. No task state is copied or owned here:
-/// completion is read from task logs and a widget tick still goes through the
-/// existing DAO action.
+/// parent and are never rendered. Every named section is represented with all
+/// of its root tasks. No task state is copied or owned here: completion is read
+/// from task logs and a widget tick still goes through the existing DAO action.
 ProjectWidgetPayload buildProjectWidgetPayload({
   required List<LocalProject> projects,
+  required List<Section> sections,
   required List<Task> tasks,
   required List<TaskLog> logs,
   required WidgetPalette light,
@@ -129,7 +148,7 @@ ProjectWidgetPayload buildProjectWidgetPayload({
   return ProjectWidgetPayload(
     projects: [
       for (final project in projectsInOrder)
-        _projectPayload(project, rootTasks, logs),
+        _projectPayload(project, rootTasks, sections, logs),
     ],
     light: light,
     dark: dark,
@@ -140,6 +159,7 @@ ProjectWidgetPayload buildProjectWidgetPayload({
 ProjectWidgetProject _projectPayload(
   LocalProject project,
   List<Task> rootTasks,
+  List<Section> allSections,
   List<TaskLog> logs,
 ) {
   final members = [
@@ -148,7 +168,37 @@ ProjectWidgetProject _projectPayload(
   ]..sort(byTimeThenTitle);
 
   final rows = [for (final task in members) _taskPayload(task, logs)];
+  final memberById = {for (final task in members) task.id: task};
   final done = rows.where((task) => task.done).length;
+  final projectSections = [
+    for (final section in allSections)
+      if (section.projectId == project.id) section,
+  ]..sort((a, b) => a.position.compareTo(b.position));
+  final sections = [
+    for (final section in projectSections)
+      ProjectWidgetSection(
+        id: section.id,
+        name: section.name,
+        tasks: [
+          for (final task in rows)
+            if (memberById[task.id]?.sectionId == section.id) task,
+        ],
+      ),
+  ];
+  final knownSectionIds = sections.map((section) => section.id).toSet();
+  final unsectioned = [
+    for (final task in rows)
+      if (!knownSectionIds.contains(memberById[task.id]?.sectionId)) task,
+  ];
+  if (unsectioned.isNotEmpty) {
+    sections.add(
+      ProjectWidgetSection(
+        id: '__unsectioned__',
+        name: 'Без раздела',
+        tasks: unsectioned,
+      ),
+    );
+  }
 
   return ProjectWidgetProject(
     id: project.id,
@@ -156,7 +206,7 @@ ProjectWidgetProject _projectPayload(
     available: project.archivedAt == null,
     total: rows.length,
     done: done,
-    tasks: rows,
+    sections: sections,
   );
 }
 
