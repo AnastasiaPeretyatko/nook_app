@@ -27,6 +27,10 @@ final cycleDaoProvider = Provider<CycleDao>((ref) {
   return ref.watch(databaseProvider).cycleDao;
 });
 
+final sectionsDaoProvider = Provider<SectionsDao>((ref) {
+  return ref.watch(databaseProvider).sectionsDao;
+});
+
 /// Every day of the cycle that has a row — marked or taken back. The Cycle tab
 /// and the sync nudge watch this one list.
 final cycleDaysProvider = StreamProvider<List<CycleDay>>((ref) {

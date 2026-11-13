@@ -15,6 +15,7 @@ import 'package:todo_app/pages/groups_page.dart';
 import 'package:todo_app/pages/habits_page.dart';
 import 'package:todo_app/pages/home_page.dart';
 import 'package:todo_app/pages/tasks_page.dart';
+import 'package:todo_app/projects/project_details_page.dart';
 import 'package:todo_app/push/push_registration.dart';
 import 'package:todo_app/push/push_tap.dart';
 import 'package:todo_app/home_widget/home_widget_scope.dart';
@@ -33,9 +34,11 @@ import 'package:todo_app/sync/sync_status.dart';
 import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/utils/group_events.dart';
 import 'package:todo_app/utils/task_colors.dart';
+import 'package:todo_app/widgets/add_button.dart';
 import 'package:todo_app/widgets/app_bottom_nav_bar.dart';
 import 'package:todo_app/update/providers.dart';
 import 'package:todo_app/widgets/app_toast.dart';
+import 'package:todo_app/widgets/habits/task_actions_sheet.dart';
 import 'package:todo_app/widgets/member_avatar.dart';
 import 'package:todo_app/widgets/update_banner.dart';
 import 'package:flutter_lucide/flutter_lucide.dart';
@@ -65,7 +68,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
   /// The tasks tab's slot — and so the one that carries the overdue badge.
   /// Named, like the two constants after it, because the tabs have been
   /// reordered twice already.
-  static const int _tasksIndex = 1;
+  static const int _timelineIndex = 0;
 
   /// The timeline's slot in the pages list — where the app opens, and where a tap on
   /// the home-screen widget lands, that being the screen the widget is a small
@@ -74,7 +77,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
   /// Both the launch tab and the widget's target are named through it rather
   /// than written out: a literal left behind by a reorder is what once opened
   /// the app on the wrong screen.
-  static const int _timelineIndex = 2;
+  static const int _tasksIndex = 2;
 
   /// The diary's slot. The "+" button reads it to decide what it creates.
   static const int _diaryIndex = 3;
@@ -88,6 +91,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
   static const Duration _tabMotion = Duration(milliseconds: 300);
 
   int _currentIndex = _timelineIndex;
+  bool _showingProjects = false;
 
   /// The tab being left behind, kept only for as long as it is still painted.
   int _leavingIndex = _timelineIndex;
@@ -101,21 +105,27 @@ class _MainScreenState extends ConsumerState<MainScreen>
 
   /// The "Иней" tabs (DESIGN.md §6, "Навигация"). Settings are not one: they
   /// open from the profile button on the habits tab.
-  static List<Widget> _pagesFor({required bool cycle}) => [
-    const HabitsPage(),
-    const TasksPage(),
+  List<Widget> _pagesFor({required bool cycle}) => [
     const HomePage(),
+    const HabitsPage(),
+    TasksPage(
+      onProjectsViewChanged: (showingProjects) {
+        if (_showingProjects != showingProjects) {
+          setState(() => _showingProjects = showingProjects);
+        }
+      },
+    ),
     const DiaryPage(),
     // Last, so that turning it on or off never moves another tab.
     if (cycle) const CyclePage(),
   ];
 
   static List<AppNavItem> _navItemsFor({required bool cycle}) => [
+    const AppNavItem(icon: LucideIcons.chart_no_axes_gantt, label: 'Таймлайн'),
     const AppNavItem(icon: LucideIcons.circle_check, label: 'Привычки'),
-    const AppNavItem(icon: LucideIcons.list, label: 'Задачи'),
-    const AppNavItem(icon: LucideIcons.git_commit_vertical, label: 'Таймлайн'),
-    const AppNavItem(icon: LucideIcons.file_text, label: 'Дневник'),
-    if (cycle) const AppNavItem(icon: LucideIcons.flower_2, label: 'Цикл'),
+    const AppNavItem(icon: LucideIcons.square_check_big, label: 'Задачи'),
+    const AppNavItem(icon: LucideIcons.square_library, label: 'Дневник'),
+    if (cycle) const AppNavItem(icon: LucideIcons.flower, label: 'Цикл'),
   ];
 
   /// The bar's buttons for this frame: the nav items with the overdue count put on
@@ -153,6 +163,12 @@ class _MainScreenState extends ConsumerState<MainScreen>
           _selectTab(_timelineIndex);
         case WidgetTapAction.create:
           _openTaskForm();
+        case WidgetTapAction.project:
+          final projectId = request?.projectId;
+          if (projectId != null) _openProject(projectId);
+        case WidgetTapAction.projectTask:
+          final taskId = request?.taskId;
+          if (taskId != null) _openProjectTask(taskId);
         case _:
           break;
       }
@@ -246,8 +262,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
 
     return Scaffold(
       extendBody: true,
-      // Rebuilt every frame of the motion, and that costs nothing: the four
-      // pages are `const`, so the framework skips their subtrees and only these
+      // Rebuilt every frame of the motion, and that costs nothing: the pages
+      // are `const`, so the framework skips their subtrees and only these
       // wrappers are built again.
       body: AnimatedBuilder(
         animation: _motion,
@@ -255,9 +271,11 @@ class _MainScreenState extends ConsumerState<MainScreen>
           children: [for (var i = 0; i < pages.length; i++) _tabPage(pages, i)],
         ),
       ),
-      floatingActionButton: _currentIndex == _cycleIndex
+      floatingActionButton:
+          _currentIndex == _cycleIndex ||
+              (_currentIndex == _tasksIndex && _showingProjects)
           ? null
-          : _AddButton(
+          : AddButton(
               tooltip: _currentIndex == _diaryIndex
                   ? 'Новая запись'
                   : 'Новая задача',
@@ -288,8 +306,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
   /// So the three `maintain` flags that matter are on and the rest are not,
   /// which is `IndexedStack`'s own bargain spelled out: state, tickers and
   /// layout kept, painting withheld, and a hidden page left out of hit-testing,
-  /// semantics and focus. Not `Visibility.maintain` — that one maintains all
-  /// six, so a screen reader would read four screens at once and a focus
+  /// semantics and focus. Not `Visibility.maintain` — that one maintains every
+  /// page, so a screen reader would read hidden screens at once and a focus
   /// traversal could land in the search field of a diary nobody is looking at.
   Widget _tabPage(List<Widget> pages, int index) {
     final t = _motion.value;
@@ -341,10 +359,8 @@ class _MainScreenState extends ConsumerState<MainScreen>
     );
   }
 
-  /// The "+" button is contextual: on the diary it opens the note editor,
-  /// everywhere else the task form. Both are pushed routes, so the button
-  /// behaves the same way wherever it is pressed — only what it creates
-  /// changes.
+  /// The "+" button is contextual: diary creates a note and the remaining
+  /// tabs create a task.
   void _onAddTap() {
     if (_currentIndex == _diaryIndex) {
       Navigator.of(
@@ -368,51 +384,28 @@ class _MainScreenState extends ConsumerState<MainScreen>
   /// widget only ever showing today.
   void _openTaskForm({DateTime? initialDate}) =>
       showCreateTaskSheet(context, initialDate: initialDate);
-}
 
-/// The floating "+" of every tab: a dark rounded square, light in the dark
-/// theme — the main action is drawn in the text colour, not the accent
-/// (DESIGN.md §1, §4: 56px, radius 20, 24 from the edge, 20 above the bar).
-class _AddButton extends StatelessWidget {
-  const _AddButton({required this.tooltip, required this.onPressed});
-
-  final String tooltip;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = AppPalette.of(Theme.of(context));
-    final shape = BorderRadius.circular(20);
-    return Padding(
-      // On top of the 16 the scaffold's endFloat already leaves.
-      padding: const EdgeInsets.only(right: 8, bottom: 4),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: shape,
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x2E1B2230),
-              offset: Offset(0, 8),
-              blurRadius: 24,
-            ),
-          ],
-        ),
-        child: Material(
-          color: p.textPrimary,
-          borderRadius: shape,
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onPressed,
-            child: Tooltip(
-              message: tooltip,
-              child: SizedBox.square(
-                dimension: 56,
-                child: Icon(LucideIcons.plus, size: 24, color: p.background),
-              ),
-            ),
-          ),
-        ),
+  void _openProject(String projectId) {
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ProjectDetailsPage(projectId: projectId),
       ),
+    );
+  }
+
+  Future<void> _openProjectTask(int taskId) async {
+    final task = await ref.read(tasksDaoProvider).getTaskById(taskId);
+    if (!mounted || task == null) return;
+    final sourceDay = task.startDate ?? task.createdAt;
+    final day = DateTime(sourceDay.year, sourceDay.month, sourceDay.day);
+    final log = await ref.read(tasksDaoProvider).getLogForDate(task.id, day);
+    if (!mounted) return;
+    await showTaskActionsSheet(
+      context,
+      task: task,
+      completed: log?.completed ?? false,
+      completionDate: day,
     );
   }
 }

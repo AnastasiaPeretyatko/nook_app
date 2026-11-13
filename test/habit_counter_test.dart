@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/utils/tracking.dart';
+import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/widgets/habits/habits_today.dart';
 
 /// Any moment at all: these tests never read a log's edit time. It exists
@@ -153,6 +154,7 @@ void main() {
       ];
       // Track first, fill second: the fill is a quarter of the track.
       expect(sizes, hasLength(2));
+      expect(bars.first.color, AppPalette.light.chip);
       expect(sizes[0], greaterThan(100));
       expect(sizes[1], closeTo(sizes[0] / 4, 0.5));
     });

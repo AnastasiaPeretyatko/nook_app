@@ -151,7 +151,7 @@ class _CycleDaySheetState extends State<_CycleDaySheet> {
                 _Grid(
                   columns: 5,
                   children: [
-                    for (final (i, label) in cycleFlows.indexed)
+                    for (final (i, _) in cycleFlows.indexed)
                       _Tile(
                         selected: i == 0
                             ? !d.isPeriod

@@ -134,6 +134,13 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
         .get();
   }
 
+  /// One-shot form of [watchAllLogs] for the short-lived widget isolate.
+  ///
+  /// A configurable project widget can show tasks whose anchors are on
+  /// different dates, so rebuilding it after a checkbox tap needs the complete
+  /// set of existing marks rather than today's window alone.
+  Future<List<TaskLog>> getAllLogs() => select(taskLogs).get();
+
   /// Writes a new task, giving it the identity the server will know it by.
   ///
   /// The uid is minted here rather than by the caller: a row without one is
@@ -164,6 +171,16 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
         task.copyWith(
           updatedAt: Value(stampAfter(current?.updatedAt)),
           dirty: const Value(true),
+          projectDirty: Value(
+            (current?.projectDirty ?? false) ||
+                (task.projectUid.present &&
+                    task.projectUid.value != current?.projectUid),
+          ),
+          sectionDirty: Value(
+            (current?.sectionDirty ?? false) ||
+                (task.sectionId.present &&
+                    task.sectionId.value != current?.sectionId),
+          ),
         ),
       );
     });
@@ -292,7 +309,12 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
     final now = DateTime.now();
     for (final t in deleted.tasks) {
       await into(tasks).insert(
-        t.copyWith(uid: Value(_uuid.v4()), dirty: true, updatedAt: now),
+        t.copyWith(
+          uid: Value(_uuid.v4()),
+          dirty: true,
+          projectDirty: const Value(true),
+          updatedAt: now,
+        ),
         mode: InsertMode.insertOrReplace,
       );
     }
@@ -556,34 +578,60 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
   }) {
     return transaction(() async {
       final day = dayOf(date);
-      final existing = await getLogForDate(taskId, day);
-      if (existing == null) {
-        // `dirty` is left to the column default, which is true — exactly what a
-        // mark nobody has sent yet is.
-        await into(taskLogs).insert(
-          TaskLogsCompanion.insert(
-            taskId: taskId,
-            date: day,
-            completed: Value(completed ?? false),
-            value: value != null ? Value(value) : const Value.absent(),
-            completedAt: _completedAtFor(completed, null),
-            updatedAt: Value(stampAfter(null)),
-          ),
-        );
-      } else {
-        await (update(taskLogs)..where((l) => l.id.equals(existing.id))).write(
-          TaskLogsCompanion(
-            value: value != null ? Value(value) : const Value.absent(),
-            completed: completed != null
-                ? Value(completed)
-                : const Value.absent(),
-            completedAt: _completedAtFor(completed, existing),
-            dirty: const Value(true),
-            updatedAt: Value(stampAfter(existing.updatedAt)),
-          ),
-        );
-      }
+      await _writeLog(taskId, day, value: value, completed: completed);
+      if (completed == true) await _completeSubtasks(taskId, day);
     });
+  }
+
+  Future<void> _writeLog(
+    int taskId,
+    DateTime day, {
+    double? value,
+    bool? completed,
+  }) async {
+    final existing = await getLogForDate(taskId, day);
+    if (existing == null) {
+      // `dirty` is left to the column default, which is true — exactly what a
+      // mark nobody has sent yet is.
+      await into(taskLogs).insert(
+        TaskLogsCompanion.insert(
+          taskId: taskId,
+          date: day,
+          completed: Value(completed ?? false),
+          value: value != null ? Value(value) : const Value.absent(),
+          completedAt: _completedAtFor(completed, null),
+          updatedAt: Value(stampAfter(null)),
+        ),
+      );
+    } else {
+      await (update(taskLogs)..where((l) => l.id.equals(existing.id))).write(
+        TaskLogsCompanion(
+          value: value != null ? Value(value) : const Value.absent(),
+          completed: completed != null
+              ? Value(completed)
+              : const Value.absent(),
+          completedAt: _completedAtFor(completed, existing),
+          dirty: const Value(true),
+          updatedAt: Value(stampAfter(existing.updatedAt)),
+        ),
+      );
+    }
+  }
+
+  Future<void> _completeSubtasks(int taskId, DateTime day) async {
+    final visited = <int>{taskId};
+    final pending = <int>[taskId];
+    while (pending.isNotEmpty) {
+      final parentId = pending.removeLast();
+      for (final child in await getSubtasks(parentId)) {
+        if (!visited.add(child.id)) continue;
+        pending.add(child.id);
+        final log = await getLogForDate(child.id, day);
+        if (!(log?.completed ?? false) && !await _doneByOthers(child.id, day)) {
+          await _writeLog(child.id, day, completed: true);
+        }
+      }
+    }
   }
 
   /// Adds 1 to the counter log for [taskId] on [date], marking it completed
@@ -626,6 +674,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
           ),
         );
       }
+      if (!(existing?.completed ?? false)) await _completeSubtasks(taskId, day);
     });
   }
 
@@ -787,7 +836,12 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
       await replaceGroups(const [], const []);
       for (final task in await select(tasks).get()) {
         await (update(tasks)..where((t) => t.id.equals(task.id))).write(
-          TasksCompanion(uid: Value(_uuid.v4()), dirty: const Value(true)),
+          TasksCompanion(
+            uid: Value(_uuid.v4()),
+            dirty: const Value(true),
+            projectDirty: const Value(true),
+            sectionDirty: const Value(true),
+          ),
         );
       }
       await update(taskLogs).write(const TaskLogsCompanion(dirty: Value(true)));
@@ -830,7 +884,14 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
   /// local id.
   Future<bool> applyRemoteTask(String uid, TasksCompanion task) async {
     final changed = await (update(tasks)..where((t) => t.uid.equals(uid)))
-        .write(task.copyWith(uid: Value(uid), dirty: const Value(false)));
+        .write(
+          task.copyWith(
+            uid: Value(uid),
+            dirty: const Value(false),
+            projectDirty: const Value(false),
+            sectionDirty: const Value(false),
+          ),
+        );
     return changed > 0;
   }
 
@@ -839,9 +900,15 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
   /// Separate from [insertTask] because that one mints a uid and leaves the row
   /// dirty — right for a task the user just made, wrong for one that came down
   /// the wire already carrying both answers.
-  Future<int> insertRemoteTask(String uid, TasksCompanion task) => into(
-    tasks,
-  ).insert(task.copyWith(uid: Value(uid), dirty: const Value(false)));
+  Future<int> insertRemoteTask(String uid, TasksCompanion task) =>
+      into(tasks).insert(
+        task.copyWith(
+          uid: Value(uid),
+          dirty: const Value(false),
+          projectDirty: const Value(false),
+          sectionDirty: const Value(false),
+        ),
+      );
 
   /// Writes a day mark as the server has it, keyed by the pair that identifies
   /// it rather than by any id.
@@ -879,7 +946,13 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
                 t.uid.equals(entry.key) &
                 t.updatedAt.isSmallerOrEqualValue(entry.value),
           ))
-          .write(const TasksCompanion(dirty: Value(false)));
+          .write(
+            const TasksCompanion(
+              dirty: Value(false),
+              projectDirty: Value(false),
+              sectionDirty: Value(false),
+            ),
+          );
     }
   }
 

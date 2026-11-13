@@ -10,6 +10,7 @@ import 'package:todo_app/utils/tracking.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/home_widget/habits_payload.dart';
 import 'package:todo_app/home_widget/home_widget_bridge.dart';
+import 'package:todo_app/home_widget/project_payload.dart';
 import 'package:todo_app/home_widget/today_payload.dart';
 import 'package:todo_app/home_widget/widget_theme.dart';
 
@@ -49,16 +50,37 @@ const widgetCreatePath = '/create';
 /// database whether or not the app is running.
 const widgetRefreshPath = '/refresh';
 
+/// Open one configured project or one of its tasks in Nook. These are distinct
+/// from [widgetOpenPath]: the existing "Сегодня" widget still opens the
+/// timeline, while a project widget must preserve the item's destination.
+const widgetProjectPath = '/project';
+const widgetProjectTaskPath = '/project-task';
+
+/// A checkbox in the project widget. Unlike [widgetTogglePath], its day is the
+/// task's anchor date and may not be today.
+const widgetProjectTogglePath = '/project-toggle';
+
 /// Query keys of [widgetTogglePath].
 const widgetTaskParam = 'task';
 const widgetDayParam = 'day';
+const widgetProjectParam = 'project';
 
 /// What a tap on the widget means, once its URI has been read.
 ///
 /// [WidgetTapAction.unknown] covers a URI from a widget drawn by an older or
 /// newer build of the app — a home-screen widget outlives the version that put
 /// it there, so an unrecognised tap has to be an ordinary answer.
-enum WidgetTapAction { toggle, increment, open, create, refresh, unknown }
+enum WidgetTapAction {
+  toggle,
+  increment,
+  open,
+  create,
+  refresh,
+  project,
+  projectTask,
+  projectToggle,
+  unknown,
+}
 
 /// The action [uri] asks for, or [WidgetTapAction.unknown] for anything else,
 /// null included.
@@ -74,6 +96,9 @@ WidgetTapAction widgetTapActionOf(Uri? uri) {
     widgetOpenPath => WidgetTapAction.open,
     widgetCreatePath => WidgetTapAction.create,
     widgetRefreshPath => WidgetTapAction.refresh,
+    widgetProjectPath => WidgetTapAction.project,
+    widgetProjectTaskPath => WidgetTapAction.projectTask,
+    widgetProjectTogglePath => WidgetTapAction.projectToggle,
     _ => WidgetTapAction.unknown,
   };
 }
@@ -104,14 +129,17 @@ Future<void> onHomeWidgetTap(Uri? uri) async {
   // asking Dart anything. Nothing else has any business waking an isolate.
   if (action != WidgetTapAction.toggle &&
       action != WidgetTapAction.increment &&
-      action != WidgetTapAction.refresh) {
+      action != WidgetTapAction.refresh &&
+      action != WidgetTapAction.projectToggle) {
     return;
   }
 
   final taskId = int.tryParse(uri!.queryParameters[widgetTaskParam] ?? '');
   final day = DateTime.tryParse(uri.queryParameters[widgetDayParam] ?? '');
   final marks =
-      action == WidgetTapAction.toggle || action == WidgetTapAction.increment;
+      action == WidgetTapAction.toggle ||
+      action == WidgetTapAction.increment ||
+      action == WidgetTapAction.projectToggle;
   if (marks && (taskId == null || day == null)) {
     return;
   }
@@ -129,20 +157,26 @@ Future<void> onHomeWidgetTap(Uri? uri) async {
     // widget drawn before midnight and tapped after it would otherwise tick
     // yesterday — so a tap for any day but today is dropped, and the redraw
     // below replaces the stale rows with the ones that belong to the new day.
-    if (marks && _isSameDay(day!, now)) {
-      // Foreign keys are off in this database, so a log can be written against
-      // a task that is no longer there. The widget can easily be a few minutes
-      // behind a deletion.
-      final task = await database.tasksDao.getTaskById(taskId!);
-      if (task != null) {
-        if (action == WidgetTapAction.increment) {
-          await database.tasksDao.incrementCounter(
-            taskId,
-            day,
-            counterTarget(task).toDouble(),
-          );
-        } else {
-          await database.tasksDao.toggleCompletion(taskId, day);
+    if (marks) {
+      // The validation above establishes this, but a local non-null variable
+      // makes it clear to both the reader and the type system that every DAO
+      // call below receives a calendar day.
+      final markDay = day!;
+      if (action == WidgetTapAction.projectToggle || _isSameDay(markDay, now)) {
+        // Foreign keys are off in this database, so a log can be written
+        // against a task that is no longer there. The widget can easily be a
+        // few minutes behind a deletion.
+        final task = await database.tasksDao.getTaskById(taskId!);
+        if (task != null) {
+          if (action == WidgetTapAction.increment) {
+            await database.tasksDao.incrementCounter(
+              taskId,
+              markDay,
+              counterTarget(task).toDouble(),
+            );
+          } else {
+            await database.tasksDao.toggleCompletion(taskId, markDay);
+          }
         }
       }
     }
@@ -204,6 +238,22 @@ Future<void> pushWidgetPayload(AppDatabase database) async {
       weekStart: analytics.weekStart,
       graceMinutes: analytics.graceMinutes,
       todayStaysOpen: analytics.todayStaysOpen,
+    ).encode(),
+  );
+
+  // Project tasks can be anchored to any day, so their progress needs every
+  // stored mark. This is still the same Drift mirror every screen reads; the
+  // native widget only receives a ready-to-render snapshot of it.
+  final projects = await database.select(database.localProjects).get();
+  await bridge.pushProjects(
+    buildProjectWidgetPayload(
+      projects: projects,
+      sections: await database.sectionsDao.getProjectSections(),
+      tasks: await database.tasksDao.getRootTasks(),
+      logs: await database.tasksDao.getAllLogs(),
+      light: theme.light,
+      dark: theme.dark,
+      mode: theme.mode,
     ).encode(),
   );
 }

@@ -4,6 +4,8 @@ import 'package:todo_app/api/http_sync_api.dart';
 import 'package:todo_app/api/sync_api.dart';
 import 'package:todo_app/auth/providers.dart';
 import 'package:todo_app/database/providers.dart';
+import 'package:todo_app/projects/projects_state.dart';
+import 'package:todo_app/projects/projects_sync.dart';
 import 'package:todo_app/settings/sync_settings.dart';
 import 'package:todo_app/settings/theme_provider.dart';
 import 'package:todo_app/sync/realtime_listener.dart';
@@ -32,6 +34,10 @@ final syncServiceProvider = Provider<SyncService>((ref) {
     tasksDao: ref.watch(tasksDaoProvider),
     cycleDao: ref.watch(cycleDaoProvider),
     api: ref.watch(syncApiProvider),
+    projectsSync: ProjectsSync(
+      ref.watch(localProjectsStoreProvider),
+      ref.watch(projectsApiProvider),
+    ),
     // Read when a run starts, not here: the account can change without the
     // engine being rebuilt.
     userId: () => ref.read(currentUserProvider)?.id,

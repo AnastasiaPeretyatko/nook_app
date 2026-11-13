@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A non-interactive group label in the project's scrollable task list. -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/project_section_name"
+    android:layout_width="match_parent"
+    android:layout_height="30dp"
+    android:ellipsize="end"
+    android:fontFamily="@font/onest_semibold"
+    android:gravity="center_vertical"
+    android:includeFontPadding="false"
+    android:maxLines="1"
+    android:paddingTop="5dp"
+    android:textSize="12sp" />

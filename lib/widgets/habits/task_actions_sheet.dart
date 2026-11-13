@@ -141,6 +141,7 @@ class TaskActionsSheet extends ConsumerWidget {
               ),
               const SizedBox(height: 16),
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
                     width: 44,

@@ -213,8 +213,24 @@ internal const val WIDGET_INCREMENT_PATH = "/increment"
 internal const val WIDGET_OPEN_PATH = "/open"
 internal const val WIDGET_CREATE_PATH = "/create"
 internal const val WIDGET_REFRESH_PATH = "/refresh"
+internal const val WIDGET_PROJECT_PATH = "/project"
+internal const val WIDGET_PROJECT_TASK_PATH = "/project-task"
+internal const val WIDGET_PROJECT_TOGGLE_PATH = "/project-toggle"
+internal const val WIDGET_PROJECT_PARAM = "project"
+internal const val WIDGET_TASK_PARAM = "task"
+internal const val WIDGET_DAY_PARAM = "day"
 
 internal fun widgetUri(path: String): Uri = Uri.parse("$WIDGET_SCHEME://$WIDGET_HOST$path")
+
+/** Builds a widget URI without relying on a project name or id being URL-safe. */
+internal fun widgetUri(path: String, parameters: Map<String, String>): Uri {
+    val builder = Uri.Builder()
+        .scheme(WIDGET_SCHEME)
+        .authority(WIDGET_HOST)
+        .path(path)
+    parameters.forEach { (key, value) -> builder.appendQueryParameter(key, value) }
+    return builder.build()
+}
 
 internal fun openAppIntent(context: Context): PendingIntent =
     HomeWidgetLaunchIntent.getActivity(context, MainActivity::class.java, widgetUri(WIDGET_OPEN_PATH))
@@ -300,6 +316,9 @@ internal class Skin(
     private val dark: Palette,
     private val followsSystem: Boolean,
 ) {
+    /** Resolves a palette colour for native configuration previews. */
+    fun color(pick: (Palette) -> Int): Int = pick(palette)
+
     /**
      * Sets a colour that belongs to the item (a habit's own tone) but differs per
      * theme — both are handed over, like [paint]'s palettes.

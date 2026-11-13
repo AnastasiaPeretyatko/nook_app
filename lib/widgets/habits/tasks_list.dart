@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/pages/create_task_page.dart';
+import 'package:todo_app/projects/archived_projects_page.dart';
 import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/utils/habit_labels.dart';
 import 'package:todo_app/utils/last_done.dart';
@@ -26,15 +27,16 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 /// struck through, until its day passed; with the two tabs that is what the
 /// second one is for. Repeating tasks live on the "Привычки" tab instead.
 class TasksList extends ConsumerStatefulWidget {
-  const TasksList({super.key});
+  const TasksList({super.key, this.completedOnly = false, this.headerFooter});
+
+  final bool completedOnly;
+  final Widget? headerFooter;
 
   @override
   ConsumerState<TasksList> createState() => _TasksListState();
 }
 
 class _TasksListState extends ConsumerState<TasksList> {
-  bool _showDone = false;
-
   @override
   Widget build(BuildContext context) {
     // Everything, not just roots: the rows report how many subtasks are done.
@@ -111,7 +113,7 @@ class _TasksListState extends ConsumerState<TasksList> {
       body = tasksAsync.hasError
           ? Center(child: Text('Ошибка: ${tasksAsync.error}'))
           : const Center(child: CircularProgressIndicator());
-    } else if (_showDone) {
+    } else if (widget.completedOnly) {
       body = done.isEmpty
           ? const EmptyScreen(
               family: 'blue',
@@ -207,20 +209,26 @@ class _TasksListState extends ConsumerState<TasksList> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        PageHeader(
-          caption:
-              '${active.length} '
-              '${pluralRu(active.length, 'активная', 'активные', 'активных')}',
-          title: 'Задачи',
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 4),
-          child: SegmentedSwitch(
-            labels: const ['Активные', 'Выполненные'],
-            selected: _showDone ? 1 : 0,
-            onChanged: (i) => setState(() => _showDone = i == 1),
+        if (!widget.completedOnly)
+          PageHeader(
+            caption:
+                '${active.length} '
+                '${pluralRu(active.length, 'активная', 'активные', 'активных')}',
+            title: 'Задачи',
+            actions: [
+              RoundIconButton(
+                icon: LucideIcons.archive,
+                tooltip: 'Выполненные задачи',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const CompletedTasksPage(),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ),
+        if (!widget.completedOnly && widget.headerFooter != null)
+          widget.headerFooter!,
         Expanded(child: body),
       ],
     );
@@ -234,6 +242,51 @@ class _TasksListState extends ConsumerState<TasksList> {
       children: children,
     );
   }
+}
+
+/// Archive of completed tasks and archived projects.
+class CompletedTasksPage extends StatefulWidget {
+  const CompletedTasksPage({super.key, this.initialTab = 0});
+
+  /// `1` opens the archived-projects section from the Projects screen.
+  final int initialTab;
+
+  @override
+  State<CompletedTasksPage> createState() => _CompletedTasksPageState();
+}
+
+class _CompletedTasksPageState extends State<CompletedTasksPage> {
+  late int _tab;
+
+  @override
+  void initState() {
+    super.initState();
+    _tab = widget.initialTab;
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: Column(
+        children: [
+          const BackHeader(title: 'Архив'),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 4),
+            child: SegmentedSwitch(
+              labels: const ['Задачи', 'Проекты'],
+              selected: _tab,
+              onChanged: (i) => setState(() => _tab = i),
+            ),
+          ),
+          Expanded(
+            child: _tab == 0
+                ? const TasksList(completedOnly: true)
+                : const ArchivedProjectsList(),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 String _logKey(int taskId, DateTime date) {
@@ -319,6 +372,57 @@ String _doneLabel(Task task, TaskLog? log, DateTime today) {
       : '$date · выполнено в ${clockLabel(at.hour * 60 + at.minute)}';
 }
 
+/// A task completion ring with the same size and colours in every task row.
+class TaskCompletionToggle extends StatelessWidget {
+  const TaskCompletionToggle({
+    super.key,
+    required this.title,
+    required this.completed,
+    required this.color,
+    required this.onToggle,
+  });
+
+  final String title;
+  final bool completed;
+  final Color color;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final surface = AppPalette.of(theme).surface;
+    final ink = inkOn(surface, color, minContrast: 3);
+    final fill = taskBadgeInk(theme, color, surface);
+    return Tooltip(
+      message: completed
+          ? 'Отметить «$title» как невыполненную'
+          : 'Отметить «$title» как выполненную',
+      child: InkResponse(
+        onTap: onToggle,
+        radius: 22,
+        child: SizedBox.square(
+          dimension: 44,
+          child: Center(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: completed ? fill : Colors.transparent,
+                border: completed ? null : Border.all(color: ink, width: 2),
+              ),
+              child: completed
+                  ? Icon(LucideIcons.check, size: 13, color: onTaskColor(fill))
+                  : null,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// One one-off task: a ring to tick on the left, title over when it is due,
 /// the subtask count, and a dot in the task's colour on the right.
 class TaskRow extends StatelessWidget {
@@ -331,6 +435,8 @@ class TaskRow extends StatelessWidget {
     required this.onToggle,
     required this.onTap,
     this.late = false,
+    this.accentColor,
+    this.alignTop = false,
   });
 
   final Task task;
@@ -346,62 +452,41 @@ class TaskRow extends StatelessWidget {
 
   /// Overdue: [when] is drawn in `danger`.
   final bool late;
+  final Color? accentColor;
+  final bool alignTop;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final p = AppPalette.of(theme);
-    final color = task.colorValue != null
-        ? Color(task.colorValue!)
-        : ColorPickerRow.colors.first;
+    final color =
+        accentColor ??
+        (task.colorValue != null
+            ? Color(task.colorValue!)
+            : ColorPickerRow.colors.first);
     // Ink, not fill: a ring and a dot have to be seen on white, so a pale
     // family is darkened until they are.
     final ink = inkOn(p.surface, color, minContrast: 3);
-    final doneFill = taskBadgeInk(theme, color, p.surface);
 
     return InkWell(
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(6, 6, 16, 6),
         child: Row(
+          crossAxisAlignment: alignTop
+              ? CrossAxisAlignment.start
+              : CrossAxisAlignment.center,
           children: [
-            Tooltip(
-              message: completed
-                  ? 'Отметить «${task.title}» как невыполненную'
-                  : 'Отметить «${task.title}» как выполненную',
-              child: InkResponse(
-                onTap: onToggle,
-                radius: 22,
-                child: SizedBox.square(
-                  dimension: 44,
-                  child: Center(
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      width: 22,
-                      height: 22,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: completed ? doneFill : Colors.transparent,
-                        border: completed
-                            ? null
-                            : Border.all(color: ink, width: 2),
-                      ),
-                      child: completed
-                          ? Icon(
-                              LucideIcons.check,
-                              size: 13,
-                              color: onTaskColor(doneFill),
-                            )
-                          : null,
-                    ),
-                  ),
-                ),
-              ),
+            TaskCompletionToggle(
+              title: task.title,
+              completed: completed,
+              color: color,
+              onToggle: onToggle,
             ),
             const SizedBox(width: 6),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
+                padding: EdgeInsets.only(top: alignTop ? 11 : 6, bottom: 6),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [

@@ -8,6 +8,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/pages/create_task_page.dart';
+import 'package:todo_app/widgets/color_picker_row.dart';
 
 late AppDatabase db;
 
@@ -208,6 +209,28 @@ void main() {
   });
 
   group('saving', () {
+    testWidgets('a new subtask inherits the selected task colour', (
+      tester,
+    ) async {
+      await _openForm(tester);
+      await tester.enterText(find.byType(TextFormField).first, 'Задача');
+      final swatches = find.descendant(
+        of: find.byType(ColorPickerRow),
+        matching: find.byType(GestureDetector),
+      );
+      await tester.tap(swatches.at(1));
+      await _settle(tester);
+      await tester.tap(_addButton());
+      await _settle(tester);
+      await _typeSubtask(tester, 0, 'Подзадача');
+      await _saveForm(tester, 'Сохранить');
+      final tasks = await _db(tester, _allTasks);
+      final parent = tasks.singleWhere((t) => t.parentId == null);
+      final child = tasks.singleWhere((t) => t.parentId == parent.id);
+      expect(parent.colorValue, ColorPickerRow.colors[1].toARGB32());
+      expect(child.colorValue, parent.colorValue);
+    });
+
     testWidgets('subtasks are stored under the new task', (tester) async {
       await _openForm(tester);
 
@@ -300,6 +323,37 @@ void main() {
       expect(await _db(tester, () => _subtaskTitles(task.id)), [
         'Разобрать коробки',
       ]);
+    });
+
+    testWidgets('adding a subtask while editing inherits the current colour', (
+      tester,
+    ) async {
+      final color = ColorPickerRow.colors[1].toARGB32();
+      final id = await _db(
+        tester,
+        () => db.tasksDao.insertTask(
+          TasksCompanion.insert(title: 'Задача', colorValue: Value(color)),
+        ),
+      );
+      await _db(
+        tester,
+        () => db.tasksDao.insertTask(
+          TasksCompanion.insert(
+            title: 'Старая',
+            parentId: Value(id),
+            colorValue: const Value(123),
+          ),
+        ),
+      );
+      final parent = await _db(tester, () => db.tasksDao.getTaskById(id));
+      await _openForm(tester, mode: TaskFormMode.edit, task: parent);
+      await tester.tap(_addButton());
+      await _settle(tester);
+      await _typeSubtask(tester, 1, 'Новая');
+      await _saveForm(tester, 'Сохранить');
+      final children = await _db(tester, () => db.tasksDao.getSubtasks(id));
+      expect(children.singleWhere((t) => t.title == 'Старая').colorValue, 123);
+      expect(children.singleWhere((t) => t.title == 'Новая').colorValue, color);
     });
 
     testWidgets('a removed row deletes the subtask', (tester) async {

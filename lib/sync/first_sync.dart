@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:todo_app/auth/providers.dart';
 import 'package:todo_app/database/providers.dart';
+import 'package:todo_app/projects/projects_state.dart';
 import 'package:todo_app/settings/sync_settings.dart';
 import 'package:todo_app/settings/about_settings.dart';
 import 'package:todo_app/sync/providers.dart';
@@ -73,9 +74,11 @@ Future<void> applyFirstSyncChoice(WidgetRef ref, FirstSyncChoice choice) async {
       // let them all go up on the next run while the dialog said they would not.
       await ref.read(diaryDaoProvider).keepExistingEntriesLocal();
       await ref.read(tasksDaoProvider).keepExistingTasksLocal();
+      await ref.read(localProjectsStoreProvider).keepLocal();
       await ref.read(cycleDaoProvider).keepLocal();
 
     case FirstSyncChoice.adopt:
+      await ref.read(localProjectsStoreProvider).adopt();
       await ref.read(diaryDaoProvider).remintEntryUids();
       await ref.read(tasksDaoProvider).remintTaskUids();
       // A day is its own identity, so unlike a task it needs no new uid — only
@@ -105,6 +108,9 @@ Future<void> applyFirstSyncChoice(WidgetRef ref, FirstSyncChoice choice) async {
 /// picker. See [DiaryDao.wipeAllEntries].
 Future<void> wipeAccountData(WidgetRef ref) async {
   await ref.read(tasksDaoProvider).wipeAllTasks();
+  await ref.read(sectionsDaoProvider).wipeAll();
+  await ref.read(localProjectsStoreProvider).wipeAll();
+  ref.invalidate(projectsStateProvider);
   await ref.read(diaryDaoProvider).wipeAllEntries();
   await ref.read(cycleDaoProvider).wipeAll();
   await deleteAllNoteImages();
@@ -148,7 +154,10 @@ Future<FirstSyncChoice?> askAboutExistingData(
 ) async {
   final notes = await ref.read(diaryDaoProvider).entryCount();
   final tasks = await ref.read(tasksDaoProvider).taskCount();
-  if (notes == 0 && tasks == 0) return FirstSyncChoice.upload;
+  final projects =
+      (await ref.read(localProjectsStoreProvider).list()).length +
+      (await ref.read(localProjectsStoreProvider).list(archived: true)).length;
+  if (notes == 0 && tasks == 0 && projects == 0) return FirstSyncChoice.upload;
   if (!context.mounted) return null;
 
   final email = ref.read(currentUserProvider)?.email;
@@ -161,8 +170,20 @@ Future<FirstSyncChoice?> askAboutExistingData(
   final changingHands = claim != null && claim != user?.id;
 
   return changingHands
-      ? _askAboutAnotherAccount(context, notes: notes, tasks: tasks, to: email)
-      : _askAboutOwnData(context, notes: notes, tasks: tasks, to: email);
+      ? _askAboutAnotherAccount(
+          context,
+          notes: notes,
+          tasks: tasks,
+          projects: projects,
+          to: email,
+        )
+      : _askAboutOwnData(
+          context,
+          notes: notes,
+          tasks: tasks,
+          projects: projects,
+          to: email,
+        );
 }
 
 /// The first sign-in on this device: the rows are the user's own, from before
@@ -171,12 +192,13 @@ Future<FirstSyncChoice?> _askAboutOwnData(
   BuildContext context, {
   required int notes,
   required int tasks,
+  required int projects,
   required String? to,
 }) {
   return showDialog<FirstSyncChoice>(
     context: context,
     builder: (context) => AlertDialog(
-      title: Text('На устройстве ${_whatIsHere(notes, tasks)}'),
+      title: Text('На устройстве ${_whatIsHere(notes, tasks, projects)}'),
       content: Text(
         to == null
             ? 'Загрузить их в аккаунт?\n\n'
@@ -216,6 +238,7 @@ Future<FirstSyncChoice?> _askAboutAnotherAccount(
   BuildContext context, {
   required int notes,
   required int tasks,
+  required int projects,
   required String? to,
 }) async {
   final choice = await showDialog<FirstSyncChoice>(
@@ -223,7 +246,7 @@ Future<FirstSyncChoice?> _askAboutAnotherAccount(
     builder: (context) => AlertDialog(
       title: const Text('Здесь данные другого аккаунта'),
       content: Text(
-        'На устройстве ${_whatIsHere(notes, tasks)}, созданные под другим '
+        'На устройстве ${_whatIsHere(notes, tasks, projects)}, созданные под другим '
         'аккаунтом.\n\n'
         'Их можно перенести — они станут вашими и загрузятся '
         '${to == null ? 'в ваш аккаунт' : 'в $to'} — или стереть с устройства.',
@@ -243,7 +266,12 @@ Future<FirstSyncChoice?> _askAboutAnotherAccount(
 
   if (choice != FirstSyncChoice.wipe) return choice;
   if (!context.mounted) return null;
-  final sure = await confirmWipe(context, notes: notes, tasks: tasks);
+  final sure = await confirmWipe(
+    context,
+    notes: notes,
+    tasks: tasks,
+    projects: projects,
+  );
   return sure ? FirstSyncChoice.wipe : null;
 }
 
@@ -257,13 +285,14 @@ Future<bool> confirmWipe(
   BuildContext context, {
   required int notes,
   required int tasks,
+  int projects = 0,
 }) async {
   return showConfirmDialog(
     context,
     icon: DialogIcons.delete,
     title: 'Стереть с устройства?',
     body:
-        '${_whatIsHere(notes, tasks)} будут удалены с этого телефона вместе с '
+        '${_whatIsHere(notes, tasks, projects)} будут удалены с этого телефона вместе с '
         'вложенными фотографиями.\n\n'
         'Отменить это будет нельзя.',
     action: 'Стереть',
@@ -275,10 +304,11 @@ Future<bool> confirmWipe(
 /// A half that is zero is left out rather than written as "0 задач": the
 /// sentence is there to tell the user what they are deciding about, and naming
 /// something there is none of only makes it harder to read.
-String _whatIsHere(int notes, int tasks) {
+String _whatIsHere(int notes, int tasks, [int projects = 0]) {
   final parts = [
     if (notes > 0) _plural(notes, _notesForms),
     if (tasks > 0) _plural(tasks, _tasksForms),
+    if (projects > 0) _plural(projects, ('проект', 'проекта', 'проектов')),
   ];
   return parts.join(' и ');
 }

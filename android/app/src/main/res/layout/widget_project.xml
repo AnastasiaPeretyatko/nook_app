@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A project card. Its task rows live in a RemoteViews ListView rather than a
+     fixed LinearLayout, which is what lets the launcher scroll every task when
+     the widget is resized short. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:id="@+id/project_widget_card"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_card" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingLeft="14dp"
+        android:paddingTop="10dp"
+        android:paddingRight="14dp"
+        android:paddingBottom="10dp">
+
+        <LinearLayout
+            android:id="@+id/project_widget_header"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingTop="2dp"
+            android:paddingBottom="4dp">
+
+            <TextView
+                android:id="@+id/project_widget_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:fontFamily="@font/onest_semibold"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/widget_project_title"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/project_widget_progress_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="@font/onest_medium"
+                android:includeFontPadding="false"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/project_widget_content"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <ProgressBar
+                android:id="@+id/project_widget_progress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="7dp"
+                android:indeterminate="false"
+                android:max="100"
+                android:progressDrawable="@drawable/widget_project_progress" />
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1">
+
+                <ListView
+                    android:id="@+id/project_widget_rows"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clipToPadding="false"
+                    android:divider="@null"
+                    android:scrollbars="vertical" />
+
+                <TextView
+                    android:id="@+id/project_widget_empty"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:fontFamily="@font/onest_medium"
+                    android:includeFontPadding="false"
+                    android:text="@string/widget_project_empty"
+                    android:textAlignment="center"
+                    android:textSize="13sp" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/project_widget_open"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:gravity="center_vertical"
+                android:fontFamily="@font/onest_semibold"
+                android:includeFontPadding="false"
+                android:text="@string/widget_project_open"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/project_widget_unavailable"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/project_widget_unavailable_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="@font/onest_medium"
+                android:includeFontPadding="false"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/project_widget_reconfigure"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginTop="4dp"
+                android:gravity="center"
+                android:fontFamily="@font/onest_semibold"
+                android:includeFontPadding="false"
+                android:text="@string/widget_project_reconfigure"
+                android:textSize="13sp" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

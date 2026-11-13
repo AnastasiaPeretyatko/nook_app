@@ -100,7 +100,7 @@ TodayWidgetProvider.kt рисует виджет
 |---|---|
 | Фреймворк | Flutter 3.44 / Dart 3.12 |
 | Состояние | `flutter_riverpod` 2.x (`Notifier`, `StreamProvider`, без кодогенерации) |
-| Локальная БД | Drift + `drift_flutter` (SQLite, реактивные стримы), схема v19 |
+| Локальная БД | Drift + `drift_flutter` (SQLite, реактивные стримы), схема v25 |
 | Настройки | `shared_preferences` (тема, акцент, переключатели, данные «О себе» и цикла) |
 | Сервер и вход | свой сервер: `http` + `ApiClient`, `flutter_secure_storage`, `google_sign_in`; WebSocket на `dart:io`; контракт — `docs/own-backend/BACKEND_PLAN.md` |
 | Push | `firebase_messaging` (токен уходит на наш сервер, он шлёт уведомления) |
@@ -145,7 +145,7 @@ lib/
 │   ├── enums.dart          TaskStatus, RepeatType, TrackingMode, EventType
 │   ├── app_database.dart   сама база + миграции (.g.dart — генерируется, не править)
 │   ├── providers.dart      провайдеры базы и потоки задач/отметок
-│   └── daos/               tasks_dao, diary_dao, cycle_dao, events_dao
+│   └── daos/               tasks_dao, sections_dao, diary_dao, cycle_dao, events_dao
 ├── pages/                экраны целиком
 │   ├── habits_page, tasks_page, home_page (таймлайн), diary_page, cycle_page
 │   ├── create_task_page, create_note_page, note_view_page

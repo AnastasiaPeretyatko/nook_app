@@ -79,9 +79,9 @@ void main() {
 
     // All four tabs are on the bottom bar, in the order of the design.
     expect(bar.items.map((item) => item.label), [
+      'Таймлайн',
       'Привычки',
       'Задачи',
-      'Таймлайн',
       'Дневник',
     ]);
     for (final item in bar.items) {
@@ -171,7 +171,12 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 500));
 
-    for (final label in const ['Привычки', 'Задачи', 'Дневник', 'Таймлайн']) {
+    for (final label in const [
+      'Таймлайн',
+      'Привычки',
+      'Задачи',
+      'Дневник',
+    ]) {
       await tester.tap(
         find.descendant(
           of: find.byType(AppBottomNavBar),
@@ -231,9 +236,9 @@ void main() {
 
     final bar = tester.widget<AppBottomNavBar>(find.byType(AppBottomNavBar));
     expect(bar.items.map((item) => item.label), [
+      'Таймлайн',
       'Привычки',
       'Задачи',
-      'Таймлайн',
       'Дневник',
       'Цикл',
     ]);

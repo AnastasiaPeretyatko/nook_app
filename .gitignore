@@ -40,7 +40,11 @@ migrate_working_dir/
 # AI assistant workspaces and notes — local context, not part of the project.
 .claude/
 .cursor/
+.codex/
+.agents/
 CLAUDE.md
+skills-lock.json
+AGENTS.md
 
 # Symbolication related
 app.*.symbols
