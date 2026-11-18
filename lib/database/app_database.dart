@@ -31,6 +31,7 @@ part 'app_database.g.dart';
     TaskSessions,
     Events,
     DiaryEntries,
+    ProcessedShareEvents,
     NoteMoods,
     NoteTags,
     DiaryEntryMoods,
@@ -50,7 +51,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forExecutor(super.executor);
 
   @override
-  int get schemaVersion => 25;
+  int get schemaVersion => 26;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -356,6 +357,11 @@ class AppDatabase extends _$AppDatabase {
       if (from < 25) {
         await addIfMissing(tasks.sectionDirty);
         await addSyncColumns(sections, [sections.dirty]);
+      }
+      if (from < 26) {
+        // Local share delivery bookkeeping. It deliberately has neither uid
+        // nor dirty fields, so it can never enter the offline sync payload.
+        await m.createTable(processedShareEvents);
       }
     },
   );

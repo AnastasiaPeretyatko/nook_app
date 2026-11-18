@@ -18,6 +18,13 @@
     <!-- The habit chooser shown when the 2×2 streak widget is added: a plain
          system dialog, light here and dark in values-night. -->
     <style name="WidgetConfigTheme" parent="@android:style/Theme.DeviceDefault.Light.Dialog" />
+    <style name="ShareActivityTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
     <style name="ProjectWidgetConfigTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">@font/onest_medium</item>
         <item name="android:windowLightStatusBar">true</item>

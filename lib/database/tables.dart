@@ -290,6 +290,22 @@ class DiaryEntries extends Table {
   DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+/// A local receipt for one Android share event that has already changed a note.
+///
+/// This is deliberately not a syncable record: it only makes a retry of the
+/// same native event safe on this device. The target stays nullable and has no
+/// foreign key because the receipt must survive a later deletion of the note.
+class ProcessedShareEvents extends Table {
+  TextColumn get eventId => text()();
+  TextColumn get operation => text()();
+  IntColumn get targetDiaryEntryId => integer().nullable()();
+  DateTimeColumn get processedAt =>
+      dateTime().withDefault(currentDateAndTime)();
+
+  @override
+  Set<Column> get primaryKey => {eventId};
+}
+
 /// A mood a note can be marked with — the emoji and the word shown on its chip.
 ///
 /// A row rather than a constant in Dart, because the user adds their own

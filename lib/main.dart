@@ -24,6 +24,7 @@ import 'package:todo_app/home_widget/widget_actions.dart';
 import 'package:todo_app/notifications/providers.dart';
 import 'package:todo_app/notifications/task_reminder.dart';
 import 'package:todo_app/notifications/timer_notification.dart';
+import 'package:todo_app/share_to_nook/share_to_nook.dart';
 import 'package:todo_app/settings/about_settings.dart';
 import 'package:todo_app/settings/app_version.dart';
 import 'package:todo_app/settings/notification_settings.dart';
@@ -575,7 +576,14 @@ class _MyAppState extends ConsumerState<MyApp> {
       // Wrapped around the app rather than placed on a screen: syncing has to
       // keep up while the diary is nowhere in sight, and the lifecycle events
       // it listens for belong to the whole app. It draws nothing.
-      home: const SyncScope(child: HomeWidgetScope(child: MainScreen())),
+      home: SyncScope(
+        child: HomeWidgetScope(
+          child: ShareToNookScope(
+            onContent: showShareToNookFlow,
+            child: const MainScreen(),
+          ),
+        ),
+      ),
     );
   }
 }

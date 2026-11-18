@@ -4611,6 +4611,340 @@ class DiaryEntriesCompanion extends UpdateCompanion<DiaryEntry> {
   }
 }
 
+class $ProcessedShareEventsTable extends ProcessedShareEvents
+    with TableInfo<$ProcessedShareEventsTable, ProcessedShareEvent> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ProcessedShareEventsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _eventIdMeta = const VerificationMeta(
+    'eventId',
+  );
+  @override
+  late final GeneratedColumn<String> eventId = GeneratedColumn<String>(
+    'event_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _operationMeta = const VerificationMeta(
+    'operation',
+  );
+  @override
+  late final GeneratedColumn<String> operation = GeneratedColumn<String>(
+    'operation',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _targetDiaryEntryIdMeta =
+      const VerificationMeta('targetDiaryEntryId');
+  @override
+  late final GeneratedColumn<int> targetDiaryEntryId = GeneratedColumn<int>(
+    'target_diary_entry_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _processedAtMeta = const VerificationMeta(
+    'processedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> processedAt = GeneratedColumn<DateTime>(
+    'processed_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    eventId,
+    operation,
+    targetDiaryEntryId,
+    processedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'processed_share_events';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ProcessedShareEvent> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('event_id')) {
+      context.handle(
+        _eventIdMeta,
+        eventId.isAcceptableOrUnknown(data['event_id']!, _eventIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_eventIdMeta);
+    }
+    if (data.containsKey('operation')) {
+      context.handle(
+        _operationMeta,
+        operation.isAcceptableOrUnknown(data['operation']!, _operationMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_operationMeta);
+    }
+    if (data.containsKey('target_diary_entry_id')) {
+      context.handle(
+        _targetDiaryEntryIdMeta,
+        targetDiaryEntryId.isAcceptableOrUnknown(
+          data['target_diary_entry_id']!,
+          _targetDiaryEntryIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('processed_at')) {
+      context.handle(
+        _processedAtMeta,
+        processedAt.isAcceptableOrUnknown(
+          data['processed_at']!,
+          _processedAtMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {eventId};
+  @override
+  ProcessedShareEvent map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ProcessedShareEvent(
+      eventId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}event_id'],
+      )!,
+      operation: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}operation'],
+      )!,
+      targetDiaryEntryId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}target_diary_entry_id'],
+      ),
+      processedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}processed_at'],
+      )!,
+    );
+  }
+
+  @override
+  $ProcessedShareEventsTable createAlias(String alias) {
+    return $ProcessedShareEventsTable(attachedDatabase, alias);
+  }
+}
+
+class ProcessedShareEvent extends DataClass
+    implements Insertable<ProcessedShareEvent> {
+  final String eventId;
+  final String operation;
+  final int? targetDiaryEntryId;
+  final DateTime processedAt;
+  const ProcessedShareEvent({
+    required this.eventId,
+    required this.operation,
+    this.targetDiaryEntryId,
+    required this.processedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['event_id'] = Variable<String>(eventId);
+    map['operation'] = Variable<String>(operation);
+    if (!nullToAbsent || targetDiaryEntryId != null) {
+      map['target_diary_entry_id'] = Variable<int>(targetDiaryEntryId);
+    }
+    map['processed_at'] = Variable<DateTime>(processedAt);
+    return map;
+  }
+
+  ProcessedShareEventsCompanion toCompanion(bool nullToAbsent) {
+    return ProcessedShareEventsCompanion(
+      eventId: Value(eventId),
+      operation: Value(operation),
+      targetDiaryEntryId: targetDiaryEntryId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(targetDiaryEntryId),
+      processedAt: Value(processedAt),
+    );
+  }
+
+  factory ProcessedShareEvent.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ProcessedShareEvent(
+      eventId: serializer.fromJson<String>(json['eventId']),
+      operation: serializer.fromJson<String>(json['operation']),
+      targetDiaryEntryId: serializer.fromJson<int?>(json['targetDiaryEntryId']),
+      processedAt: serializer.fromJson<DateTime>(json['processedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'eventId': serializer.toJson<String>(eventId),
+      'operation': serializer.toJson<String>(operation),
+      'targetDiaryEntryId': serializer.toJson<int?>(targetDiaryEntryId),
+      'processedAt': serializer.toJson<DateTime>(processedAt),
+    };
+  }
+
+  ProcessedShareEvent copyWith({
+    String? eventId,
+    String? operation,
+    Value<int?> targetDiaryEntryId = const Value.absent(),
+    DateTime? processedAt,
+  }) => ProcessedShareEvent(
+    eventId: eventId ?? this.eventId,
+    operation: operation ?? this.operation,
+    targetDiaryEntryId: targetDiaryEntryId.present
+        ? targetDiaryEntryId.value
+        : this.targetDiaryEntryId,
+    processedAt: processedAt ?? this.processedAt,
+  );
+  ProcessedShareEvent copyWithCompanion(ProcessedShareEventsCompanion data) {
+    return ProcessedShareEvent(
+      eventId: data.eventId.present ? data.eventId.value : this.eventId,
+      operation: data.operation.present ? data.operation.value : this.operation,
+      targetDiaryEntryId: data.targetDiaryEntryId.present
+          ? data.targetDiaryEntryId.value
+          : this.targetDiaryEntryId,
+      processedAt: data.processedAt.present
+          ? data.processedAt.value
+          : this.processedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ProcessedShareEvent(')
+          ..write('eventId: $eventId, ')
+          ..write('operation: $operation, ')
+          ..write('targetDiaryEntryId: $targetDiaryEntryId, ')
+          ..write('processedAt: $processedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(eventId, operation, targetDiaryEntryId, processedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ProcessedShareEvent &&
+          other.eventId == this.eventId &&
+          other.operation == this.operation &&
+          other.targetDiaryEntryId == this.targetDiaryEntryId &&
+          other.processedAt == this.processedAt);
+}
+
+class ProcessedShareEventsCompanion
+    extends UpdateCompanion<ProcessedShareEvent> {
+  final Value<String> eventId;
+  final Value<String> operation;
+  final Value<int?> targetDiaryEntryId;
+  final Value<DateTime> processedAt;
+  final Value<int> rowid;
+  const ProcessedShareEventsCompanion({
+    this.eventId = const Value.absent(),
+    this.operation = const Value.absent(),
+    this.targetDiaryEntryId = const Value.absent(),
+    this.processedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ProcessedShareEventsCompanion.insert({
+    required String eventId,
+    required String operation,
+    this.targetDiaryEntryId = const Value.absent(),
+    this.processedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : eventId = Value(eventId),
+       operation = Value(operation);
+  static Insertable<ProcessedShareEvent> custom({
+    Expression<String>? eventId,
+    Expression<String>? operation,
+    Expression<int>? targetDiaryEntryId,
+    Expression<DateTime>? processedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (eventId != null) 'event_id': eventId,
+      if (operation != null) 'operation': operation,
+      if (targetDiaryEntryId != null)
+        'target_diary_entry_id': targetDiaryEntryId,
+      if (processedAt != null) 'processed_at': processedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ProcessedShareEventsCompanion copyWith({
+    Value<String>? eventId,
+    Value<String>? operation,
+    Value<int?>? targetDiaryEntryId,
+    Value<DateTime>? processedAt,
+    Value<int>? rowid,
+  }) {
+    return ProcessedShareEventsCompanion(
+      eventId: eventId ?? this.eventId,
+      operation: operation ?? this.operation,
+      targetDiaryEntryId: targetDiaryEntryId ?? this.targetDiaryEntryId,
+      processedAt: processedAt ?? this.processedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (eventId.present) {
+      map['event_id'] = Variable<String>(eventId.value);
+    }
+    if (operation.present) {
+      map['operation'] = Variable<String>(operation.value);
+    }
+    if (targetDiaryEntryId.present) {
+      map['target_diary_entry_id'] = Variable<int>(targetDiaryEntryId.value);
+    }
+    if (processedAt.present) {
+      map['processed_at'] = Variable<DateTime>(processedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ProcessedShareEventsCompanion(')
+          ..write('eventId: $eventId, ')
+          ..write('operation: $operation, ')
+          ..write('targetDiaryEntryId: $targetDiaryEntryId, ')
+          ..write('processedAt: $processedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $NoteMoodsTable extends NoteMoods
     with TableInfo<$NoteMoodsTable, NoteMood> {
   @override
@@ -7762,6 +8096,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $TaskSessionsTable taskSessions = $TaskSessionsTable(this);
   late final $EventsTable events = $EventsTable(this);
   late final $DiaryEntriesTable diaryEntries = $DiaryEntriesTable(this);
+  late final $ProcessedShareEventsTable processedShareEvents =
+      $ProcessedShareEventsTable(this);
   late final $NoteMoodsTable noteMoods = $NoteMoodsTable(this);
   late final $NoteTagsTable noteTags = $NoteTagsTable(this);
   late final $DiaryEntryMoodsTable diaryEntryMoods = $DiaryEntryMoodsTable(
@@ -7814,6 +8150,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     taskSessions,
     events,
     diaryEntries,
+    processedShareEvents,
     noteMoods,
     noteTags,
     diaryEntryMoods,
@@ -10815,6 +11152,207 @@ typedef $$DiaryEntriesTableProcessedTableManager =
         bool diaryEntryTagsRefs,
       })
     >;
+typedef $$ProcessedShareEventsTableCreateCompanionBuilder =
+    ProcessedShareEventsCompanion Function({
+      required String eventId,
+      required String operation,
+      Value<int?> targetDiaryEntryId,
+      Value<DateTime> processedAt,
+      Value<int> rowid,
+    });
+typedef $$ProcessedShareEventsTableUpdateCompanionBuilder =
+    ProcessedShareEventsCompanion Function({
+      Value<String> eventId,
+      Value<String> operation,
+      Value<int?> targetDiaryEntryId,
+      Value<DateTime> processedAt,
+      Value<int> rowid,
+    });
+
+class $$ProcessedShareEventsTableFilterComposer
+    extends Composer<_$AppDatabase, $ProcessedShareEventsTable> {
+  $$ProcessedShareEventsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get eventId => $composableBuilder(
+    column: $table.eventId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get operation => $composableBuilder(
+    column: $table.operation,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get targetDiaryEntryId => $composableBuilder(
+    column: $table.targetDiaryEntryId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get processedAt => $composableBuilder(
+    column: $table.processedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$ProcessedShareEventsTableOrderingComposer
+    extends Composer<_$AppDatabase, $ProcessedShareEventsTable> {
+  $$ProcessedShareEventsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get eventId => $composableBuilder(
+    column: $table.eventId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get operation => $composableBuilder(
+    column: $table.operation,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get targetDiaryEntryId => $composableBuilder(
+    column: $table.targetDiaryEntryId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get processedAt => $composableBuilder(
+    column: $table.processedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ProcessedShareEventsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ProcessedShareEventsTable> {
+  $$ProcessedShareEventsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get eventId =>
+      $composableBuilder(column: $table.eventId, builder: (column) => column);
+
+  GeneratedColumn<String> get operation =>
+      $composableBuilder(column: $table.operation, builder: (column) => column);
+
+  GeneratedColumn<int> get targetDiaryEntryId => $composableBuilder(
+    column: $table.targetDiaryEntryId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get processedAt => $composableBuilder(
+    column: $table.processedAt,
+    builder: (column) => column,
+  );
+}
+
+class $$ProcessedShareEventsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $ProcessedShareEventsTable,
+          ProcessedShareEvent,
+          $$ProcessedShareEventsTableFilterComposer,
+          $$ProcessedShareEventsTableOrderingComposer,
+          $$ProcessedShareEventsTableAnnotationComposer,
+          $$ProcessedShareEventsTableCreateCompanionBuilder,
+          $$ProcessedShareEventsTableUpdateCompanionBuilder,
+          (
+            ProcessedShareEvent,
+            BaseReferences<
+              _$AppDatabase,
+              $ProcessedShareEventsTable,
+              ProcessedShareEvent
+            >,
+          ),
+          ProcessedShareEvent,
+          PrefetchHooks Function()
+        > {
+  $$ProcessedShareEventsTableTableManager(
+    _$AppDatabase db,
+    $ProcessedShareEventsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ProcessedShareEventsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ProcessedShareEventsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$ProcessedShareEventsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> eventId = const Value.absent(),
+                Value<String> operation = const Value.absent(),
+                Value<int?> targetDiaryEntryId = const Value.absent(),
+                Value<DateTime> processedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ProcessedShareEventsCompanion(
+                eventId: eventId,
+                operation: operation,
+                targetDiaryEntryId: targetDiaryEntryId,
+                processedAt: processedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String eventId,
+                required String operation,
+                Value<int?> targetDiaryEntryId = const Value.absent(),
+                Value<DateTime> processedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ProcessedShareEventsCompanion.insert(
+                eventId: eventId,
+                operation: operation,
+                targetDiaryEntryId: targetDiaryEntryId,
+                processedAt: processedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ProcessedShareEventsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $ProcessedShareEventsTable,
+      ProcessedShareEvent,
+      $$ProcessedShareEventsTableFilterComposer,
+      $$ProcessedShareEventsTableOrderingComposer,
+      $$ProcessedShareEventsTableAnnotationComposer,
+      $$ProcessedShareEventsTableCreateCompanionBuilder,
+      $$ProcessedShareEventsTableUpdateCompanionBuilder,
+      (
+        ProcessedShareEvent,
+        BaseReferences<
+          _$AppDatabase,
+          $ProcessedShareEventsTable,
+          ProcessedShareEvent
+        >,
+      ),
+      ProcessedShareEvent,
+      PrefetchHooks Function()
+    >;
 typedef $$NoteMoodsTableCreateCompanionBuilder =
     NoteMoodsCompanion Function({
       Value<int> id,
@@ -13304,6 +13842,8 @@ class $AppDatabaseManager {
       $$EventsTableTableManager(_db, _db.events);
   $$DiaryEntriesTableTableManager get diaryEntries =>
       $$DiaryEntriesTableTableManager(_db, _db.diaryEntries);
+  $$ProcessedShareEventsTableTableManager get processedShareEvents =>
+      $$ProcessedShareEventsTableTableManager(_db, _db.processedShareEvents);
   $$NoteMoodsTableTableManager get noteMoods =>
       $$NoteMoodsTableTableManager(_db, _db.noteMoods);
   $$NoteTagsTableTableManager get noteTags =>

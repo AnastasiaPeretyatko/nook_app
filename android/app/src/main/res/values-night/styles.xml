@@ -16,6 +16,13 @@
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
     <style name="WidgetConfigTheme" parent="@android:style/Theme.DeviceDefault.Dialog" />
+    <style name="ShareActivityTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
     <style name="ProjectWidgetConfigTheme" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">@font/onest_medium</item>
         <item name="android:statusBarColor">@color/widget_config_surface</item>

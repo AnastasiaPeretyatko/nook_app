@@ -2,6 +2,7 @@ import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todo_app/database/app_database.dart';
+import 'package:todo_app/utils/shared_note_content.dart';
 
 /// The marks the diary leaves so that a sync can tell what changed: a `uid` to
 /// be known by, a `dirty` flag for "changed here", and a tombstone for the one
@@ -52,6 +53,57 @@ void main() {
 
       expect((await note(id)).dirty, isTrue);
     });
+
+    test(
+      'appending shared content preserves the note and reaches watchers',
+      () async {
+        final moodId = await dao.insertMood(name: 'Своё', emoji: '🎈');
+        final tagId = await dao.insertTag(name: 'идеи', colorKey: 'blue');
+        final id = await dao.insertEntry(
+          DiaryEntriesCompanion.insert(
+            title: const Value('Исходный заголовок'),
+            body: const Value('[{"insert":"Старый текст\\n"}]'),
+            coverImage: const Value('cover.jpg'),
+            images: const Value('["one.jpg","two.jpg"]'),
+            isFavorite: const Value(true),
+            status: const Value(DiaryEntryStatus.archived),
+          ),
+        );
+        await dao.setEntryMoods(id, [moodId]);
+        await dao.setEntryTags(id, [tagId]);
+        final before = await note(id);
+        await dao.clearEntryDirty({before.uid!: before.updatedAt});
+
+        final watched = dao.watchEntries().skip(1).first;
+        final updated = await dao.appendSharedContent(
+          id,
+          const SharedNoteContent('https://example.com/shared'),
+        );
+        final visible = (await watched).singleWhere((entry) => entry.id == id);
+
+        expect(updated, isNotNull);
+        expect(
+          updated!.body,
+          '[{"insert":"Старый текст\\n"},{"insert":"https://example.com/shared\\n"}]',
+        );
+        expect(updated.title, before.title);
+        expect(updated.coverImage, before.coverImage);
+        expect(updated.images, before.images);
+        expect(updated.isFavorite, before.isFavorite);
+        expect(updated.status, before.status);
+        expect(updated.uid, before.uid);
+        expect(updated.createdAt, before.createdAt);
+        expect(updated.dirty, isTrue);
+        expect(updated.updatedAt.isAfter(before.updatedAt), isTrue);
+        expect(visible, updated);
+        expect(await dao.getMoodIdsForEntry(id), [moodId]);
+        expect(await dao.getTagIdsForEntry(id), [tagId]);
+        expect(
+          (await dao.pendingEntries()).map((entry) => entry.id),
+          contains(id),
+        );
+      },
+    );
 
     test('starring counts as an edit', () async {
       final id = await addNote('Заметка');

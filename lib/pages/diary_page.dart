@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -13,7 +12,6 @@ import 'package:todo_app/pages/note_view_page.dart';
 import 'package:todo_app/settings/diary_view.dart';
 import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/utils/diary_groups.dart';
-import 'package:todo_app/utils/note_delta.dart';
 import 'package:todo_app/utils/note_images.dart';
 import 'package:todo_app/utils/note_search.dart';
 import 'package:todo_app/utils/surfaces.dart';
@@ -722,16 +720,6 @@ class _DraftMark extends StatelessWidget {
       ),
     );
   }
-}
-
-/// The body is a Delta; a row shows its text with the formatting dropped, and
-/// the search reads the same string. A note saved before anything was typed
-/// holds an empty string, which is not JSON — hence the guard rather than a
-/// try/catch.
-String plainNoteBody(String body) {
-  if (body.trim().isEmpty) return '';
-  final operations = jsonDecode(body) as List;
-  return deltaPlainText(operations).trim().replaceAll(RegExp(r'\s+'), ' ');
 }
 
 /// Time for a note touched today, a date for anything older: a bare "08:30" on a

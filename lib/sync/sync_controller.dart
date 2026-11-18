@@ -289,6 +289,19 @@ class _SyncScopeState extends ConsumerState<SyncScope>
       case AppLifecycleState.paused:
         unawaited(controller.sendAndDisconnect());
       case AppLifecycleState.resumed:
+        // ShareActivity owns another Flutter engine and another Drift
+        // connection. SQLite makes its committed rows visible here, but that
+        // connection cannot notify this engine's already-open query streams.
+        // Re-open the diary providers when MainActivity returns so a compact
+        // share is shown without waiting for an unrelated local write.
+        ref.invalidate(diaryEntriesProvider);
+        ref.invalidate(diaryEntryProvider);
+        ref.invalidate(noteMoodsProvider);
+        ref.invalidate(noteTagsProvider);
+        ref.invalidate(moodsByEntryProvider);
+        ref.invalidate(tagsByEntryProvider);
+        ref.invalidate(entryMoodsProvider);
+        ref.invalidate(entryTagsProvider);
         // Connecting is also the sync: the phone may have been away for hours,
         // and nothing on the other device could have told it so.
         controller.start();

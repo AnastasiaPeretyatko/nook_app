@@ -6,6 +6,10 @@
 /// anything: it is given a string and answers questions about it.
 library;
 
+import 'dart:convert';
+
+import 'package:todo_app/utils/note_delta.dart';
+
 /// The query cut into terms, lower-cased.
 ///
 /// Several words mean **all of them, in any order**: "молоко хлеб" finds the
@@ -15,6 +19,17 @@ List<String> searchTerms(String query) => [
   for (final term in query.toLowerCase().trim().split(RegExp(r'\s+')))
     if (term.isNotEmpty) term,
 ];
+
+/// The searchable text stored in a note's Parchment Delta.
+///
+/// This is deliberately the same normalization the diary list uses: formatting
+/// is not searchable, paragraph breaks collapse to spaces, and a blank body is
+/// simply absent from the match.
+String plainNoteBody(String body) {
+  if (body.trim().isEmpty) return '';
+  final operations = jsonDecode(body) as List;
+  return deltaPlainText(operations).trim().replaceAll(RegExp(r'\s+'), ' ');
+}
 
 /// True when every one of [terms] appears somewhere in [text]. No terms is not
 /// a search, and everything passes.

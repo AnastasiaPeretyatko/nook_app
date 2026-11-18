@@ -70,6 +70,21 @@
                 <action android:name="es.antonborri.home_widget.action.LAUNCH"/>
             </intent-filter>
         </activity>
+        <!-- A compact share target, deliberately separate from MainActivity:
+             selecting Nook from Android's share sheet must not construct the
+             full Flutter application. Task 2 consumes the queued text here. -->
+        <activity
+            android:name=".ShareActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:theme="@style/ShareActivityTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/plain"/>
+            </intent-filter>
+        </activity>
         <!-- Delivers the scheduled "time is up" alert, and re-registers the
              pending ones after a reboot or an app update — without the boot
              receiver a timer scheduled before a restart would never fire. -->

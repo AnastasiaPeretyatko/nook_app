@@ -2,9 +2,41 @@ import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 import '../../sync/merge.dart' show storedSeconds;
 import '../../utils/note_labels.dart' show defaultNoteMoodUids;
+import '../../utils/shared_note_content.dart';
 import '../app_database.dart';
 
 part 'diary_dao.g.dart';
+
+/// The result of applying one stable native share event to the diary.
+class ShareEventResult {
+  const ShareEventResult(this.targetDiaryEntryId, {required this.didMutate});
+
+  final int targetDiaryEntryId;
+  final bool didMutate;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ShareEventResult &&
+      other.targetDiaryEntryId == targetDiaryEntryId &&
+      other.didMutate == didMutate;
+
+  @override
+  int get hashCode => Object.hash(targetDiaryEntryId, didMutate);
+}
+
+/// A native event ID was reused for a different share operation or target.
+class ShareEventConflict implements Exception {
+  const ShareEventConflict(this.eventId);
+
+  final String eventId;
+}
+
+/// The target note disappeared before an append event could be applied.
+class ShareEventTargetNotFound implements Exception {
+  const ShareEventTargetNotFound(this.noteId);
+
+  final int noteId;
+}
 
 /// Reads and writes diary entries.
 ///
@@ -32,6 +64,7 @@ part 'diary_dao.g.dart';
 @DriftAccessor(
   tables: [
     DiaryEntries,
+    ProcessedShareEvents,
     NoteMoods,
     NoteTags,
     DiaryEntryMoods,
@@ -89,23 +122,27 @@ class DiaryDao extends DatabaseAccessor<AppDatabase> with _$DiaryDaoMixin {
   /// The cost is that a burst of edits inside one second pushes the stamp a
   /// little ahead of the wall clock — a second per edit. Saving a note is
   /// user-paced, so the burst that would make this visible does not happen.
-  Future<int> updateEntryById(int id, DiaryEntriesCompanion entry) {
-    return transaction(() async {
-      final current = await getEntry(id);
-      final now = DateTime.now();
-      // Compared **as stored**, not as held: `now` is always a fraction later
-      // than a value read back from the database, and asking `isAfter` would
-      // say so — then write the very same second and change nothing.
-      final stamp =
-          (current == null ||
-              storedSeconds(now) > storedSeconds(current.updatedAt))
-          ? now
-          : current.updatedAt.add(const Duration(seconds: 1));
+  Future<int> updateEntryById(int id, DiaryEntriesCompanion entry) =>
+      transaction(() => _updateEntryByIdInTransaction(id, entry));
 
-      return (update(diaryEntries)..where((e) => e.id.equals(id))).write(
-        entry.copyWith(updatedAt: Value(stamp), dirty: const Value(true)),
-      );
-    });
+  Future<int> _updateEntryByIdInTransaction(
+    int id,
+    DiaryEntriesCompanion entry,
+  ) async {
+    final current = await getEntry(id);
+    final now = DateTime.now();
+    // Compared **as stored**, not as held: `now` is always a fraction later
+    // than a value read back from the database, and asking `isAfter` would
+    // say so — then write the very same second and change nothing.
+    final stamp =
+        (current == null ||
+            storedSeconds(now) > storedSeconds(current.updatedAt))
+        ? now
+        : current.updatedAt.add(const Duration(seconds: 1));
+
+    return (update(diaryEntries)..where((e) => e.id.equals(id))).write(
+      entry.copyWith(updatedAt: Value(stamp), dirty: const Value(true)),
+    );
   }
 
   /// Writes just the note's text — what ticking a check-box on the view screen
@@ -114,6 +151,110 @@ class DiaryDao extends DatabaseAccessor<AppDatabase> with _$DiaryDaoMixin {
   /// ordered by when a note was last touched.
   Future<int> setBody(int id, String body) =>
       updateEntryById(id, DiaryEntriesCompanion(body: Value(body)));
+
+  /// Adds shared text to the latest body and returns the changed note.
+  ///
+  /// Reading and writing stay in one transaction so a concurrent local edit
+  /// cannot be overwritten by an append based on an older Delta. The write goes
+  /// through [updateEntryById], preserving the normal dirty and timestamp rules
+  /// that make this local change visible to sync.
+  Future<DiaryEntry?> appendSharedContent(int id, SharedNoteContent content) {
+    return transaction(() => _appendSharedContentInTransaction(id, content));
+  }
+
+  Future<DiaryEntry?> _appendSharedContentInTransaction(
+    int id,
+    SharedNoteContent content,
+  ) async {
+    final current = await getEntry(id);
+    if (current == null) return null;
+
+    await _updateEntryByIdInTransaction(
+      id,
+      DiaryEntriesCompanion(
+        body: Value(appendSharedNoteContent(current.body, content)),
+      ),
+    );
+    return getEntry(id);
+  }
+
+  /// Creates a note at most once for a stable native share event ID.
+  Future<ShareEventResult> createForSharedEvent({
+    required String eventId,
+    required String title,
+    required SharedNoteContent content,
+  }) => transaction(() async {
+    if (!await _claimShareEvent(eventId, _createShareOperation)) {
+      return _existingShareEvent(eventId, _createShareOperation);
+    }
+
+    final noteId = await insertEntry(
+      DiaryEntriesCompanion.insert(
+        title: Value(title),
+        body: Value(appendSharedNoteContent('', content)),
+      ),
+    );
+    await _setShareEventTarget(eventId, noteId);
+    return ShareEventResult(noteId, didMutate: true);
+  });
+
+  /// Appends to a note at most once for a stable native share event ID.
+  Future<ShareEventResult> appendForSharedEvent({
+    required String eventId,
+    required int noteId,
+    required SharedNoteContent content,
+  }) => transaction(() async {
+    if (!await _claimShareEvent(eventId, _appendShareOperation)) {
+      return _existingShareEvent(
+        eventId,
+        _appendShareOperation,
+        requestedNoteId: noteId,
+      );
+    }
+
+    final updated = await _appendSharedContentInTransaction(noteId, content);
+    if (updated == null) throw ShareEventTargetNotFound(noteId);
+    await _setShareEventTarget(eventId, noteId);
+    return ShareEventResult(noteId, didMutate: true);
+  });
+
+  static const _createShareOperation = 'create';
+  static const _appendShareOperation = 'append';
+
+  Future<bool> _claimShareEvent(String eventId, String operation) async {
+    final inserted = await customUpdate(
+      'INSERT OR IGNORE INTO processed_share_events (event_id, operation) '
+      'VALUES (?, ?)',
+      variables: [Variable<String>(eventId), Variable<String>(operation)],
+      updates: {processedShareEvents},
+    );
+    return inserted == 1;
+  }
+
+  Future<void> _setShareEventTarget(String eventId, int noteId) async {
+    await (update(
+      processedShareEvents,
+    )..where((event) => event.eventId.equals(eventId))).write(
+      ProcessedShareEventsCompanion(targetDiaryEntryId: Value(noteId)),
+    );
+  }
+
+  Future<ShareEventResult> _existingShareEvent(
+    String eventId,
+    String expectedOperation, {
+    int? requestedNoteId,
+  }) async {
+    final existing = await (select(
+      processedShareEvents,
+    )..where((event) => event.eventId.equals(eventId))).getSingle();
+    final target = existing.targetDiaryEntryId;
+    if (existing.operation != expectedOperation ||
+        target == null ||
+        (requestedNoteId != null && target != requestedNoteId)) {
+      throw ShareEventConflict(eventId);
+    }
+    return ShareEventResult(target, didMutate: false);
+  }
 
   Future<int> setStatus(int id, DiaryEntryStatus status) =>
       updateEntryById(id, DiaryEntriesCompanion(status: Value(status)));

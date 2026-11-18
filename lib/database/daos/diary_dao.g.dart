@@ -5,6 +5,8 @@ part of 'diary_dao.dart';
 // ignore_for_file: type=lint
 mixin _$DiaryDaoMixin on DatabaseAccessor<AppDatabase> {
   $DiaryEntriesTable get diaryEntries => attachedDatabase.diaryEntries;
+  $ProcessedShareEventsTable get processedShareEvents =>
+      attachedDatabase.processedShareEvents;
   $NoteMoodsTable get noteMoods => attachedDatabase.noteMoods;
   $NoteTagsTable get noteTags => attachedDatabase.noteTags;
   $DiaryEntryMoodsTable get diaryEntryMoods => attachedDatabase.diaryEntryMoods;
@@ -18,6 +20,11 @@ class DiaryDaoManager {
   DiaryDaoManager(this._db);
   $$DiaryEntriesTableTableManager get diaryEntries =>
       $$DiaryEntriesTableTableManager(_db.attachedDatabase, _db.diaryEntries);
+  $$ProcessedShareEventsTableTableManager get processedShareEvents =>
+      $$ProcessedShareEventsTableTableManager(
+        _db.attachedDatabase,
+        _db.processedShareEvents,
+      );
   $$NoteMoodsTableTableManager get noteMoods =>
       $$NoteMoodsTableTableManager(_db.attachedDatabase, _db.noteMoods);
   $$NoteTagsTableTableManager get noteTags =>

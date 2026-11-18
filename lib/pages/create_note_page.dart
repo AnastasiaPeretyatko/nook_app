@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -10,8 +11,11 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
+import 'package:todo_app/share_to_nook/editor_lock_bridge.dart';
+import 'package:todo_app/share_to_nook/open_note_editor.dart';
 import 'package:todo_app/utils/note_delta.dart';
 import 'package:todo_app/utils/note_images.dart';
+import 'package:todo_app/utils/shared_note_content.dart';
 import 'package:todo_app/widgets/diary/note_body_view.dart';
 import 'package:todo_app/widgets/diary/note_label_chips.dart';
 import 'package:todo_app/widgets/diary/note_label_sheets.dart';
@@ -36,10 +40,21 @@ import 'package:flutter_lucide/flutter_lucide.dart';
 /// the editor and the toolbar in between are the same, so there is one place
 /// where a note is written and no second screen to keep in step.
 class CreateNotePage extends ConsumerStatefulWidget {
-  const CreateNotePage({super.key, this.entry});
+  const CreateNotePage({
+    super.key,
+    this.entry,
+    this.initialBodyText,
+    this.editorLockBridge = const MethodChannelEditorLockBridge(),
+  }) : assert(entry == null || initialBodyText == null);
 
   /// The note being edited, or null while a new one is being written.
   final DiaryEntry? entry;
+
+  /// Shared plain text for a new draft. It stays in the editor until the user
+  /// explicitly saves; opening or closing the draft does not write a row.
+  final String? initialBodyText;
+
+  final EditorLockBridge editorLockBridge;
 
   @override
   ConsumerState<CreateNotePage> createState() => _CreateNotePageState();
@@ -57,6 +72,11 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
   /// Built in [initState], because an edited note opens with its stored text
   /// already in it — a [FleatherController] is given its document at birth.
   late final FleatherController _body;
+  final _editorToken = Object();
+  late final OpenNoteEditors _openEditors;
+  String? _editorLockOwnerId;
+  _EditorLockState _editorLockState = _EditorLockState.notRequired;
+  bool _disposed = false;
   final _bodyFocus = FocusNode();
 
   /// The form's own scroll, handed to the editor as well as to the list.
@@ -110,8 +130,17 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
   @override
   void initState() {
     super.initState();
+    _openEditors = ref.read(openNoteEditorsProvider);
     final entry = widget.entry;
-    _body = _controllerFor(entry?.body);
+    _body = _controllerFor(
+      entry?.body ??
+          (widget.initialBodyText == null
+              ? null
+              : appendSharedNoteContent(
+                  '',
+                  SharedNoteContent(widget.initialBodyText!),
+                )),
+    );
     if (entry == null) return;
 
     _titleController.text = entry.title;
@@ -120,6 +149,48 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
     if (cover != null) _cover = _FormImage.stored(cover);
     _attachments.addAll(decodeImageNames(entry.images).map(_FormImage.stored));
     _loadLabels(entry.id);
+    _editorLockState = _EditorLockState.pending;
+    _acquireEditorLock(entry.id);
+  }
+
+  Future<void> _acquireEditorLock(int entryId) async {
+    try {
+      final ownerId = await widget.editorLockBridge.newOwner();
+      if (_disposed) return;
+      final acquired = await widget.editorLockBridge.tryAcquire(
+        noteId: entryId,
+        ownerId: ownerId,
+      );
+      if (_disposed) {
+        if (acquired) {
+          _releaseEditorLock(entryId, ownerId);
+        }
+        return;
+      }
+      if (!acquired) {
+        setState(() => _editorLockState = _EditorLockState.denied);
+        return;
+      }
+      _editorLockOwnerId = ownerId;
+      _openEditors.register(entryId, _editorToken);
+      setState(() => _editorLockState = _EditorLockState.acquired);
+    } on Object {
+      if (!_disposed) {
+        setState(() => _editorLockState = _EditorLockState.unavailable);
+      }
+    }
+  }
+
+  void _releaseEditorLock(int entryId, String ownerId) {
+    unawaited(_releaseEditorLockSafely(entryId, ownerId));
+  }
+
+  Future<void> _releaseEditorLockSafely(int entryId, String ownerId) async {
+    try {
+      await widget.editorLockBridge.release(noteId: entryId, ownerId: ownerId);
+    } on Object {
+      // Native engine cleanup remains the fallback if the channel is gone.
+    }
   }
 
   /// Reads the note's moods and tags into the draft. Asynchronous, so the form is
@@ -174,6 +245,15 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
 
   @override
   void dispose() {
+    _disposed = true;
+    final id = widget.entry?.id;
+    if (id != null) {
+      _openEditors.unregister(id, _editorToken);
+      final ownerId = _editorLockOwnerId;
+      if (ownerId != null) {
+        _releaseEditorLock(id, ownerId);
+      }
+    }
     _titleController.dispose();
     _body.dispose();
     _bodyFocus.dispose();
@@ -331,7 +411,10 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
           // Nothing to do and nothing to tell the user.
         }
       }
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) {
+        setState(() => _isSaving = false);
+        Navigator.of(context).pop();
+      }
     } on FileSystemException {
       if (!mounted) return;
       setState(() => _isSaving = false);
@@ -363,6 +446,30 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    if (widget.entry != null && _editorLockState != _EditorLockState.acquired) {
+      return Scaffold(
+        backgroundColor: pageSurface(theme),
+        body: SafeArea(
+          child: Column(
+            children: [
+              _NoteHeader(
+                onClose: () => Navigator.of(context).pop(),
+                onDone: null,
+                isBusy: false,
+              ),
+              Expanded(
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: _EditorLockNotice(state: _editorLockState),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     // Where a picture the note already owns is read from. Resolved once per app
     // run and cached by the provider, so an edited note's cover is on screen in
     // the first frame.
@@ -386,123 +493,127 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
     final palette = AppPalette.of(theme);
     final touched = widget.entry?.createdAt ?? DateTime.now();
 
-    return Scaffold(
-      backgroundColor: pageSurface(theme),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _NoteHeader(
-              onClose: () => Navigator.of(context).pop(),
-              onDone: _isSaving ? null : _save,
-              isBusy: _isSaving,
-            ),
-            Expanded(
-              child: CustomScrollView(
-                controller: _scroll,
-                slivers: [
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(_inset, 16, _inset, 0),
-                    sliver: SliverToBoxAdapter(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // Pin, what the note is about, and when it was made.
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              _PinChip(
-                                pinned: _pinned,
-                                onTap: () => setState(() => _pinned = !_pinned),
-                              ),
-                              NoteLabelsRow(
-                                moods: moods,
-                                tags: tags,
-                                onEditMood: _pickMood,
-                                onEditTags: _pickTags,
-                                surface: pageSurface(theme),
-                              ),
-                              Text(
-                                DateFormat(
-                                  'd MMM, HH:mm',
-                                  'ru_RU',
-                                ).format(touched),
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: palette.textSecondary,
+    return PopScope<void>(
+      canPop: !_isSaving,
+      child: Scaffold(
+        backgroundColor: pageSurface(theme),
+        body: SafeArea(
+          child: Column(
+            children: [
+              _NoteHeader(
+                onClose: _isSaving ? null : () => Navigator.of(context).pop(),
+                onDone: _isSaving ? null : _save,
+                isBusy: _isSaving,
+              ),
+              Expanded(
+                child: CustomScrollView(
+                  controller: _scroll,
+                  slivers: [
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(_inset, 16, _inset, 0),
+                      sliver: SliverToBoxAdapter(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // Pin, what the note is about, and when it was made.
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                _PinChip(
+                                  pinned: _pinned,
+                                  onTap: () =>
+                                      setState(() => _pinned = !_pinned),
                                 ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 20),
-                          if (_showCover) ...[
-                            _CoverPicker(
-                              coverPath: _cover?.pathIn(imagesDirectory),
-                              onTap: _pickCover,
-                              onRemove: _removeCover,
+                                NoteLabelsRow(
+                                  moods: moods,
+                                  tags: tags,
+                                  onEditMood: _pickMood,
+                                  onEditTags: _pickTags,
+                                  surface: pageSurface(theme),
+                                ),
+                                Text(
+                                  DateFormat(
+                                    'd MMM, HH:mm',
+                                    'ru_RU',
+                                  ).format(touched),
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: palette.textSecondary,
+                                  ),
+                                ),
+                              ],
                             ),
                             const SizedBox(height: 20),
+                            if (_showCover) ...[
+                              _CoverPicker(
+                                coverPath: _cover?.pathIn(imagesDirectory),
+                                onTap: _pickCover,
+                                onRemove: _removeCover,
+                              ),
+                              const SizedBox(height: 20),
+                            ],
+                            // No card, no underline: the title is written straight onto
+                            // the page, and its own size is what marks it as the title.
+                            _NoteField(
+                              controller: _titleController,
+                              hint: 'Заголовок заметки',
+                              // Enter moves on to the text, keyboard and all.
+                              onEditingComplete: _bodyFocus.requestFocus,
+                              style: TextStyle(
+                                fontSize: 28,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: -0.56,
+                                height: 1.15,
+                                color: palette.textPrimary,
+                              ),
+                            ),
+                            Divider(
+                              height: 32,
+                              thickness: 1,
+                              color: theme.colorScheme.outlineVariant,
+                            ),
+                            _NoteBody(
+                              controller: _body,
+                              focusNode: _bodyFocus,
+                              scrollController: _scroll,
+                            ),
+                            if (_attachments.isNotEmpty)
+                              _AttachmentsStrip(
+                                paths: [
+                                  for (final image in _attachments)
+                                    image.pathIn(imagesDirectory),
+                                ],
+                                onRemove: _detachImage,
+                              ),
                           ],
-                          // No card, no underline: the title is written straight onto
-                          // the page, and its own size is what marks it as the title.
-                          _NoteField(
-                            controller: _titleController,
-                            hint: 'Заголовок заметки',
-                            // Enter moves on to the text, keyboard and all.
-                            onEditingComplete: _bodyFocus.requestFocus,
-                            style: TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: -0.56,
-                              height: 1.15,
-                              color: palette.textPrimary,
-                            ),
-                          ),
-                          Divider(
-                            height: 32,
-                            thickness: 1,
-                            color: theme.colorScheme.outlineVariant,
-                          ),
-                          _NoteBody(
-                            controller: _body,
-                            focusNode: _bodyFocus,
-                            scrollController: _scroll,
-                          ),
-                          if (_attachments.isNotEmpty)
-                            _AttachmentsStrip(
-                              paths: [
-                                for (final image in _attachments)
-                                  image.pathIn(imagesDirectory),
-                              ],
-                              onRemove: _detachImage,
-                            ),
-                        ],
+                        ),
                       ),
                     ),
-                  ),
-                  // Whatever is left of the screen under the text is the note's
-                  // too: a tap there puts the cursor at the end. A sibling of the
-                  // editor and not a wrapper around it, so the editor keeps its
-                  // own taps — a tap on a word lands on that word.
-                  SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: _focusBodyEnd,
-                      child: const SizedBox(height: 120),
+                    // Whatever is left of the screen under the text is the note's
+                    // too: a tap there puts the cursor at the end. A sibling of the
+                    // editor and not a wrapper around it, so the editor keeps its
+                    // own taps — a tap on a word lands on that word.
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: _focusBodyEnd,
+                        child: const SizedBox(height: 120),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            _NoteToolbar(
-              controller: _body,
-              onInsertImage: _attachImages,
-              onHideKeyboard: () =>
-                  FocusManager.instance.primaryFocus?.unfocus(),
-            ),
-          ],
+              _NoteToolbar(
+                controller: _body,
+                onInsertImage: _attachImages,
+                onHideKeyboard: () =>
+                    FocusManager.instance.primaryFocus?.unfocus(),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -511,6 +622,34 @@ class _CreateNotePageState extends ConsumerState<CreateNotePage> {
 
 /// "Запись": a round close on the left, the title, a round accent tick on the
 /// right (`JournalEdit.dc.html`). Closing throws the draft away, as before.
+enum _EditorLockState { notRequired, pending, acquired, denied, unavailable }
+
+class _EditorLockNotice extends StatelessWidget {
+  const _EditorLockNotice({required this.state});
+
+  final _EditorLockState state;
+
+  @override
+  Widget build(BuildContext context) {
+    if (state == _EditorLockState.pending) {
+      return const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircularProgressIndicator(),
+          SizedBox(height: 16),
+          Text('Проверяем доступ к заметке…'),
+        ],
+      );
+    }
+    return Text(
+      state == _EditorLockState.denied
+          ? 'Эта заметка сейчас открыта в редакторе на другом экране.'
+          : 'Не удалось безопасно открыть заметку для редактирования.',
+      textAlign: TextAlign.center,
+    );
+  }
+}
+
 class _NoteHeader extends StatelessWidget {
   const _NoteHeader({
     required this.onClose,
@@ -518,7 +657,7 @@ class _NoteHeader extends StatelessWidget {
     required this.isBusy,
   });
 
-  final VoidCallback onClose;
+  final VoidCallback? onClose;
   final VoidCallback? onDone;
   final bool isBusy;
 
