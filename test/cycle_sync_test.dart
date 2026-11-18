@@ -24,6 +24,26 @@ void main() {
 
   group('CycleDao', () {
     test(
+      'confirmed starts keep a deletion tombstone until sync settles',
+      () async {
+        await dao.confirmStart(day);
+        expect(await dao.pendingConfirmedStarts(), hasLength(1));
+        await dao.clearConfirmedStartDirty(await dao.pendingConfirmedStarts());
+
+        await dao.deleteConfirmedStart(day);
+        final pending = await dao.pendingConfirmedStarts();
+        expect(pending.single.deletedAt, isNotNull);
+        expect(await dao.watchConfirmedStarts().first, isEmpty);
+      },
+    );
+
+    test('a newer local restore wins over an older remote tombstone', () async {
+      await dao.confirmStart(day);
+      await dao.applyRemoteConfirmedStart(day, DateTime(2000), DateTime(2000));
+      expect(await dao.watchConfirmedStarts().first, hasLength(1));
+      expect((await dao.pendingConfirmedStarts()).single.deletedAt, isNull);
+    });
+    test(
       'a saved day reads back, on the calendar day and marked unsent',
       () async {
         await dao.saveDay(

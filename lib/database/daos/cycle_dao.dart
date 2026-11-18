@@ -8,7 +8,7 @@ part 'cycle_dao.g.dart';
 /// works through. Shaped after the day-mark half of [TasksDao], and for the same
 /// reasons — see `CycleDays` for why a day is its own identity and nothing here
 /// ever deletes one.
-@DriftAccessor(tables: [CycleDays])
+@DriftAccessor(tables: [CycleDays, CycleConfirmedStarts])
 class CycleDao extends DatabaseAccessor<AppDatabase> with _$CycleDaoMixin {
   CycleDao(super.db);
 
@@ -16,6 +16,84 @@ class CycleDao extends DatabaseAccessor<AppDatabase> with _$CycleDaoMixin {
       DateTime(moment.year, moment.month, moment.day);
 
   Stream<List<CycleDay>> watchAll() => select(cycleDays).watch();
+
+  Stream<List<CycleConfirmedStart>> watchConfirmedStarts() => (select(
+    cycleConfirmedStarts,
+  )..where((s) => s.deletedAt.isNull())).watch();
+
+  Future<void> confirmStart(DateTime day) async {
+    final date = dayOf(day);
+    final row = CycleConfirmedStartsCompanion(
+      date: Value(date),
+      dirty: const Value(true),
+      updatedAt: Value(DateTime.now()),
+    );
+    await into(cycleConfirmedStarts).insert(
+      row,
+      onConflict: DoUpdate((_) => row, target: [cycleConfirmedStarts.date]),
+    );
+  }
+
+  Future<void> deleteConfirmedStart(DateTime day) async {
+    final date = dayOf(day);
+    await into(cycleConfirmedStarts).insertOnConflictUpdate(
+      CycleConfirmedStartsCompanion(
+        date: Value(date),
+        dirty: const Value(true),
+        updatedAt: Value(DateTime.now()),
+        deletedAt: Value(DateTime.now()),
+      ),
+    );
+  }
+
+  Future<List<CycleConfirmedStart>> pendingConfirmedStarts() =>
+      (select(cycleConfirmedStarts)..where((s) => s.dirty.equals(true))).get();
+
+  Future<void> clearConfirmedStartDirty(
+    Iterable<CycleConfirmedStart> rows,
+  ) async {
+    for (final row in rows) {
+      await (update(cycleConfirmedStarts)..where(
+            (s) =>
+                s.date.equals(row.date) &
+                s.updatedAt.isSmallerOrEqualValue(row.updatedAt),
+          ))
+          .write(const CycleConfirmedStartsCompanion(dirty: Value(false)));
+    }
+  }
+
+  Future<void> applyRemoteConfirmedStart(
+    DateTime date,
+    DateTime updatedAt,
+    DateTime? deletedAt,
+  ) async {
+    final current = await (select(
+      cycleConfirmedStarts,
+    )..where((s) => s.date.equals(dayOf(date)))).getSingleOrNull();
+    if (current != null &&
+        current.dirty &&
+        !updatedAt.isAfter(current.updatedAt)) {
+      return;
+    }
+    await into(cycleConfirmedStarts).insertOnConflictUpdate(
+      CycleConfirmedStartsCompanion(
+        date: Value(dayOf(date)),
+        dirty: const Value(false),
+        updatedAt: Value(updatedAt),
+        deletedAt: Value(deletedAt),
+      ),
+    );
+  }
+
+  Future<void> keepConfirmedStartsLocal() => update(
+    cycleConfirmedStarts,
+  ).write(const CycleConfirmedStartsCompanion(dirty: Value(false)));
+
+  Future<void> markAllConfirmedStartsDirty() => update(
+    cycleConfirmedStarts,
+  ).write(const CycleConfirmedStartsCompanion(dirty: Value(true)));
+
+  Future<void> wipeConfirmedStarts() => delete(cycleConfirmedStarts).go();
 
   Future<CycleDay?> getDay(DateTime day) => (select(
     cycleDays,
@@ -120,5 +198,8 @@ class CycleDao extends DatabaseAccessor<AppDatabase> with _$CycleDaoMixin {
   Future<void> markAllDirty() =>
       update(cycleDays).write(const CycleDaysCompanion(dirty: Value(true)));
 
-  Future<void> wipeAll() => delete(cycleDays).go();
+  Future<void> wipeAll() async {
+    await delete(cycleDays).go();
+    await wipeConfirmedStarts();
+  }
 }

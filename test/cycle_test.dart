@@ -26,6 +26,24 @@ void main() {
       expect(model.cycleDay(DateTime(2026, 10, 4)), isNull);
     });
 
+    test('recorded starts preserve irregular cycle history', () {
+      final m = CycleModel(lastStart: DateTime(2026, 11, 3), length: 29);
+      final starts = [DateTime(2026, 9, 5), DateTime(2026, 10, 4), DateTime(2026, 11, 3)];
+
+      expect(m.cycleDayOn(DateTime(2026, 9, 20), starts), 16);
+      expect(m.cycleDayOn(DateTime(2026, 10, 31), starts), 28);
+      expect(m.cycleDayOn(DateTime(2026, 11, 3), starts), 1);
+      expect(m.cycleDayOn(DateTime(2026, 9, 4), starts), isNull);
+    });
+
+    test('forecast length does not rewrite a completed cycle', () {
+      final starts = [DateTime(2026, 9, 1), DateTime(2026, 10, 3)];
+      final m = CycleModel(lastStart: DateTime(2026, 10, 3), length: 29);
+
+      expect(m.cycleDayOn(DateTime(2026, 10, 1), starts), 31);
+      expect(m.cycleDayOn(DateTime(2026, 10, 15), starts), 13);
+    });
+
     test('phases: period 1-5, fertile 9-15, ovulation 14', () {
       CyclePhase on(int d) => model.phaseOfCycleDay(d);
       expect(on(5), CyclePhase.period);
@@ -145,6 +163,51 @@ void main() {
       expect(
         again.read(aboutSettingsProvider).lastStart,
         DateTime(2026, 10, 5),
+      );
+      expect(again.read(aboutSettingsProvider).confirmedStarts, {
+        DateTime(2026, 10, 5),
+      });
+    });
+
+    testWidgets('new starts retain the earlier confirmed start', (tester) async {
+      final container = await pump(tester);
+      final notifier = container.read(aboutSettingsProvider.notifier);
+      await notifier.setLastStart(DateTime(2026, 9, 5));
+      await notifier.setLastStart(DateTime(2026, 10, 4));
+
+      expect(container.read(aboutSettingsProvider).confirmedStarts, {
+        DateTime(2026, 9, 5),
+        DateTime(2026, 10, 4),
+      });
+      await notifier.removeConfirmedStart(DateTime(2026, 10, 4));
+      expect(container.read(aboutSettingsProvider).lastStart, DateTime(2026, 9, 5));
+
+      await notifier.setLastStart(DateTime(2026, 8, 7));
+      expect(
+        container.read(aboutSettingsProvider).lastStart,
+        DateTime(2026, 9, 5),
+        reason: 'a backdated record must not move the forecast backwards',
+      );
+    });
+
+    testWidgets('legacy starts are imported once and persisted', (tester) async {
+      final container = await pump(tester);
+      final notifier = container.read(aboutSettingsProvider.notifier);
+      await notifier.importLegacyStarts([
+        DateTime(2026, 8, 1),
+        DateTime(2026, 8, 29),
+      ]);
+      await notifier.importLegacyStarts([DateTime(2026, 9, 27)]);
+
+      expect(container.read(aboutSettingsProvider).confirmedStarts, {
+        DateTime(2026, 8, 1),
+        DateTime(2026, 8, 29),
+      });
+      expect(
+        container.read(sharedPreferencesProvider).getStringList(
+          'cycle_confirmed_starts',
+        ),
+        ['2026-08-01', '2026-08-29'],
       );
     });
   });

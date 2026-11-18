@@ -316,6 +316,15 @@ class SyncService {
         for (final row in _rows(page['cycle_days'])) {
           await _applyCycleDay(row);
         }
+        for (final row in _rows(page['cycle_confirmed_starts'])) {
+          final date = _cycleDate(row['date']);
+          final updated = clientUpdatedAt(row) ?? serverUpdatedAt(row);
+          if (date != null && updated != null) {
+            await cycleDao.applyRemoteConfirmedStart(
+              date, updated, DateTime.tryParse(row['deleted_at'] as String? ?? ''),
+            );
+          }
+        }
       }
 
       final next = DateTime.tryParse(page['next'] as String? ?? '');
@@ -718,6 +727,17 @@ class SyncService {
       for (final day in await cycleDao.pending()) {
         rows.add(_Row(_Kind.cycle, cycleDayToRow(day), cycleDay: day));
       }
+      for (final start in await cycleDao.pendingConfirmedStarts()) {
+        final date = '${start.date.year.toString().padLeft(4, '0')}-${start.date.month.toString().padLeft(2, '0')}-${start.date.day.toString().padLeft(2, '0')}';
+        final json = {'date': date};
+        rows.add(_Row(
+          start.deletedAt == null ? _Kind.cycleConfirmedStarts : _Kind.deleted,
+          start.deletedAt == null
+              ? json
+              : {'table': 'cycle_confirmed_starts', 'id': date},
+          confirmedStart: start,
+        ));
+      }
     }
     for (final uid in await _pendingGraves('tasks')) {
       rows.add(_Row(_Kind.deleted, {'table': 'tasks', 'id': uid}, uid: uid));
@@ -841,6 +861,11 @@ class SyncService {
     });
     await tasksDao.clearLogDirty([for (final r in kind(_Kind.logs)) r.log!]);
     await cycleDao.clearDirty([for (final r in kind(_Kind.cycle)) r.cycleDay!]);
+    await cycleDao.clearConfirmedStartDirty([
+      for (final r in kind(_Kind.cycleConfirmedStarts)) r.confirmedStart!,
+      for (final r in kind(_Kind.deleted))
+        if (r.confirmedStart != null) r.confirmedStart!,
+    ]);
     await dao.clearTombstones([for (final r in kind(_Kind.deleted)) r.uid!]);
   }
 }
@@ -855,15 +880,22 @@ enum _Kind {
   tasks('tasks'),
   logs('logs'),
   cycle('cycle_days'),
+  cycleConfirmedStarts('cycle_confirmed_starts'),
   deleted('deleted');
 
   const _Kind(this.key);
   final String key;
 }
 
+DateTime? _cycleDate(Object? value) {
+  if (value is! String) return null;
+  final date = DateTime.tryParse(value);
+  return date == null ? null : DateTime(date.year, date.month, date.day);
+}
+
 /// One row waiting to go up, with what is needed to clear its mark afterwards.
 class _Row {
-  _Row(this.kind, this.json, {this.uid, this.at, this.log, this.cycleDay})
+  _Row(this.kind, this.json, {this.uid, this.at, this.log, this.cycleDay, this.confirmedStart})
     : bytes = utf8.encode(jsonEncode(json)).length;
 
   final _Kind kind;
@@ -871,6 +903,7 @@ class _Row {
 
   /// The row's identity (a deletion's too), for clearing its mark.
   final String? uid;
+  final CycleConfirmedStart? confirmedStart;
 
   /// When it was last edited as read — a mark is cleared only if this still
   /// holds, so an edit made during the send is not lost.

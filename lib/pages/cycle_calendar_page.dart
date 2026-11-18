@@ -60,7 +60,12 @@ class _CycleCalendarPageState extends ConsumerState<CycleCalendarPage> {
     super.dispose();
   }
 
-  void _showDayInfo(DateTime day, CycleModel? model, DateTime today) {
+  void _showDayInfo(
+    DateTime day,
+    CycleModel? model,
+    Set<DateTime> confirmedStarts,
+    DateTime today,
+  ) {
     setState(() => _selected = day);
     _infoDay.value = day;
     if (_infoSheet != null) return;
@@ -74,6 +79,7 @@ class _CycleCalendarPageState extends ConsumerState<CycleCalendarPage> {
             pageContext: context,
             day: infoDay,
             model: model,
+            confirmedStarts: confirmedStarts,
             today: today,
             onDayChanged: (changed) {
               if (!mounted) return;
@@ -105,6 +111,13 @@ class _CycleCalendarPageState extends ConsumerState<CycleCalendarPage> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final marks = ref.watch(cycleDaysProvider).valueOrNull ?? const [];
+    final confirmedStarts =
+        ref
+            .watch(confirmedCycleStartsProvider)
+            .valueOrNull
+            ?.map((start) => start.date)
+            .toSet() ??
+        about.confirmedStarts;
     final sexByDay = <DateTime, int?>{
       for (final d in marks)
         if (CycleHeart.showsCalendar(d.sex)) d.date: d.sex,
@@ -133,7 +146,7 @@ class _CycleCalendarPageState extends ConsumerState<CycleCalendarPage> {
         selected: _selected,
         onDayTap: (day) {
           if (!_editing) {
-            _showDayInfo(day, model, today);
+            _showDayInfo(day, model, confirmedStarts, today);
             return;
           }
           // A day that has not come cannot have been a period day.
@@ -147,7 +160,10 @@ class _CycleCalendarPageState extends ConsumerState<CycleCalendarPage> {
               periodDays.contains(day) ||
               (fromForecast && !about.periodExceptions.contains(day));
           if (on) {
-            if (periodDays.contains(day)) dao.setPeriodDay(day, on: false);
+            if (periodDays.contains(day)) {
+              dao.setPeriodDay(day, on: false);
+              settings.removeConfirmedStart(day);
+            }
             if (fromForecast) {
               settings.setPeriodException(day, excluded: true);
             }

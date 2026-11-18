@@ -526,6 +526,29 @@ void main() {
     expect(fillOf(nextPeriod), isNull);
   });
 
+  testWidgets(
+    'the week fills an arrived forecast period day without saving it',
+    (tester) async {
+      await container
+          .read(aboutSettingsProvider.notifier)
+          .setLastStart(yesterday);
+      await db.cycleDao.setPeriodDay(yesterday, on: true);
+      await pump(tester);
+      await tester.tap(stripDay(yesterday));
+      await tester.pumpAndSettle();
+
+      final todayCell = find.byKey(
+        ValueKey('week-day-${DateFormat('yyyy-MM-dd').format(today)}'),
+      );
+      final fill =
+          (tester.widget<Container>(todayCell).decoration as BoxDecoration?)
+              ?.color;
+
+      expect(fill, periodColor);
+      expect(await db.cycleDao.getDay(today), isNull);
+    },
+  );
+
   testWidgets('the figures are worked out from the marks', (tester) async {
     // Periods starting 84, 57 and 29 days ago: cycles of 27 and 28.
     for (final ago in [84, 57, 29]) {

@@ -31,6 +31,25 @@ class CycleModel {
     return passed < 0 ? null : passed % length + 1;
   }
 
+  /// The displayed day uses recorded starts for history and the configured
+  /// length only after the latest recorded start (the forecast).  This keeps an
+  /// irregular real cycle from being retroactively reshaped by a setting.
+  int? cycleDayOn(DateTime day, Iterable<DateTime> confirmedStarts) {
+    final starts = confirmedStarts
+        .map((d) => DateTime(d.year, d.month, d.day))
+        .toSet()
+        .toList()
+      ..sort();
+    if (starts.isEmpty) return cycleDay(day);
+    DateTime? start;
+    for (final candidate in starts) {
+      if (_days(candidate, day) >= 0) start = candidate;
+    }
+    if (start == null) return null;
+    if (start == starts.last) return cycleDay(day);
+    return _days(start, day) + 1;
+  }
+
   /// The ovulation day of a cycle, counted from its first day.
   int get ovulationDay => length - 13;
 

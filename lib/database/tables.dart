@@ -514,3 +514,15 @@ class CycleDays extends Table {
     Constant(DateTime.fromMillisecondsSinceEpoch(0)),
   )();
 }
+
+/// Explicit cycle boundaries. Tombstones stay until sync acknowledges them.
+@TableIndex(name: 'cycle_confirmed_starts_date', unique: true, columns: {#date})
+class CycleConfirmedStarts extends Table {
+  DateTimeColumn get date => dateTime()();
+  BoolColumn get dirty => boolean().withDefault(const Constant(true))();
+  DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
+  DateTimeColumn get deletedAt => dateTime().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {date};
+}

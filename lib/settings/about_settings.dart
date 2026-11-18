@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:todo_app/settings/theme_provider.dart';
+import 'package:todo_app/database/providers.dart';
 import 'package:todo_app/utils/cycle.dart';
 
 enum Gender {
@@ -21,6 +22,7 @@ class AboutSettings {
     this.gender = Gender.unspecified,
     this.trackCycle = true,
     this.lastStart,
+    this.confirmedStarts = const {},
     this.cycleLength = 27,
     this.periodLength = 5,
     this.periodExceptions = const {},
@@ -34,6 +36,8 @@ class AboutSettings {
 
   /// First day of the last period; null until the user says.
   final DateTime? lastStart;
+  /// Explicit starts of periods. Unlike day marks, these are cycle boundaries.
+  final Set<DateTime> confirmedStarts;
   final int cycleLength;
   final int periodLength;
 
@@ -59,6 +63,7 @@ class AboutSettings {
     Gender? gender,
     bool? trackCycle,
     DateTime? lastStart,
+    Set<DateTime>? confirmedStarts,
     int? cycleLength,
     int? periodLength,
     Set<DateTime>? periodExceptions,
@@ -66,6 +71,7 @@ class AboutSettings {
     gender: gender ?? this.gender,
     trackCycle: trackCycle ?? this.trackCycle,
     lastStart: lastStart ?? this.lastStart,
+    confirmedStarts: confirmedStarts ?? this.confirmedStarts,
     cycleLength: cycleLength ?? this.cycleLength,
     periodLength: periodLength ?? this.periodLength,
     periodExceptions: periodExceptions ?? this.periodExceptions,
@@ -87,6 +93,8 @@ class AboutSettingsNotifier extends Notifier<AboutSettings> {
   static const _length = 'cycle_length';
   static const _period = 'cycle_period_length';
   static const _exceptions = 'cycle_period_exceptions';
+  static const _starts = 'cycle_confirmed_starts';
+  static const _startsMigrated = 'cycle_confirmed_starts_migrated';
 
   @override
   AboutSettings build() {
@@ -98,6 +106,10 @@ class AboutSettingsNotifier extends Notifier<AboutSettings> {
           Gender.unspecified,
       trackCycle: prefs.getBool(_track) ?? true,
       lastStart: start == null ? null : DateTime.tryParse(start),
+      confirmedStarts: {
+        for (final text in prefs.getStringList(_starts) ?? const <String>[])
+          ?DateTime.tryParse(text),
+      },
       cycleLength: (prefs.getInt(_length) ?? 27).clamp(
         cycleLengthRange.min,
         cycleLengthRange.max,
@@ -126,11 +138,67 @@ class AboutSettingsNotifier extends Notifier<AboutSettings> {
   Future<void> setLastStart(DateTime day) async {
     final d = DateTime(day.year, day.month, day.day);
     // A new start is a new forecast: what was taken off the old one is moot.
-    state = state.copyWith(lastStart: d, periodExceptions: const {});
+    final starts = {...state.confirmedStarts, d};
+    final latest = (starts.toList()..sort()).last;
+    state = state.copyWith(
+      lastStart: latest,
+      confirmedStarts: starts,
+      periodExceptions: const {},
+    );
     final prefs = ref.read(sharedPreferencesProvider);
     await prefs.remove(_exceptions);
     // `yyyy-MM-dd`, so it reads back as the same local day.
-    await prefs.setString(_start, _text(d));
+    await prefs.setString(_start, _text(latest));
+    await prefs.setStringList(_starts, [
+      for (final start in starts.toList()..sort()) _text(start),
+    ]);
+    await prefs.setBool(_startsMigrated, true);
+    await ref.read(cycleDaoProvider).confirmStart(d);
+  }
+
+  /// One-time import of legacy period marks.  Detection is only migration
+  /// input; afterwards starts are stored explicitly and never inferred again.
+  Future<void> importLegacyStarts(Iterable<DateTime> starts) async {
+    final prefs = ref.read(sharedPreferencesProvider);
+    if (prefs.getBool(_startsMigrated) ?? false) return;
+    final normalized = {
+      for (final day in starts) DateTime(day.year, day.month, day.day),
+      ?state.lastStart,
+    };
+    if (normalized.isNotEmpty) state = state.copyWith(confirmedStarts: normalized);
+    await prefs.setStringList(_starts, [
+      for (final start in normalized.toList()..sort()) _text(start),
+    ]);
+    await prefs.setBool(_startsMigrated, true);
+    for (final start in normalized) {
+      await ref.read(cycleDaoProvider).confirmStart(start);
+    }
+  }
+
+  Future<void> removeConfirmedStart(DateTime day) async {
+    final d = DateTime(day.year, day.month, day.day);
+    final starts = {...state.confirmedStarts}..remove(d);
+    final latest = starts.isEmpty ? null : (starts.toList()..sort()).last;
+    state = AboutSettings(
+      gender: state.gender,
+      trackCycle: state.trackCycle,
+      lastStart: latest,
+      confirmedStarts: starts,
+      cycleLength: state.cycleLength,
+      periodLength: state.periodLength,
+      periodExceptions: state.periodExceptions,
+    );
+    final prefs = ref.read(sharedPreferencesProvider);
+    if (latest == null) {
+      await prefs.remove(_start);
+    } else {
+      await prefs.setString(_start, _text(latest));
+    }
+    await prefs.setStringList(_starts, [
+      for (final start in starts.toList()..sort()) _text(start),
+    ]);
+    await prefs.setBool(_startsMigrated, true);
+    await ref.read(cycleDaoProvider).deleteConfirmedStart(d);
   }
 
   /// Takes [day] off the forecast's period days (or puts it back).
@@ -159,6 +227,8 @@ class AboutSettingsNotifier extends Notifier<AboutSettings> {
       _length,
       _period,
       _exceptions,
+      _starts,
+      _startsMigrated,
     ]) {
       await prefs.remove(key);
     }

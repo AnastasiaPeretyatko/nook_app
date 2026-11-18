@@ -41,6 +41,7 @@ part 'app_database.g.dart';
     GroupMembers,
     GroupMarks,
     CycleDays,
+    CycleConfirmedStarts,
   ],
   daos: [TasksDao, EventsDao, DiaryDao, CycleDao, SectionsDao],
 )
@@ -51,7 +52,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forExecutor(super.executor);
 
   @override
-  int get schemaVersion => 26;
+  int get schemaVersion => 27;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -362,6 +363,10 @@ class AppDatabase extends _$AppDatabase {
         // Local share delivery bookkeeping. It deliberately has neither uid
         // nor dirty fields, so it can never enter the offline sync payload.
         await m.createTable(processedShareEvents);
+      }
+      if (from < 27) {
+        await m.createTable(cycleConfirmedStarts);
+        await createIndexIfMissing(cycleConfirmedStartsDate);
       }
     },
   );

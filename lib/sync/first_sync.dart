@@ -76,6 +76,7 @@ Future<void> applyFirstSyncChoice(WidgetRef ref, FirstSyncChoice choice) async {
       await ref.read(tasksDaoProvider).keepExistingTasksLocal();
       await ref.read(localProjectsStoreProvider).keepLocal();
       await ref.read(cycleDaoProvider).keepLocal();
+      await ref.read(cycleDaoProvider).keepConfirmedStartsLocal();
 
     case FirstSyncChoice.adopt:
       await ref.read(localProjectsStoreProvider).adopt();
@@ -84,6 +85,7 @@ Future<void> applyFirstSyncChoice(WidgetRef ref, FirstSyncChoice choice) async {
       // A day is its own identity, so unlike a task it needs no new uid — only
       // to be offered again, under this account.
       await ref.read(cycleDaoProvider).markAllDirty();
+      await ref.read(cycleDaoProvider).markAllConfirmedStartsDirty();
 
     case FirstSyncChoice.wipe:
       await wipeAccountData(ref);

@@ -37,6 +37,10 @@ final cycleDaysProvider = StreamProvider<List<CycleDay>>((ref) {
   return ref.watch(cycleDaoProvider).watchAll();
 });
 
+final confirmedCycleStartsProvider = StreamProvider<List<CycleConfirmedStart>>((ref) {
+  return ref.watch(cycleDaoProvider).watchConfirmedStarts();
+});
+
 /// Every diary entry, newest touched first. The diary's four tabs filter this
 /// one list rather than opening a query each.
 final diaryEntriesProvider = StreamProvider<List<DiaryEntry>>((ref) {

@@ -5,6 +5,8 @@ part of 'cycle_dao.dart';
 // ignore_for_file: type=lint
 mixin _$CycleDaoMixin on DatabaseAccessor<AppDatabase> {
   $CycleDaysTable get cycleDays => attachedDatabase.cycleDays;
+  $CycleConfirmedStartsTable get cycleConfirmedStarts =>
+      attachedDatabase.cycleConfirmedStarts;
   CycleDaoManager get managers => CycleDaoManager(this);
 }
 
@@ -13,4 +15,9 @@ class CycleDaoManager {
   CycleDaoManager(this._db);
   $$CycleDaysTableTableManager get cycleDays =>
       $$CycleDaysTableTableManager(_db.attachedDatabase, _db.cycleDays);
+  $$CycleConfirmedStartsTableTableManager get cycleConfirmedStarts =>
+      $$CycleConfirmedStartsTableTableManager(
+        _db.attachedDatabase,
+        _db.cycleConfirmedStarts,
+      );
 }

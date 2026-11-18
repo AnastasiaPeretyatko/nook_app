@@ -118,6 +118,31 @@ class _CyclePageState extends ConsumerState<CyclePage> {
     // the ring, not marked.
     final canMark = !day.isAfter(today);
     final days = ref.watch(cycleDaysProvider).valueOrNull ?? const <CycleDay>[];
+    final confirmedStarts =
+        ref
+            .watch(confirmedCycleStartsProvider)
+            .valueOrNull
+            ?.map((start) => start.date)
+            .toSet() ??
+        about.confirmedStarts;
+    // Upgrade old installations once. Consecutive period days collapse only
+    // during this import; subsequent boundaries are explicit settings data.
+    if (days.isNotEmpty) {
+      final starts = <DateTime>[];
+      DateTime? previous;
+      final periodDays = days.where((row) => row.isPeriod).toList()
+        ..sort((a, b) => a.date.compareTo(b.date));
+      for (final row in periodDays) {
+        if (previous == null ||
+            CycleModel.daysBetween(previous, row.date) > 1) {
+          starts.add(row.date);
+        }
+        previous = row.date;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(aboutSettingsProvider.notifier).importLegacyStarts(starts);
+      });
+    }
     final stats = cycleStats(days, lastStart: about.lastStart);
     final weekStart = ref.watch(weekStartProvider);
 
@@ -127,7 +152,7 @@ class _CyclePageState extends ConsumerState<CyclePage> {
         context,
         ref,
         day,
-        cycleDay: model?.cycleDay(day),
+        cycleDay: model?.cycleDayOn(day, confirmedStarts),
         only: only,
       );
     }
@@ -183,6 +208,7 @@ class _CyclePageState extends ConsumerState<CyclePage> {
             _RingCard(
               model: model,
               day: day,
+              confirmedStarts: confirmedStarts,
               today: today,
               row: cycleDayRow(days, day),
               enabled: canMark,
@@ -237,6 +263,7 @@ class _RingCard extends StatelessWidget {
   const _RingCard({
     required this.model,
     required this.day,
+    required this.confirmedStarts,
     required this.today,
     required this.row,
     required this.enabled,
@@ -248,6 +275,7 @@ class _RingCard extends StatelessWidget {
 
   /// The day the ring shows — the one chosen in the week, today by default.
   final DateTime day;
+  final Set<DateTime> confirmedStarts;
   final DateTime today;
 
   /// What was marked on [day], if anything.
@@ -289,7 +317,11 @@ class _RingCard extends StatelessWidget {
             )
           else ...[
             Center(
-              child: _Ring(model: model, day: day),
+              child: _Ring(
+                model: model,
+                day: day,
+                confirmedStarts: confirmedStarts,
+              ),
             ),
             const SizedBox(height: 18),
             const SizedBox(height: 18),
@@ -454,19 +486,21 @@ class _WeekDay extends StatelessWidget {
       marked: marked,
       excluded: excluded,
     );
+    final shownPeriod =
+        state.phase == CyclePhase.period && !state.predictedPeriod;
     final fill = isSelected
         ? p.textPrimary
-        : marked
+        : shownPeriod
         ? periodColor
         : null;
     final foreground = isSelected
         ? p.background
-        : marked
+        : shownPeriod
         ? Colors.white
         : p.textPrimary;
     final indicatorInk = isSelected
         ? p.background
-        : marked
+        : shownPeriod
         ? Colors.white
         : state.dashColor ?? p.textPrimary;
     final hasHeart = CycleHeart.showsCalendar(sex);
@@ -510,7 +544,7 @@ class _WeekDay extends StatelessWidget {
                     fontWeight: isSelected || day == today
                         ? FontWeight.w600
                         : FontWeight.w500,
-                    color: day.isAfter(today) && !isSelected && !marked
+                    color: day.isAfter(today) && !isSelected && !shownPeriod
                         ? p.textTertiary
                         : foreground,
                   ),
@@ -557,10 +591,15 @@ class _WeekDay extends StatelessWidget {
 /// colour, with its number in a matching badge outside the ring; 1, 7, 14 and
 /// 21 are numbered on the inside.
 class _Ring extends StatelessWidget {
-  const _Ring({required this.model, required this.day});
+  const _Ring({
+    required this.model,
+    required this.day,
+    required this.confirmedStarts,
+  });
 
   final CycleModel model;
   final DateTime day;
+  final Set<DateTime> confirmedStarts;
 
   static const _size = 272.0;
   static const _radius = 118.0;
@@ -569,7 +608,7 @@ class _Ring extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = AppPalette.of(Theme.of(context));
     final length = model.length;
-    final todayDay = model.cycleDay(day);
+    final todayDay = model.cycleDayOn(day, confirmedStarts);
 
     Offset at(int day, double r) {
       final a = (day - 1) / length * 2 * math.pi;

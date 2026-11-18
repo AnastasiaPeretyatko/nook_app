@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:todo_app/database/app_database.dart';
 import 'package:todo_app/database/providers.dart';
+import 'package:todo_app/settings/about_settings.dart';
 import 'package:todo_app/theme/app_palette.dart';
 import 'package:todo_app/utils/cycle.dart';
 import 'package:todo_app/utils/cycle_marks.dart';
@@ -306,6 +307,7 @@ class CycleDayInfoPanel extends ConsumerStatefulWidget {
     required this.pageContext,
     required this.day,
     required this.model,
+    required this.confirmedStarts,
     required this.today,
     required this.onDayChanged,
   });
@@ -313,6 +315,7 @@ class CycleDayInfoPanel extends ConsumerStatefulWidget {
   final BuildContext pageContext;
   final DateTime day;
   final CycleModel? model;
+  final Set<DateTime> confirmedStarts;
   final DateTime today;
   final ValueChanged<DateTime>? onDayChanged;
 
@@ -350,7 +353,10 @@ class _CycleDayInfoPanelState extends ConsumerState<CycleDayInfoPanel> {
           'будет убрано.',
       action: 'Очистить',
     );
-    if (confirmed) await ref.read(cycleDaoProvider).clearDay(_day);
+    if (confirmed) {
+      await ref.read(cycleDaoProvider).clearDay(_day);
+      await ref.read(aboutSettingsProvider.notifier).removeConfirmedStart(_day);
+    }
   }
 
   @override
@@ -364,7 +370,7 @@ class _CycleDayInfoPanelState extends ConsumerState<CycleDayInfoPanel> {
     );
     final hasMarks = row != null && cycleDayHasMarks(row);
     final canMark = !_day.isAfter(widget.today);
-    final cycleDay = model?.cycleDay(_day);
+    final cycleDay = model?.cycleDayOn(_day, widget.confirmedStarts);
     final phase = model?.phaseOn(_day);
 
     // What the day is, in a few words: its phase and, if there was one, the sex.

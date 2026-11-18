@@ -8086,6 +8086,319 @@ class CycleDaysCompanion extends UpdateCompanion<CycleDay> {
   }
 }
 
+class $CycleConfirmedStartsTable extends CycleConfirmedStarts
+    with TableInfo<$CycleConfirmedStartsTable, CycleConfirmedStart> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CycleConfirmedStartsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _dateMeta = const VerificationMeta('date');
+  @override
+  late final GeneratedColumn<DateTime> date = GeneratedColumn<DateTime>(
+    'date',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _dirtyMeta = const VerificationMeta('dirty');
+  @override
+  late final GeneratedColumn<bool> dirty = GeneratedColumn<bool>(
+    'dirty',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("dirty" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  static const VerificationMeta _deletedAtMeta = const VerificationMeta(
+    'deletedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> deletedAt = GeneratedColumn<DateTime>(
+    'deleted_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [date, dirty, updatedAt, deletedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'cycle_confirmed_starts';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CycleConfirmedStart> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('date')) {
+      context.handle(
+        _dateMeta,
+        date.isAcceptableOrUnknown(data['date']!, _dateMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_dateMeta);
+    }
+    if (data.containsKey('dirty')) {
+      context.handle(
+        _dirtyMeta,
+        dirty.isAcceptableOrUnknown(data['dirty']!, _dirtyMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    }
+    if (data.containsKey('deleted_at')) {
+      context.handle(
+        _deletedAtMeta,
+        deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {date};
+  @override
+  CycleConfirmedStart map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CycleConfirmedStart(
+      date: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}date'],
+      )!,
+      dirty: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}dirty'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      deletedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}deleted_at'],
+      ),
+    );
+  }
+
+  @override
+  $CycleConfirmedStartsTable createAlias(String alias) {
+    return $CycleConfirmedStartsTable(attachedDatabase, alias);
+  }
+}
+
+class CycleConfirmedStart extends DataClass
+    implements Insertable<CycleConfirmedStart> {
+  final DateTime date;
+  final bool dirty;
+  final DateTime updatedAt;
+  final DateTime? deletedAt;
+  const CycleConfirmedStart({
+    required this.date,
+    required this.dirty,
+    required this.updatedAt,
+    this.deletedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['date'] = Variable<DateTime>(date);
+    map['dirty'] = Variable<bool>(dirty);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    if (!nullToAbsent || deletedAt != null) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    return map;
+  }
+
+  CycleConfirmedStartsCompanion toCompanion(bool nullToAbsent) {
+    return CycleConfirmedStartsCompanion(
+      date: Value(date),
+      dirty: Value(dirty),
+      updatedAt: Value(updatedAt),
+      deletedAt: deletedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deletedAt),
+    );
+  }
+
+  factory CycleConfirmedStart.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CycleConfirmedStart(
+      date: serializer.fromJson<DateTime>(json['date']),
+      dirty: serializer.fromJson<bool>(json['dirty']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'date': serializer.toJson<DateTime>(date),
+      'dirty': serializer.toJson<bool>(dirty),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+    };
+  }
+
+  CycleConfirmedStart copyWith({
+    DateTime? date,
+    bool? dirty,
+    DateTime? updatedAt,
+    Value<DateTime?> deletedAt = const Value.absent(),
+  }) => CycleConfirmedStart(
+    date: date ?? this.date,
+    dirty: dirty ?? this.dirty,
+    updatedAt: updatedAt ?? this.updatedAt,
+    deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+  );
+  CycleConfirmedStart copyWithCompanion(CycleConfirmedStartsCompanion data) {
+    return CycleConfirmedStart(
+      date: data.date.present ? data.date.value : this.date,
+      dirty: data.dirty.present ? data.dirty.value : this.dirty,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CycleConfirmedStart(')
+          ..write('date: $date, ')
+          ..write('dirty: $dirty, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('deletedAt: $deletedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(date, dirty, updatedAt, deletedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CycleConfirmedStart &&
+          other.date == this.date &&
+          other.dirty == this.dirty &&
+          other.updatedAt == this.updatedAt &&
+          other.deletedAt == this.deletedAt);
+}
+
+class CycleConfirmedStartsCompanion
+    extends UpdateCompanion<CycleConfirmedStart> {
+  final Value<DateTime> date;
+  final Value<bool> dirty;
+  final Value<DateTime> updatedAt;
+  final Value<DateTime?> deletedAt;
+  final Value<int> rowid;
+  const CycleConfirmedStartsCompanion({
+    this.date = const Value.absent(),
+    this.dirty = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  CycleConfirmedStartsCompanion.insert({
+    required DateTime date,
+    this.dirty = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : date = Value(date);
+  static Insertable<CycleConfirmedStart> custom({
+    Expression<DateTime>? date,
+    Expression<bool>? dirty,
+    Expression<DateTime>? updatedAt,
+    Expression<DateTime>? deletedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (date != null) 'date': date,
+      if (dirty != null) 'dirty': dirty,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (deletedAt != null) 'deleted_at': deletedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  CycleConfirmedStartsCompanion copyWith({
+    Value<DateTime>? date,
+    Value<bool>? dirty,
+    Value<DateTime>? updatedAt,
+    Value<DateTime?>? deletedAt,
+    Value<int>? rowid,
+  }) {
+    return CycleConfirmedStartsCompanion(
+      date: date ?? this.date,
+      dirty: dirty ?? this.dirty,
+      updatedAt: updatedAt ?? this.updatedAt,
+      deletedAt: deletedAt ?? this.deletedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (date.present) {
+      map['date'] = Variable<DateTime>(date.value);
+    }
+    if (dirty.present) {
+      map['dirty'] = Variable<bool>(dirty.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CycleConfirmedStartsCompanion(')
+          ..write('date: $date, ')
+          ..write('dirty: $dirty, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -8109,6 +8422,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $GroupMembersTable groupMembers = $GroupMembersTable(this);
   late final $GroupMarksTable groupMarks = $GroupMarksTable(this);
   late final $CycleDaysTable cycleDays = $CycleDaysTable(this);
+  late final $CycleConfirmedStartsTable cycleConfirmedStarts =
+      $CycleConfirmedStartsTable(this);
   late final Index tasksUid = Index(
     'tasks_uid',
     'CREATE UNIQUE INDEX tasks_uid ON tasks (uid)',
@@ -8132,6 +8447,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final Index cycleDaysDate = Index(
     'cycle_days_date',
     'CREATE UNIQUE INDEX cycle_days_date ON cycle_days (date)',
+  );
+  late final Index cycleConfirmedStartsDate = Index(
+    'cycle_confirmed_starts_date',
+    'CREATE UNIQUE INDEX cycle_confirmed_starts_date ON cycle_confirmed_starts (date)',
   );
   late final TasksDao tasksDao = TasksDao(this as AppDatabase);
   late final EventsDao eventsDao = EventsDao(this as AppDatabase);
@@ -8160,12 +8479,14 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     groupMembers,
     groupMarks,
     cycleDays,
+    cycleConfirmedStarts,
     tasksUid,
     taskLogsTaskDay,
     diaryEntriesUid,
     noteMoodsUid,
     noteTagsUid,
     cycleDaysDate,
+    cycleConfirmedStartsDate,
   ];
 }
 
@@ -13824,6 +14145,203 @@ typedef $$CycleDaysTableProcessedTableManager =
       CycleDay,
       PrefetchHooks Function()
     >;
+typedef $$CycleConfirmedStartsTableCreateCompanionBuilder =
+    CycleConfirmedStartsCompanion Function({
+      required DateTime date,
+      Value<bool> dirty,
+      Value<DateTime> updatedAt,
+      Value<DateTime?> deletedAt,
+      Value<int> rowid,
+    });
+typedef $$CycleConfirmedStartsTableUpdateCompanionBuilder =
+    CycleConfirmedStartsCompanion Function({
+      Value<DateTime> date,
+      Value<bool> dirty,
+      Value<DateTime> updatedAt,
+      Value<DateTime?> deletedAt,
+      Value<int> rowid,
+    });
+
+class $$CycleConfirmedStartsTableFilterComposer
+    extends Composer<_$AppDatabase, $CycleConfirmedStartsTable> {
+  $$CycleConfirmedStartsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<DateTime> get date => $composableBuilder(
+    column: $table.date,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get dirty => $composableBuilder(
+    column: $table.dirty,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$CycleConfirmedStartsTableOrderingComposer
+    extends Composer<_$AppDatabase, $CycleConfirmedStartsTable> {
+  $$CycleConfirmedStartsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<DateTime> get date => $composableBuilder(
+    column: $table.date,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get dirty => $composableBuilder(
+    column: $table.dirty,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$CycleConfirmedStartsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $CycleConfirmedStartsTable> {
+  $$CycleConfirmedStartsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<DateTime> get date =>
+      $composableBuilder(column: $table.date, builder: (column) => column);
+
+  GeneratedColumn<bool> get dirty =>
+      $composableBuilder(column: $table.dirty, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+}
+
+class $$CycleConfirmedStartsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $CycleConfirmedStartsTable,
+          CycleConfirmedStart,
+          $$CycleConfirmedStartsTableFilterComposer,
+          $$CycleConfirmedStartsTableOrderingComposer,
+          $$CycleConfirmedStartsTableAnnotationComposer,
+          $$CycleConfirmedStartsTableCreateCompanionBuilder,
+          $$CycleConfirmedStartsTableUpdateCompanionBuilder,
+          (
+            CycleConfirmedStart,
+            BaseReferences<
+              _$AppDatabase,
+              $CycleConfirmedStartsTable,
+              CycleConfirmedStart
+            >,
+          ),
+          CycleConfirmedStart,
+          PrefetchHooks Function()
+        > {
+  $$CycleConfirmedStartsTableTableManager(
+    _$AppDatabase db,
+    $CycleConfirmedStartsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CycleConfirmedStartsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$CycleConfirmedStartsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$CycleConfirmedStartsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<DateTime> date = const Value.absent(),
+                Value<bool> dirty = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CycleConfirmedStartsCompanion(
+                date: date,
+                dirty: dirty,
+                updatedAt: updatedAt,
+                deletedAt: deletedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required DateTime date,
+                Value<bool> dirty = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CycleConfirmedStartsCompanion.insert(
+                date: date,
+                dirty: dirty,
+                updatedAt: updatedAt,
+                deletedAt: deletedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$CycleConfirmedStartsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $CycleConfirmedStartsTable,
+      CycleConfirmedStart,
+      $$CycleConfirmedStartsTableFilterComposer,
+      $$CycleConfirmedStartsTableOrderingComposer,
+      $$CycleConfirmedStartsTableAnnotationComposer,
+      $$CycleConfirmedStartsTableCreateCompanionBuilder,
+      $$CycleConfirmedStartsTableUpdateCompanionBuilder,
+      (
+        CycleConfirmedStart,
+        BaseReferences<
+          _$AppDatabase,
+          $CycleConfirmedStartsTable,
+          CycleConfirmedStart
+        >,
+      ),
+      CycleConfirmedStart,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -13862,4 +14380,6 @@ class $AppDatabaseManager {
       $$GroupMarksTableTableManager(_db, _db.groupMarks);
   $$CycleDaysTableTableManager get cycleDays =>
       $$CycleDaysTableTableManager(_db, _db.cycleDays);
+  $$CycleConfirmedStartsTableTableManager get cycleConfirmedStarts =>
+      $$CycleConfirmedStartsTableTableManager(_db, _db.cycleConfirmedStarts);
 }

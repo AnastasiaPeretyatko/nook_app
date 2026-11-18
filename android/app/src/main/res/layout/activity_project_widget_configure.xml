@@ -6,9 +6,10 @@
     android:orientation="vertical">
 
     <LinearLayout
+        android:id="@+id/project_widget_config_root"
         android:layout_width="match_parent"
-        android:layout_height="64dp"
-        android:background="@color/widget_config_surface"
+        android:layout_height="wrap_content"
+        android:minHeight="64dp"
         android:elevation="2dp"
         android:gravity="center_vertical"
         android:paddingStart="20dp"
@@ -23,17 +24,17 @@
             android:textColor="@color/widget_config_title"
             android:textSize="20sp" />
 
-        <TextView
+        
+        <ImageButton
             android:id="@+id/project_widget_config_confirm"
-            android:layout_width="wrap_content"
+            android:layout_width="48dp"
             android:layout_height="48dp"
-            android:foreground="?android:attr/selectableItemBackgroundBorderless"
-            android:gravity="center"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:text="@string/widget_project_settings_save"
-            android:textColor="@color/widget_config_accent"
-            android:textSize="14sp" />
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_check"
+            android:tint="@color/widget_config_accent"
+            android:contentDescription="@string/widget_project_settings_save"
+            android:padding="12dp"
+            android:scaleType="centerInside" />
     </LinearLayout>
 
     <ScrollView
@@ -48,14 +49,6 @@
             android:orientation="vertical"
             android:padding="20dp">
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:fontFamily="@font/onest_semibold"
-                android:text="@string/widget_project_settings_preview"
-                android:textColor="@color/widget_config_title"
-                android:textSize="14sp" />
-
             <FrameLayout
                 android:id="@+id/project_widget_config_preview"
                 android:layout_width="match_parent"
@@ -64,28 +57,16 @@
                 android:background="@drawable/widget_config_preview_background"
                 android:clipToOutline="true" />
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="28dp"
-                android:fontFamily="@font/onest_semibold"
-                android:text="@string/widget_project_settings_content"
-                android:textColor="@color/widget_config_section"
-                android:textSize="13sp" />
-
             <LinearLayout
                 android:id="@+id/project_widget_config_project"
                 android:layout_width="match_parent"
                 android:layout_height="72dp"
                 android:layout_marginTop="8dp"
-                android:background="@drawable/widget_config_row_background"
                 android:clickable="true"
                 android:focusable="true"
                 android:foreground="?android:attr/selectableItemBackground"
                 android:gravity="center_vertical"
-                android:orientation="vertical"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp">
+                android:orientation="vertical">
 
                 <TextView
                     android:layout_width="match_parent"
@@ -106,28 +87,16 @@
                     android:textSize="14sp" />
             </LinearLayout>
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="28dp"
-                android:fontFamily="@font/onest_semibold"
-                android:text="@string/widget_project_settings_appearance"
-                android:textColor="@color/widget_config_section"
-                android:textSize="13sp" />
-
             <LinearLayout
                 android:id="@+id/project_widget_config_theme"
                 android:layout_width="match_parent"
                 android:layout_height="72dp"
                 android:layout_marginTop="8dp"
-                android:background="@drawable/widget_config_row_background"
                 android:clickable="true"
                 android:focusable="true"
                 android:foreground="?android:attr/selectableItemBackground"
                 android:gravity="center_vertical"
-                android:orientation="vertical"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp">
+                android:orientation="vertical">
 
                 <TextView
                     android:layout_width="match_parent"
@@ -151,14 +120,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="72dp"
                 android:layout_marginTop="8dp"
-                android:background="@drawable/widget_config_row_background"
                 android:clickable="true"
                 android:focusable="true"
                 android:foreground="?android:attr/selectableItemBackground"
                 android:gravity="center_vertical"
-                android:orientation="vertical"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp">
+                android:orientation="vertical">
 
                 <TextView
                     android:layout_width="match_parent"
